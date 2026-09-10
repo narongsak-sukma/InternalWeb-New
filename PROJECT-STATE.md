@@ -56,11 +56,11 @@ CTO (codex) solves directly.
 | Wave | Task | Owner | Status |
 |---|---|---|---|
 | 0 | Governance: branches, PROJECT-STATE, board | lead | done 2026-09-10 |
-| 1 | Docs 01+02+11 (PM/UI lane) | worker-1 | pending |
-| 1 | Docs 03+04 (requirements lane) | worker-2 | pending |
-| 1 | Docs 05+06 (architecture lane) | worker-3 | pending |
-| 1 | Docs 07+08 (data/API lane) | worker-4 | pending |
-| 1 | Docs 09+10+12 (security/QA lane) | worker-5 | pending |
+| 1 | Docs 01+02+11 (PM/UI lane) | worker-1 | done 2026-09-10 (+follow-up RISK-021) |
+| 1 | Docs 03+04 (requirements lane) | worker-2 | done 2026-09-10 |
+| 1 | Docs 05+06 (architecture lane) | worker-3 | in progress |
+| 1 | Docs 07+08 (data/API lane) | worker-4 | done 2026-09-10 |
+| 1 | Docs 09+10+12 (security/QA lane) | worker-5 | done 2026-09-10 |
 | 1 | Lead review of doc set (consistency, cross-refs, no divergence) | lead | pending |
 | 1 | CTO gate: deliverable docs (codex read-only) | CTO | pending |
 | 2 | Implementation waves (decomposed from approved docs) | workers | blocked by Wave-1 gate |
@@ -71,6 +71,20 @@ CTO (codex) solves directly.
 | # | Date | Decision | Verdict |
 |---|---|---|---|
 | 1 | 2026-09-10 | Project charter: doc-first, 21-deliverable checklist, wave model; workers=flash-class executors; codex=CTO gate; lead sole merge authority | CHARTERED (lead, per user full-authority grant) |
+| 2 | 2026-09-10 | DCR-1..5 triage (see §8). DCR-3 maker-checker bypass CONFIRMED in code by lead (server.ts:1306) → as-built documented everywhere, dual-control enforcement queued as Wave-2 P0 backlog, CTO ratifies at Wave-1 gate | TRIAGED (lead) — pending CTO ratification |
+
+## 8. DCR register (doc change requests)
+
+| DCR | Source | Finding (verified against code) | Disposition |
+|---|---|---|---|
+| DCR-1 | worker-4 | Export field is `exportTimestamp` (server.ts:2072), not `generatedAt` (HANDOVER §5 wrong) | ACCEPT — fix HANDOVER §5 in W1 review pass |
+| DCR-2 | worker-4 | No `PUT /api/documents` route exists; HANDOVER §5 implies it | ACCEPT — fix HANDOVER §5 |
+| DCR-3 | worker-4, confirmed by lead | `POST /api/news` (and update) with `syncToExternal=true` creates directly as `externalSyncStatus:'synced'` (server.ts:1306,1315,1346) — maker bypasses checker dual control (BOT governance violation) | ACCEPT as finding — document as-built + [PLANNED] enforcement fix; Wave-2 P0 backlog; RISK-021; CTO ratifies |
+| DCR-4 | worker-4 | Response envelope inconsistent — reads & some 404s return bare data, no `success` field | ACCEPT — doc 08 as-built; [PLANNED] normalization Wave-2 P2 |
+| DCR-5 | worker-4 | TS union declares `externalSyncStatus` values 'approved'/'pending' never assigned at runtime (real: draft/pending_approval/synced/rejected) | ACCEPT — doc 07 as-built; dead-union cleanup Wave-2 P3 |
+| DCR-6 | worker-2, confirmed by lead | `tsconfig.json` has NO `"strict": true` (nor strictNullChecks) — "TypeScript strict" is convention only; code passes tsc in non-strict mode | ACCEPT — enable strict + fix fallout in Wave-2 P1 (MAINT quality gate); SRS states as-built + [PLANNED] |
+| DCR-7 | worker-5, confirmed by lead | NO server-side state guards on maker-checker: approve/reject callable from ANY state (server.ts:1409+ — no check that item is pending_approval); PUT can overwrite approvedBy/approvedAt | ACCEPT as finding — as-built documented; state-machine enforcement = Wave-2 P0; CTO ratifies |
+| DCR-8 | worker-5, confirmed by lead | `POST /api/audit-logs` (server.ts:1670, admin) appends arbitrary audit rows — audit-trail integrity risk | ACCEPT as finding — as-built documented (AUD-11); restrict/remove manual append = Wave-2 P0 (security lane, needs codex PASS); CTO ratifies |
 
 ## 5. Git protocol
 
