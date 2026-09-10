@@ -2,7 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.3.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions: worker-5)
+**Version:** 1.4.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions: worker-5; DCR-9 ripple: worker-3)
+
+> **Change log:** v1.4.0 (2026-09-10) — **two lanes ride this version.** (1) **DCR-9 ripple** (lead ruling — Option C; UI truth-aligned to W2-1 server semantics; no REQ/status changes — 94-REQ inventory unchanged, both rows stay AS-BUILT because this is a fix, not a feature; implementation pending): FR-CMS-002 row annotated with the decided control set (publish-promising sync toggles removed; "Withdraw from public" row action — maker+, `synced` items only — added); FR-CMS-003 row annotated with the response-discard defect + fabricated client SyncLog rows caught by the DCR-9 analysis (toggle handler applied local state instead of the server response), fixed in the target state. Companion: doc 11 v1.1.0 (G-1 closed), doc 12 v1.7.0 (TC-CMS-008 note). (2) **W2-5 flip** (deferred by worker-1; commit `1b237cd`, RISK-010): FR-AUTH-002 design-ref cell extended with the shared login-budget store (`rate_limit_hits` atomic upsert across pods when `DATABASE_URL` is set; per-process in dev; fail-open degradation `WARNING`); status → AS-BUILT (W2-5 shared store); SRS counterpart doc 03 v1.4.0 FR-AUTH-002(d)+(e).
 
 > **Change log:** v1.3.0 (2026-09-10) — **FR-AUDIT-003 W2-3 extension ride-along** (SRS §3.1.10 extension, no new REQ ids — 94-REQ inventory unchanged): row extended with the three ruled W2-3 call-site classes (`SYNC_TRIGGER` / `SYSTEM_EXPORT` / `ACCESS_DENIED` per Doc 10 §9.1 as ruled/trimmed); test refs extended with the TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 flip-pins; status → AS-BUILT (core) + W2-3 ext `[PLANNED]`; §3.1 AUDIT and Total rows re-counted (90 full + 2 partial); §3.2 item 2 added (PERF renumbered to 3).
 
@@ -31,7 +33,7 @@ FR-AUDIT-003 W2-3 coverage extension).
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
 | FR-AUTH-001 | §3.1.1 | `server.ts` `POST /api/auth/login` handler (bcrypt compare, cookie issue, `LOGIN` audit); `src/components/LoginPage.tsx`; `src/auth/AuthContext.tsx` | AS-BUILT | TC-AUTH-001 | UAT-001 |
-| FR-AUTH-002 | §3.1.1 | `server.ts` `loginLimiter` (express-rate-limit, 5/min/IP, `skipSuccessfulRequests`, draft-7 headers, 429 handler) | AS-BUILT | TC-AUTH-002 | UAT-002 |
+| FR-AUTH-002 | §3.1.1 | `server.ts` `loginLimiter` (express-rate-limit, 5/min/IP, `skipSuccessfulRequests`, draft-7 headers, 429 handler) + **shared login-budget store** (W2-5, RISK-010, commit `1b237cd`): `rate_limit_hits` atomic upsert — one budget across all pods when `DATABASE_URL` is set; per-process in dev; transient store error fails open with a logged degradation `WARNING` | AS-BUILT (W2-5 shared store) | TC-AUTH-002 | UAT-002 |
 | FR-AUTH-003 | §3.1.1 | `server.ts` `POST /api/auth/logout` handler (`destroySession`, cookie clear, `LOGOUT` audit) | AS-BUILT | TC-AUTH-003 | UAT-003 |
 | FR-AUTH-004 | §3.1.1 | `server.ts` `GET /api/auth/me` + `requireAuth`; `AuthContext` session restore | AS-BUILT | TC-AUTH-004 | UAT-004 |
 | FR-AUTH-005 | §3.1.1 | `server.ts` `DUMMY_PASSWORD_HASH` (precomputed bcrypt) + uniform 401 body | AS-BUILT | TC-AUTH-005 | UAT-005 |
@@ -119,8 +121,8 @@ FR-AUDIT-003 W2-3 coverage extension).
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
 | FR-CMS-001 | §3.1.9 | `src/App.tsx` `allowedViews`/`canShowView` state gate; `ViewMode` in `src/types.ts` | AS-BUILT | TC-CMS-001 | UAT-040 |
-| FR-CMS-002 | §3.1.9 | `src/components/AdminCMS.tsx` (role-conditional approve/reject, deletes, "User Management" tab `admin`-only); server RBAC as authority | AS-BUILT | TC-CMS-002 | UAT-041 |
-| FR-CMS-003 | §3.1.9 | `src/App.tsx` handlers (throw-on-failure contract) + AdminCMS inline error surfacing; toast system | AS-BUILT | TC-CMS-003 | UAT-042 |
+| FR-CMS-002 | §3.1.9 | `src/components/AdminCMS.tsx` (role-conditional approve/reject, deletes, "User Management" tab `admin`-only); server RBAC as authority. *DCR-9 (decided; implementation pending): publish-promising sync toggles removed; "Withdraw from public" row action (maker+, `synced` items only, confirm dialog) added — UI truth-aligned to W2-1 server semantics* | AS-BUILT | TC-CMS-002 | UAT-041 |
+| FR-CMS-003 | §3.1.9 | `src/App.tsx` handlers (throw-on-failure contract) + AdminCMS inline error surfacing; toast system. *DCR-9 (decided; implementation pending): the sync-toggle path violated the only-after-server-confirm contract (local object applied instead of the PUT response; fabricated client SyncLog rows / overstated toasts) — fixed in the target state, gap G-1 closed (doc 11 v1.1.0)* | AS-BUILT | TC-CMS-003 | UAT-042 |
 | FR-CMS-004 | §3.1.9 | `src/api.ts` offline fallback + `subscribeOffline`; offline badge in `src/App.tsx` | AS-BUILT | TC-CMS-004 | UAT-043 |
 | FR-CMS-005 | §3.1.9 | `src/auth/AuthContext.tsx` session restore; splash/login gate in `src/App.tsx` | AS-BUILT | TC-CMS-005 | UAT-044 |
 | FR-CMS-006 | §3.1.9 | `server.ts` `GET /api/tools`; `src/components/HeroCarousel.tsx`, `QuickToolsBar.tsx`, `NewsSection.tsx`, `RegulatoryHub.tsx`, `DirectoryAndRooms.tsx`, `GovernanceAndPolicies.tsx` | AS-BUILT | TC-CMS-006 | UAT-045 |

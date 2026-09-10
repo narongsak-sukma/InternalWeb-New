@@ -2,7 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.3.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions: worker-5)
+**Version:** 1.4.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions: worker-5; W2-5 flip: worker-3)
+
+> **Change log (v1.4.0, W2-5 lane):** FR-AUTH-002 acceptance (d) rewritten + (e) added, and the §2 per-pod rate-limit assumption flipped — the failed-login budget is **shared across pods in PostgreSQL** (`rate_limit_hits` atomic upsert) whenever `DATABASE_URL` is set; in-memory dev stays per-process; transient store errors fail open with a logged degradation `WARNING` (W2-5, RISK-010, commit `1b237cd`; no new REQ ids — 94-REQ inventory unchanged).
 
 > **Change log:** v1.3.0 (2026-09-10) — **FR-AUDIT-003 W2-3 extension (doc-first; extension of an existing requirement — no new FR ids, the 94-REQ inventory is unchanged):** enumerated coverage extended with the three ruled W2-3 call-site classes — sync trigger (`SYNC_TRIGGER`), system export (`SYSTEM_EXPORT`), access denials (`ACCESS_DENIED`, lead-ruled trim: 403s + presented-cookie 401s; no-cookie 401s request-log-only) — per Doc 10 §9.1 as ruled/trimmed; W2-1 guard/reset audit reuses noted; flip-pins TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 (Doc 12 v1.6.0). Target state until the W2-3 code phase lands (queues behind W2-2).
 
@@ -179,9 +181,11 @@ users are rejected at login and their existing sessions stop resolving.
 - Uploaded files live on a volume (`uploads` named volume / 5Gi RWO PVC);
   multi-replica write access is constrained by RWO until moved to RWX/object
   storage.
-- Rate limiting and failed-login tracking are **per process/pod** (5/min/IP);
-  consistent hashing or a shared store is required for stricter multi-replica
-  enforcement.
+- Login failed-budget tracking is **shared across replicas when PostgreSQL is
+  configured** (W2-5, RISK-010: `rate_limit_hits` atomic upsert through the
+  repository's login-budget contract — one budget for every pod); in-memory
+  dev mode remains per-process (5/min/IP). A transient shared-store error
+  fails open with a logged degradation `WARNING`.
 - `[PLANNED]` The public website exposes a webhook endpoint for outbound sync
   (not yet integrated).
 
@@ -255,7 +259,7 @@ Acceptance: (a) active user with correct password → 200 + cookie; (b) wrong pa
 Brute-force protection on the login endpoint.
 Actor: anonymous (per source IP). Inputs: repeated `POST /api/auth/login`.
 Outputs: HTTP 429 `{success:false, error:"Too many login attempts. Please try again in a minute."}` once the budget is exhausted; `RateLimit-*` draft-7 standard headers; no legacy headers.
-Acceptance: (a) more than 5 **failed** logins per minute per IP → 429; (b) successful logins do not consume the budget (`skipSuccessfulRequests`); (c) budget resets after the 1-minute window; (d) limit is per IP and per process/pod (documented limitation).
+Acceptance: (a) more than 5 **failed** logins per minute per IP → 429; (b) successful logins do not consume the budget (`skipSuccessfulRequests`); (c) budget resets after the 1-minute window; (d) the limit is per IP, and the failed-login budget is **shared across pods in PostgreSQL** (`rate_limit_hits` atomic upsert) whenever `DATABASE_URL` is set — in-memory dev mode remains per-process (documented limitation); (e) a transient shared-store error **fails open** with a logged degradation `WARNING` — a database blip never locks every user out (W2-5, RISK-010).
 
 **FR-AUTH-003 — User logout.**
 Destroy the current session.

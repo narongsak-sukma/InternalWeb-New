@@ -2,7 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public Sync Portal**
 
-**Version:** 1.0.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-3 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft (W2-1 truth revision) · **Date:** 2026-09-10 · **Author:** worker-3 → Lead review → CTO approval (W2-1 truth pass: worker-3)
+
+> **Change log** — **1.1.0 (2026-09-10)**: W2-1 truth pass (align to the landed branch code, same treatment as docs 07/08): §3.3 rewritten to the **single legal path** — the Wave-1 direct-publish bypass (PATH A, DCR-3) is closed by FR-NEWS-009 (`stripNewsWorkflowFields` validation-layer strip, submit-approval draft-only + `submittedBy/At` stamps, approve/reject pending-only, submitter ≠ approver for every role, forced edit-reset with AUD-P01 audit, sync logs written only by approve/DELETE/`sync/trigger`); §2.2/§2.3 line references refreshed to the Wave-2 working tree (W2-1 dual-control + W2-2 audit-append removal landed; worker-2's W2-3 audit-coverage WIP is in flight on this branch and is documented in Doc 10 §9.1, not restated here); §7 row 9 and §8 row 0 converted to the decision record (resolved). **1.0.0**: initial AS-BUILT record (Wave-1 gate, approved) — its §3.3 documented the then-live dual-path behavior.
 
 ---
 
@@ -99,15 +101,15 @@ to the routes that declare it.
 | 3 | JSON request logger | L59–79 | One structured JSON line per finished request: `{time, method, path, status, durationMs, ip}`. Skips Vite-internal paths (`/@*`, `node_modules`). Ready for Logstash/CloudWatch aggregation |
 | 4 | `/api` resource-id guard | L93–113 | Defense-in-depth: rejects id-less mutations (`PUT/PATCH/DELETE /api/news/`) and empty id segments (`/api/news//approve`) with a clean `400 {success:false, error:"Resource id is required"}` before routing. Covers `news, banners, contacts, documents, users, rooms` |
 | 5 | Route dispatch | Express router | Matches the specific API route |
-| 6 | Login rate limiter (login route only) | L1145–1156, L1691 | `express-rate-limit`: 5 failed attempts / minute / IP, `skipSuccessfulRequests` (fail2ban-style — successful logins never consume budget), draft-7 `RateLimit-*` headers, HTTP 429 with JSON body |
-| 7 | Cookie/session parse + `requireAuth` | L1046–1061, L1107–1119 | No `cookie-parser` dependency: `parseCookies` reads the `Cookie` header directly. `requireAuth` extracts the `kbj_session` cookie, verifies the HMAC signature (`timingSafeEqual`), resolves the server-side session record, checks expiry and `isActive`, and attaches the sanitized user (`SafeUser`, no password hash) to `req.user`. Failure → `401 {success:false, error:"Authentication required"}` |
-| 8 | RBAC — `requireRole(...)` | L1121–1131 | Per-route role allowlist against `req.user.role` (`admin > checker > maker > staff`). Failure → `403 "Insufficient permissions"` (matrix: R5) |
-| 9 | `requireResourceId` (:id routes) | L1133–1142 | Rejects blank/whitespace ids with 400 — second layer behind the step-4 guard |
+| 6 | Login rate limiter (login route only) | L1356–1370, L2014 | `express-rate-limit`: 5 failed attempts / minute / IP, `skipSuccessfulRequests` (fail2ban-style — successful logins never consume budget), draft-7 `RateLimit-*` headers, HTTP 429 with JSON body |
+| 7 | Cookie/session parse + `requireAuth` | L1150, L1211–1240 | No `cookie-parser` dependency: `parseCookies` reads the `Cookie` header directly. `requireAuth` extracts the `kbj_session` cookie, verifies the HMAC signature (`timingSafeEqual`), resolves the server-side session record, checks expiry and `isActive`, and attaches the sanitized user (`SafeUser`, no password hash) to `req.user`. Failure → `401 {success:false, error:"Authentication required"}` |
+| 8 | RBAC — `requireRole(...)` | L1242–1272 | Per-route role allowlist against `req.user.role` (`admin > checker > maker > staff`). Failure → `403 "Insufficient permissions"` (matrix: R5) |
+| 9 | `requireResourceId` (:id routes) | L1274–1286 | Rejects blank/whitespace ids with 400 — second layer behind the step-4 guard |
 | 10 | Handler → repository | route bodies | Handlers contain no SQL/storage logic; they call the shared `Repository` interface (`repo.*`), which is either the PostgreSQL or the in-memory implementation |
 | 11 | JSON envelope | route bodies | Success: `{success:true, data:…}` (creations add HTTP 201). Failure: `{success:false, error:"…"}`. **Not uniform (DCR-4):** several list endpoints return bare `{data:[…]}` / `{data:[…], total:n}` without the `success` flag, and some 404s return `{error:"…"}` without `success:false`; the SPA client normalizes by unwrapping `json.data ?? json` (`src/api.ts`). Exact shape per endpoint: `08-api-specification.md`; see also §7.8 |
-| 12 | `/api` 404 JSON fallback | L2100–2102 | Unmatched `/api/*` (e.g. the retired `/api/k8s/diagnostics`) answers JSON 404 so API clients never receive the SPA's `index.html` |
-| 13 | Final error handler | L2112–2134 | Registered last: converts body-parser failures to 400 `Invalid JSON body`, oversized bodies to 413, everything else to 500 `Internal server error` — exactly one log line, no stack spew. `process.on('unhandledRejection')` (L2136–2138) logs and suppresses so a single bad request can never kill the pod |
-| 14 | Static mounts | L1903, L2222–2236 | `/uploads` → `express.static(UPLOAD_DIR)` (maxAge 1d, no index, no redirect). Then, in production, `dist/` static assets + `GET *` → `index.html` (SPA fallback); in dev, the Vite middleware is mounted instead |
+| 12 | `/api` 404 JSON fallback | L2438–2445 | Unmatched `/api/*` (e.g. the retired `/api/k8s/diagnostics`) answers JSON 404 so API clients never receive the SPA's `index.html` |
+| 13 | Final error handler | L2450–2472 | Registered last: converts body-parser failures to 400 `Invalid JSON body`, oversized bodies to 413, everything else to 500 `Internal server error` — exactly one log line, no stack spew. `process.on('unhandledRejection')` (L2474–2477) logs and suppresses so a single bad request can never kill the pod |
+| 14 | Static mounts | L2226, L2575–2585 | `/uploads` → `express.static(UPLOAD_DIR)` (maxAge 1d, no index, no redirect). Then, in production, `dist/` static assets + `GET *` → `index.html` (SPA fallback); in dev, the Vite middleware is mounted instead |
 
 Boot-time context: `app.set('trust proxy', 1)` (L40) makes `req.ip` reflect
 the real client behind the single Docker/K8s ingress hop — used by the rate
@@ -122,25 +124,26 @@ functional sections, plus operational scripts.
 |---|---|---|
 | Imports & app bootstrap | L1–46 | express, crypto, fs, path, vite (dev), bcryptjs, express-rate-limit, multer, pg; seed data (`src/data/initialData`) and shared types (`src/types`); `trust proxy 1`; `PORT`/`HOST` |
 | Middleware chain | L48–113 | Security headers, JSON logger, `/api` resource-id guard (see §2.2) |
-| `Repository` interface | L120–176 | `SessionRecord` + the storage contract: `init / close / checkHealth`, users, sessions, news, banners, contacts, rooms, documents, sync logs, audit logs |
-| `InMemoryRepository` | L180–340 | Dev implementation: arrays/Maps pre-seeded with `INITIAL_*` demo data; audit trail capped at 5,000 entries |
-| Canonical PG DDL (`PG_DDL`) | L347–542 | Idempotent DDL applied at boot: enum `user_role_enum`, 9 tables, indexes, `updated_at` triggers. Mirrors `scripts/schema.sql` statement-for-statement (kept in lockstep by convention) |
-| Row ↔ object mappers | L544–682 | snake_case columns ↔ camelCase TS fields, one mapper per entity; JSON-string-typed `jsonb` parsed defensively |
-| `PostgresRepository` | L684–969 | `pg.Pool` (max 10 clients, 30 s idle timeout); parameterized SQL only; `init()` = connectivity check (`SELECT 1`) → `PG_DDL` → seed-if-empty; `checkHealth()` = `SELECT 1` |
-| Session & crypto core | L971–1096 | Constants (`kbj_session`, 7-day TTL, bcrypt cost 12); `SESSION_SECRET` production guard; `toSafeUser`; `createUser` (bcrypt hash); HMAC-SHA256 sign/verify (`timingSafeEqual`); `parseCookies`; `createSession`/`resolveSession`/`destroySession`; hourly session sweeper; precomputed `DUMMY_PASSWORD_HASH` |
-| Auth middleware & limiter | L1098–1156 | `req.user` type declaration; `requireAuth`; `requireRole`; `requireResourceId`; login rate limiter |
-| Audit helper & role labels | L1158–1191 | `recordAudit` (actor always from the session); `ROLE_LABELS` (admin/checker/maker/staff display names); module-level `repo` binding |
-| Health probes | L1193–1258 | `GET /healthz|/health|/api/health` (process liveness, uptime, version, pod metadata) and `GET /readyz|/ready|/api/ready` (repository-aware readiness → 503 pulls the pod from rotation) |
-| News API + maker-checker | L1264–1468 | `GET/POST/PUT/DELETE /api/news`; `POST /api/news/:id/submit-approval|approve|reject` (state machine §3.3); automatic sync-log writes |
-| Banners / Contacts / Rooms / Documents / Tools APIs | L1470–1635 | CRUD per the RBAC matrix; rooms add `book`/`release`; tools are served from the static seed list (no table) |
-| Sync & audit APIs | L1637–1685 | `GET /api/sync/logs` + `POST /api/sync/trigger` (admin; writes a `FORCE_SYNC` log — no outbound HTTP is performed, `[PLANNED]` §8); `GET/POST /api/audit-logs` |
-| Auth & user management | L1687–1837 | `POST /api/auth/login` (rate-limited; dummy-hash timing defense; audit on success and failure), `POST /api/auth/logout`, `GET /api/auth/me`; `GET/POST /api/users`, `PATCH /api/users/:id` (activate/deactivate; self-deactivation blocked server-side; strong input validation) |
-| File upload pipeline | L1839–1936 | `UPLOAD_DIR` resolution; 10 MB limit; extension whitelist + declared-MIME sanity; UUID filenames; `/uploads` static mount; `POST /api/upload` (maker/checker/admin; 201/400/413 envelope; `FILE_UPLOAD` audit) |
-| OpenAPI document | L1938–2058 | `GET /api/openapi.json` — machine-readable contract kept in sync with the routes |
-| System export | L2060–2095 | `GET /api/system/export` (admin) — full JSON dump `{exportTimestamp, version, schemaTarget, storage, counts, tables:{…}}` consumed by `scripts/migrate.js` |
-| API 404 + error handler | L2097–2138 | JSON 404 for unmatched `/api/*`; final error handler; unhandledRejection guard |
-| Bootstrap users | L2141–2193 | Auto-creates the admin (`ADMIN_USERNAME`/`ADMIN_PASSWORD`; production generates and prints a one-time password if unset — never persisted); dev additionally seeds demo `maker`/`checker`/`staff` accounts |
-| `startServer()` | L2199–2279 | Repository selection (`DATABASE_URL` → PostgreSQL, fail-fast `exit(1)` if unreachable; else in-memory with a production warning); hourly session sweeper; Vite middleware (dev) vs static SPA (prod); bootstrap before `listen`; SIGTERM/SIGINT graceful shutdown |
+| `Repository` interface | L135–195 | `SessionRecord` + the storage contract: `init / close / checkHealth`, users, sessions, news, banners, contacts, rooms, documents, sync logs, audit logs, and (W2-5) the failed-login budget (`consumeLoginBudget`/`releaseLoginBudget`/`clearLoginBudget`/`purgeStaleLoginBudgets`) |
+| `InMemoryRepository` | L197–393 | Dev implementation: arrays/Maps pre-seeded with `INITIAL_*` demo data; audit trail capped at 5,000 entries |
+| Canonical PG DDL (`PG_DDL`) | L395–590 | Idempotent DDL applied at boot: enum `user_role_enum`, 9 tables (news carries the W2-1 workflow columns `external_sync_status`/`approved_by`/`approved_at`/`submitted_by`/`submitted_at`), indexes, `updated_at` triggers. Mirrors `scripts/schema.sql` statement-for-statement (kept in lockstep by convention) |
+| Row ↔ object mappers | L592–750 | snake_case columns ↔ camelCase TS fields, one mapper per entity; JSON-string-typed `jsonb` parsed defensively |
+| `PostgresRepository` | L752–1073 | `pg.Pool` (max 10 clients, 30 s idle timeout); parameterized SQL only; `init()` = connectivity check (`SELECT 1`) → `PG_DDL` → seed-if-empty; `checkHealth()` = `SELECT 1`; shared login-budget store (W2-5, `rate_limit_hits` atomic upsert) |
+| Session & crypto core | L1075–1209 | Constants (`kbj_session`, 7-day TTL, bcrypt cost 12); `SESSION_SECRET` production guard; `toSafeUser`; `createUser` (bcrypt hash); HMAC-SHA256 sign/verify (`timingSafeEqual`); `parseCookies`; `createSession`/`resolveSession`/`destroySession`; hourly session sweeper; precomputed `DUMMY_PASSWORD_HASH` |
+| Auth middleware & limiter | L1211–1286, L1356–1370 | `req.user` type declaration; `requireAuth`; `requireRole`; `requireResourceId`; login rate limiter |
+| News workflow strip (W2-1) | L1288–1295 | `NEWS_WORKFLOW_FIELDS` + `stripNewsWorkflowFields` — deletes `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` from every news request body at the validation layer (see §3.3) |
+| Audit helper & role labels | L1372–1408 | `recordAudit` (actor always from the session); `ROLE_LABELS` (admin/checker/maker/staff display names); module-level `repo` binding |
+| Health probes | L1410–1475 | `GET /healthz|/health|/api/health` (process liveness, uptime, version, pod metadata) and `GET /readyz|/ready|/api/ready` (repository-aware readiness → 503 pulls the pod from rotation) |
+| News API + maker-checker | L1477–1788 | `GET/POST/PUT/DELETE /api/news`; `POST /api/news/:id/submit-approval|approve|reject` (state machine §3.3 — workflow fields stripped, forced edit-reset, self-approval barred); sync log written only by approve (and admin DELETE of a synced item) |
+| Banners / Contacts / Rooms / Documents / Tools APIs | L1790–1955 | CRUD per the RBAC matrix; rooms add `book`/`release`; tools are served from the static seed list (no table) |
+| Sync & audit APIs | L1957–2012 | `GET /api/sync/logs` + `POST /api/sync/trigger` (admin; writes a `FORCE_SYNC` log — no outbound HTTP is performed, `[PLANNED]` §8); `GET /api/audit-logs` (checker+; manual append endpoint removed in W2-2, DCR-8) |
+| Auth & user management | L2014–2225 | `POST /api/auth/login` (rate-limited; dummy-hash timing defense; audit on success and failure), `POST /api/auth/logout`, `GET /api/auth/me`; `GET/POST /api/users`, `PATCH /api/users/:id` (activate/deactivate; self-deactivation blocked server-side; strong input validation) |
+| File upload pipeline | L2166–2261 | `UPLOAD_DIR` resolution; 10 MB limit; extension whitelist + declared-MIME sanity; UUID filenames; `/uploads` static mount (L2226); `POST /api/upload` (maker/checker/admin; 201/400/413 envelope; `FILE_UPLOAD` audit) |
+| OpenAPI document | L2262–2380 | `GET /api/openapi.json` — machine-readable contract kept in sync with the routes |
+| System export | L2383–2436 | `GET /api/system/export` (admin) — full JSON dump `{exportTimestamp, version, schemaTarget, storage, counts, tables:{…}}` consumed by `scripts/migrate.js` |
+| API 404 + error handler | L2438–2477 | JSON 404 for unmatched `/api/*`; final error handler; unhandledRejection guard |
+| Bootstrap users | L2479–2535 | Auto-creates the admin (`ADMIN_USERNAME`/`ADMIN_PASSWORD`; production generates and prints a one-time password if unset — never persisted); dev additionally seeds demo `maker`/`checker`/`staff` accounts |
+| `startServer()` | L2537–2628 | Repository selection (`DATABASE_URL` → PostgreSQL, fail-fast `exit(1)` if unreachable; else in-memory with a production warning); hourly session sweeper; Vite middleware (dev) vs static SPA (prod); bootstrap before `listen`; SIGTERM/SIGINT graceful shutdown |
 
 Operational scripts:
 
@@ -198,21 +201,25 @@ Frontend architectural rules as built:
 ### 3.1 Session management and authentication
 
 **Credential storage.** Passwords are hashed with bcrypt at cost factor 12
-(`BCRYPT_COST`, L978) via `bcryptjs` — at cost 12 a single hash/verify costs
+(`BCRYPT_COST`, L1082) via `bcryptjs` — at cost 12 a single hash/verify costs
 hundreds of milliseconds of CPU, which additionally throttles offline
 brute-force if the `users` table were ever leaked. No plaintext or reversible
 form is stored. `toSafeUser` strips `passwordHash` before any user object
 leaves the server.
 
-**Session issue (login).** `POST /api/auth/login` (L1691–1734):
+**Session issue (login).** `POST /api/auth/login` (L2014–2058):
 
 1. Rate limiter runs first: 5 failed attempts/min/IP; only failures consume
    the budget (`skipSuccessfulRequests`), so legitimate rapid logins never
-   self-lockout. Exceeding → `429 {success:false, error:"Too many login
-   attempts. Please try again in a minute."}`.
+   self-lockout. Since W2-5 the failed-login budget lives in a **shared
+   PostgreSQL store** (`rate_limit_hits` atomic upsert via the repository's
+   login-budget contract) when `DATABASE_URL` is set — one budget across all
+   pods — and per-process in dev memory; a transient store error fails open
+   with a logged `WARNING`. Exceeding → `429 {success:false, error:"Too many
+   login attempts. Please try again in a minute."}`.
 2. The username is looked up case-insensitively; the supplied password is
    compared against the stored hash — or against a **precomputed
-   `DUMMY_PASSWORD_HASH`** (L1096) when the user does not exist, so response
+   `DUMMY_PASSWORD_HASH`** (L1200) when the user does not exist, so response
    timing does not reveal whether a username is valid.
 3. Deactivated accounts (`isActive=false`) fail exactly like bad passwords.
 4. On success the server generates `sid = 32 random bytes (base64url)`,
@@ -231,10 +238,10 @@ reject+delete expired records → load the user → reject deactivated users.
 Because validity is re-resolved from the store on every request, an admin
 deactivation takes effect on the user's very next request (no token blacklist
 needed). A background sweeper deletes expired session rows hourly
-(unref'd timer, L2215–2220).
+(unref'd timer, L2556–2561).
 
 **Secret management.** `SESSION_SECRET` is **mandatory in production** —
-missing/empty → `console.error` + `process.exit(1)` at boot (L982–990). In
+missing/empty → `console.error` + `process.exit(1)` at boot (L1084–1092). In
 development an ephemeral random secret is generated with a loud warning
 (sessions reset on restart, acceptable locally). `NODE_ENV=production`
 without `DATABASE_URL` also logs a prominent warning (in-memory stores).
@@ -243,7 +250,7 @@ without `DATABASE_URL` also logs a prominent warning (in-memory stores).
 clears the cookie, and audits `LOGOUT`.
 
 **Bootstrap accounts.** When the user store is empty at boot
-(`bootstrapUsers`, L2141–2193): the admin account is created from
+(`bootstrapUsers`, L2479–2535): the admin account is created from
 `ADMIN_USERNAME`/`ADMIN_PASSWORD`; in production with no password set, a
 one-time random password is generated and printed once (never persisted); in
 dev, demo `maker`/`checker`/`staff` accounts are also seeded so the RBAC
@@ -251,20 +258,21 @@ matrix can be exercised.
 
 ### 3.2 Repository pattern (persistence layer)
 
-All handlers depend on the `Repository` **interface** (L127–176) — never on a
+All handlers depend on the `Repository` **interface** (L135–195) — never on a
 driver. Two implementations exist:
 
-| | `PostgresRepository` (L684–969) | `InMemoryRepository` (L180–340) |
+| | `PostgresRepository` (L752–1073) | `InMemoryRepository` (L197–393) |
 |---|---|---|
 | Selected when | `DATABASE_URL` is set | otherwise (dev/demo) |
 | Storage | `pg.Pool` (max 10, idle 30 s) over 9 tables | arrays/Maps seeded from `src/data/initialData` |
 | `init()` | `SELECT 1` (fail fast, `exit(1)` if unreachable — no silent fallback in production) → apply `PG_DDL` → seed each table only if completely empty | log a hint to set `DATABASE_URL` |
 | `checkHealth()` | `SELECT 1` | always `true` |
 | Sessions | `sessions` table (survive restarts and pod reschedules) | per-process map (reset on restart) |
+| Login budget (W2-5) | shared `rate_limit_hits` store — atomic upsert, one budget across all pods | per-process counters (same contract) |
 | Audit trail | append-only rows | in-memory, capped at 5,000 newest |
 | SQL safety | parameterized queries only; snake_case↔camelCase mappers | n/a |
 
-Selection happens in `startServer()` (L2199–2212) before the port opens, so
+Selection happens in `startServer()` (L2537–2553) before the port opens, so
 routes always run against the final binding. **`/readyz` reflects repository
 health**: in postgres mode a dead database returns 503 and the kubelet pulls
 the pod out of Service rotation; `/healthz` stays process-level for restart
@@ -277,59 +285,81 @@ a supported path to move in-memory/legacy data into PostgreSQL.
 
 Publishing state is modeled on `NewsItem.externalSyncStatus`
 (`draft | pending_approval | synced | rejected`; the type also carries
-`pending` for display purposes). **Two as-built paths reach `synced`** — the
-dual-control path required by BOT governance, and a direct path that
-bypasses the checker entirely (flagged to the lead as **DCR-3**; enforcement
-fix is `[PLANNED]`, Wave-2 P0 — see §7, §8):
+`pending` for display purposes). Since **W2-1** (FR-NEWS-009; DCR-3/DCR-7
+resolved, commit `22023eb`) **exactly one path reaches `synced`** — the
+dual-control path. The Wave-1 direct-publish bypass (`POST`/`PUT` with
+`syncToExternal=true`) is closed: the four workflow fields are deleted from
+every news payload at the validation layer (`stripNewsWorkflowFields`,
+server.ts L1288–1295, applied at the top of the POST L1499–1533 and PUT
+L1535–1616 handlers), so create/update can never
+set publication state regardless of role:
 
 ```
-  PATH A — DIRECT PUBLISH (bypasses checker; DCR-3)
-  POST /api/news  (server.ts L1306)          PUT /api/news/:id (L1315–1359)
-  syncToExternal=true ──────────────────────────────► synced
-        role gate: maker/admin only — no checker involved,
-        auto sync_log CREATE/UPDATE written
-
-  PATH B — DUAL CONTROL (BOT compliant, server.ts L1383–1468)
+  THE ONLY PATH TO LIVE — DUAL CONTROL (BOT compliant)
                  POST /api/news (maker/admin)
-                 syncToExternal=false ──────────────► draft
-                                                      │
-                          POST /api/news/:id/submit-approval   (maker/admin)
-                                                      ▼
-                                              pending_approval
-                                          syncToExternal forced false
-                                                 │            │
-                        approve (checker/admin)   │            │  reject (checker/admin)
-                                                 ▼            ▼
-                                               synced       rejected
-                                    approvedBy/approvedAt   approvedBy =
-                                    syncToExternal=true      "Rejected by <checker>: <reason>"
-                                    + sync_log CREATE        syncToExternal=false
+                 workflow fields stripped ──────────► draft
+                 (always draft; no sync log)
+                                                   │
+              POST /api/news/:id/submit-approval   │   (maker/admin;
+              legal from draft only, else 400       │    + WARNING audit)
+                                                   ▼
+                                           pending_approval
+                                       syncToExternal forced false
+                                       submittedBy/submittedAt stamped
+                                              │            │
+     approve (checker/admin; pending-only;     │            │  reject (checker/admin;
+     submitter ≠ approver, else 403/400)       │            │  pending-only; reason)
+                                              ▼            ▼
+                                            synced       rejected
+                                  approvedBy/approvedAt   approvedBy =
+                                  syncToExternal=true     "Rejected by <checker>: <reason>"
+                                  + sync_log CREATE       syncToExternal=false
+
+  EDIT RESET (any non-draft state → draft): PUT /api/news/:id on an item in
+  pending_approval / synced / rejected returns it to draft — approval and
+  submission stamps cleared, syncToExternal=false (edited-live content drops
+  out of the public set). Audited as a forced transition (AUD-P01).
 ```
 
 As-built properties:
 
-- **Path A** (`POST`/`PUT /api/news` with `syncToExternal=true`): the item is
-  marked `synced` immediately with only a maker/admin role check; a sync log
-  (`CREATE`/`UPDATE`) is auto-written. This bypasses dual control and is
-  recorded here because the SDS documents the system **as built**. Closing
-  it (restrict `syncToExternal=true` at create/update to checker/admin, or
-  force `pending_approval`) is the `[PLANNED]` Wave-2 P0 fix (§8.0).
-- Path B, `submit-approval` requires `maker` or `admin`; it forces
-  `syncToExternal=false` so the item is **not live** while awaiting review.
-- Path B, `approve`/`reject` require `checker` or `admin` — within the
-  dual-control path the maker cannot self-approve.
-- `approve` stamps `approvedBy`/`approvedAt` (UTC `YYYY-MM-DD HH:MM:SS`),
-  flips `syncToExternal=true`, and appends a `sync_logs` row
+- **Create always enters `draft` with `syncToExternal=false`.**
+  Client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/
+  `syncToExternal` are stripped from the request body itself
+  (`stripNewsWorkflowFields`, L1288–1295) — enforced at the validation layer
+  so every current and future news mutation endpoint inherits the rule
+  without per-route repetition.
+- **No sync log on create/update**: `sync_logs` rows are written only by the
+  checker approve endpoint, by admin DELETE of a synced item, and by
+  `POST /api/sync/trigger` (bulk handshake).
+- `submit-approval` requires `maker`/`admin`, is legal from `draft` only
+  (400 + `WARNING` audit otherwise), forces `syncToExternal=false` so the
+  item is **not live** while awaiting review, and stamps
+  `submittedBy`/`submittedAt` so self-approval can be barred downstream.
+- `approve`/`reject` require `checker`/`admin` and are legal from
+  `pending_approval` only (400 + `WARNING` audit otherwise). The
+  **submitter may never approve their own submission — for every role,
+  admin included** (403 + `WARNING` audit).
+- `approve` stamps `approvedBy`/`approvedAt` (`YYYY-MM-DD HH:MM:SS` UTC
+  label), flips `syncToExternal=true`, and appends a `sync_logs` row
   (action `CREATE`, target `api.kbjcapital.co.th/v1/public/news`).
 - `reject` records the checker's reason in `approvedBy`
   (`"Rejected by <checker>: <reason>"`) and keeps `syncToExternal=false`.
-- **Every Path-B transition writes an audit entry** (`SUBMIT_APPROVAL` /
-  `APPROVE` status `SUCCESS` / `REJECT` status `REJECTED`) stamped with the
-  authenticated actor and IP (R6). Path A writes a sync log but no audit
-  entry — another consequence tracked under DCR-3.
+- **Every transition and every guard rejection writes an audit entry**
+  (`SUBMIT_APPROVAL` / `APPROVE` / `REJECT`, status `SUCCESS`/`REJECTED`,
+  blocked attempts `WARNING`) stamped with the authenticated actor and IP
+  (R6).
+- **Content change ⇒ draft** (forced reset, AUD-P01): editing an item in any
+  non-draft state resets `externalSyncStatus` to `draft`, clears the prior
+  cycle's approval and submission stamps, and sets `syncToExternal=false` —
+  modified content never stays public under a stale approval, and a pending
+  item cannot be mutated under an open review (TOCTOU).
 - Deletion of a synced item is admin-only and also writes a sync log.
 - "Synced" currently means **state + log only** — no outbound HTTP call to the
   public site is performed; wiring the real webhook is `[PLANNED]` (§8).
+- *History:* through Wave 1 a direct-publish bypass existed and was recorded
+  here as PATH A (see v1.0.0); DCR-3 closed it in W2-1. The decision record
+  lives in §7 row 9 and §8 row 0.
 
 ### 3.4 Upload pipeline
 
@@ -366,7 +396,7 @@ Persistence: compose mounts the named `uploads` volume; Kubernetes mounts the
 
 ### 3.5 Audit logging (PDPA accountability)
 
-`recordAudit` (L1160–1178) is the single write path. Entries carry:
+`recordAudit` (L1372–1390) is the single write path. Entries carry:
 `actor`, `actorRole`, `action`, `targetResource`, `resourceId`, `details`,
 `ipAddress`, `status`, plus server-generated `id` (`audit-<ts>-<hex>`) and
 `timestamp`.
@@ -590,21 +620,22 @@ added to (§8).
 | 6 | **Uploads on a filesystem volume** (not the DB, not object storage) | Simple, fast, works identically in compose and k8s today | RWO PVC constrains multi-node scaling (§5.4); no dedup; backups must cover the volume |
 | 7 | **OpenAPI served by the app** (`GET /api/openapi.json`) | Contract is always reachable and versioned with the running build | Maintained by hand next to the routes — drift is possible and must be caught in review |
 | 8 | **Envelope pragmatism** (DCR-4): mutations return `{success,data}`; several list endpoints return bare `{data[,total]}` without the `success` flag, and some 404s return `{error}` without `success:false` (as built); the SPA client normalizes (`api.ts` unwraps `json.data ?? json`) | Backward-compatible evolution of a legacy-shaped API without breaking the SPA | The envelope is not uniform across reads/404s (DCR-4); `08-api-specification.md` documents the exact shape per endpoint; uniformity is a Wave-2 cleanup candidate |
-| 9 | **Direct-publish path retained as built** (DCR-3): `POST/PUT /api/news` with `syncToExternal=true` reaches `synced` with only a maker/admin check — no checker | Documented honestly because the SDS describes the system as built; the shape predates the dual-control endpoints | **Bypasses BOT dual control** (and writes no audit entry); `[PLANNED]` Wave-2 P0 enforcement fix gates it behind checker/admin or forces `pending_approval` (§8.0) |
+| 9 | **Dual control strictly enforced on the only live path (W2-1; DCR-3/DCR-7 resolved)**: create/update can never set publication state (workflow fields stripped at the validation layer); `synced` is reachable only via checker approve with submitter ≠ approver, admin included; editing any non-draft item resets it to draft (audited, AUD-P01) | The strict BOT reading was ratified at the Wave-1 gate and implemented in W2-1 (commit `22023eb`, FR-NEWS-009); the Wave-1 as-built direct-publish bypass (`syncToExternal=true` → immediate `synced` under a maker/admin check, no audit) is closed | Makers can no longer publish in one step — every public item carries a checker's stamp, and withdrawn/rejected content needs a fresh approval cycle |
 
 ---
 
 ## 8. Planned design changes
 
 Everything in this section is **`[PLANNED]`** — it is *not* built and must
-not be assumed by readers of the code.
+not be assumed by readers of the code. (Rows 0 and 3 are exceptions:
+**resolved decision records**, kept for traceability.)
 
 | # | Change | Current state | Planned design |
 |---|---|---|---|
-| 0 | **Close the direct-publish bypass (DCR-3) — Wave-2 P0** | `POST/PUT /api/news` with `syncToExternal=true` sets `externalSyncStatus='synced'` immediately under a maker/admin check only (server.ts L1306, L1315–1359); no checker, no audit entry | Enforce dual control at create/update: either reject/ignore `syncToExternal=true` from makers (forcing `pending_approval` for external publication) or require checker/admin for the direct path; add the missing audit entry for whichever path remains |
+| 0 | **Close the direct-publish bypass (DCR-3) — RESOLVED in W2-1** (was Wave-2 P0) | *Closed by FR-NEWS-009, commit `22023eb`:* `stripNewsWorkflowFields` validation-layer strip on every news mutation; create always `draft`; checker-approve the only path to `synced` (submitter ≠ approver, admin included); forced edit-reset; guard rejections and forced transitions audited (AUD-P01/02/03). Pinned by smoke TC-NEWS-011 / TC-SEC-011 / TC-COMP-001 | *No work remains* — row kept as the decision record (DCR-3/DCR-7 closed; see §3.3, §7 row 9) |
 | 1 | **Outbound public-sync webhook** | Sync statuses, `sync_logs`, and `/api/sync/trigger` drive the state machine only; no HTTP call to the public website | Wire a real webhook (e.g. `POST api.kbjcapital.co.th/v1/public/news`) invoked on `approve`/`FORCE_SYNC`, with retries and failure status in `sync_logs`; add the matching **egress 443 rule** to `k8s/networkpolicy.yaml` (already anticipated in its comments) |
 | 2 | **Schema migration tooling** | Schema changes apply only to empty volumes (compose init-once) or by hand via `psql -f scripts/schema.sql` | Adopt versioned migrations (e.g. a `migrations/` table + ordered scripts, or a tool such as node-pg-migrate) so upgrades on existing databases are first-class |
-| 3 | **Shared rate-limit / failed-login store** | Rate limiting is per-process (in-memory) — with many replicas behind the ingress, limits are per-pod | Introduce a shared store (Redis) or ingress-level consistent hashing when stricter multi-replica enforcement is required |
+| 3 | **Shared failed-login budget store — RESOLVED in W2-5** (RISK-010, commit `1b237cd`) | *Closed:* the failed-login budget lives in PostgreSQL (`rate_limit_hits` atomic window-rollover upsert through the repository's login-budget contract) whenever `DATABASE_URL` is set — one budget across all pods; in-memory dev stays per-process; a transient store error fails open with a logged degradation `WARNING` (see §3.1). Pinned by smoke §15 (opt-in `SMOKE_DATABASE_URL`) | *No work remains* — row kept as the decision record. If a future rate limit (beyond login) needs multi-replica enforcement, Redis or ingress-level consistent hashing remains the pattern |
 | 4 | **RWX or object storage for uploads** | 5 Gi RWO PVC — single-writer constraint limits multi-node HA/scaling | Switch the PVC to ReadWriteMany (NFS/Azure Files/CephFS) or move uploads to S3-compatible object storage with the same `Repository`-style abstraction |
 | 5 | **Response-envelope uniformity (DCR-4)** | Reads and some 404s return bare `{data[,total]}` / `{error}` without the `success` flag; the SPA normalizes client-side | Decide one canonical envelope (`{success,data,error}` everywhere) and migrate read endpoints in a Wave-2 pass, updating `src/api.ts` and `08-api-specification.md` together |
 
