@@ -1,6 +1,6 @@
 # 08 — API Specification
 
-**Version:** 1.2.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval (W2-2 revision: worker-5)
+**Version:** 1.3.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval (W2-2 revision: worker-5; W2-1 truth pass: worker-4)
 
 Complete as-built specification of the HTTP API served by the Express gateway in `server.ts` (bundled to `dist/server.cjs`). Every endpoint, status code, validation rule, default value, and side effect below was extracted from the code — nothing is aspirational. A machine-readable (partial) mirror is served at `GET /api/openapi.json`.
 
@@ -255,17 +255,23 @@ Read-only `express.static` on `UPLOAD_DIR` with `maxAge: '1d'`, no directory ind
 
 ## 6. News & regulatory announcements — `/api/news`
 
-The richest domain: CRUD plus the BOT maker-checker workflow. State machine as built:
+The richest domain: CRUD plus the BOT maker-checker workflow. State machine as built — **strict dual-control since W2-1** (FR-NEWS-009, commit 22023eb): the workflow fields `externalSyncStatus`, `approvedBy`, `approvedAt`, `syncToExternal` are **server-controlled**, stripped from every create/update body at the validation layer, and `synced` is reachable **only** through checker approve — for every role, admin included.
 
 ```
-                 POST (syncToExternal=false)
-   [create] ────────────────────────────────► draft ──submit──► pending_approval ──approve──► synced
-      │                                                                              │
-      │ POST (syncToExternal=true)                                    reject ◄────────┘
-      └───────────────────────────────────────────────────────► synced*            │
-                                                     (*bypass — see §17 DCR-3)      ▼
-                                                                              rejected
+  POST /api/news ──► draft ──submit-approval──► pending_approval ──approve──► synced
+ (workflow fields     ▲ ▲                         (maker/admin;        (checker/admin; pending-
+  stripped; always    │ │                          draft-only)          only; submitter ≠ approver)
+  enters 'draft')     │ │                              │
+                      │ └────────── reject ◄───────────┘
+                      │            (checker/admin; pending-only; submitter ≠ decider)
+                      │                │
+                      │                ▼
+                      └──────────── rejected
+  PUT edit of a pending_approval / synced / rejected item force-resets it to draft
+  (approval + submission stamps cleared, syncToExternal=false, AUD-P01 audit row).
 ```
+
+Every guard rejection (illegal state → 400, self-approval/self-decision → 403) is audited as a `WARNING` row before the error is returned.
 
 ### 6.1 `GET /api/news` (anon)
 
@@ -297,18 +303,23 @@ The richest domain: CRUD plus the BOT maker-checker workflow. State machine as b
 | `readTime` | `3 นาที` |
 | `author` | caller's `displayName` |
 | `department` | `Corporate Communications` |
-| `isImportantAlert` / `syncToExternal` / `views` | `false` / `false` / `0` |
-| `externalSyncStatus` | **derived**: `syncToExternal ? "synced" : "draft"` (client value ignored — §17 DCR-3) |
+| `isImportantAlert` / `views` | `false` / `0` |
+| `syncToExternal` | **forced `false`** — server-controlled (W2-1): stripped from the body at the validation layer; flips `true` only via checker approve |
+| `externalSyncStatus` | **always `draft`** — server-controlled (W2-1): stripped from the body; every create enters the workflow as draft |
 | `externalCategory` | `press-release` |
 | `attachmentUrl` / `attachmentName` | `undefined` |
 
+(`approvedBy`/`approvedAt`/`submittedBy`/`submittedAt` are likewise server-controlled — any values in the create body are discarded.)
+
 **Responses** — `201` → `{"success":true,"data":{<NewsItem>}}`; `401`/`403` per §1.4.
 
-**Side effects.** If `syncToExternal=true`: a `sync_logs` row (`action=CREATE`, `status=SUCCESS`, endpoint `api.kbjcapital.co.th/v1/public/news`, `syncedBy` = caller's username) is written immediately. No audit entry is written by this endpoint (the workflow audit points are submit/approve/reject).
+**Side effects.** None — **no sync log on create and no audit entry**: nothing has left the building; a `sync_logs` row is written only by the checker approve endpoint (the sole path to `synced`). The workflow audit points are submit/approve/reject.
 
 ### 6.3 `PUT /api/news/:id` (maker, admin)
 
-**Request:** partial or full `NewsItem` JSON — merged over the stored item (`{...existing, ...body}`); the `id` path parameter always wins over any body `id`. No field validation; unknown fields pass into the store shape.
+**Request:** partial or full `NewsItem` JSON — merged over the stored item (`{...existing, ...body}`); the `id` path parameter always wins over any body `id`. The four workflow fields (`externalSyncStatus`, `approvedBy`, `approvedAt`, `syncToExternal`) are **stripped from the body first** (server-controlled, W2-1) — they can never be set through this endpoint. No other field validation; unknown fields pass into the store shape.
+
+**Forced draft reset (W2-1, FR-NEWS-009).** Editing an item whose current `externalSyncStatus` is `pending_approval`, `synced`, or `rejected` force-resets it: `externalSyncStatus = "draft"`, `syncToExternal = false`, and `approvedBy`/`approvedAt`/`submittedBy`/`submittedAt` all cleared. Rationale (code comment): a pending item must not be mutated while a checker reviews content they may never see again (TOCTOU), and a live item must not keep modified content public under a stale approval.
 
 **Responses**
 
@@ -318,7 +329,7 @@ The richest domain: CRUD plus the BOT maker-checker workflow. State machine as b
 | `404` | `{"error":"News item not found"}` (bare — §1.3) |
 | `400` | blank id (§1.7) |
 
-**Side effects.** If the merged item has `syncToExternal=true`: a `sync_logs` row `action=UPDATE` is written.
+**Side effects.** When the forced reset fires: an `audit_logs` row `action=UPDATE`, `status=SUCCESS` — the AUD-P01 forced-transition record, details `Edit of <priorStatus> item "<title prefix>…" reset externalSyncStatus to draft (forced transition; approval and submission stamps cleared, item dropped from the live sync set until re-approval).` **No sync log on update** — PUT can no longer reach `syncToExternal=true`; the flag flips only via the checker approve endpoint.
 
 ### 6.4 `DELETE /api/news/:id` (admin)
 
@@ -330,40 +341,51 @@ The richest domain: CRUD plus the BOT maker-checker workflow. State machine as b
 
 ### 6.5 `POST /api/news/:id/submit-approval` (maker, admin)
 
-Enters the item into dual-control review.
+Enters the item into dual-control review — **legal from `draft` only** (W2-1): a rejected item must be edited first (the edit resets it to draft); a synced item is already live; a pending item is already in review.
 
 **Request:** none (body ignored).
 
 | Status | Body |
 |---|---|
 | `200` | `{"success":true,"data":{<NewsItem>},"audit":{<AuditLog>}}` |
+| `400` | `{"success":false,"error":"Only draft news items can be submitted for approval"}` — item not in `draft` (guard rejection audited WARNING first) |
 | `404` | `{"error":"News item not found"}` |
 
-**State transition:** `externalSyncStatus = "pending_approval"`, `syncToExternal = false` (not live until checker approval).
+**State transition:** `externalSyncStatus = "pending_approval"`, `syncToExternal = false` (not live until checker approval), and the submission is stamped `submittedBy` = submitter's user id, `submittedAt` = `YYYY-MM-DD HH:MM:SS` — the stamps the self-approval guard (§6.6/§6.7) checks and the draft reset (§6.3) clears.
 
-**Side effects.** `audit_logs` row `action=SUBMIT_APPROVAL`, details `Submitted "<first 30 chars of title>…" for dual-control checker review before public publishing.`
+**Side effects.** `audit_logs` row `action=SUBMIT_APPROVAL`, `status=SUCCESS`, details `Submitted by <username> (id: <user id>): "<first 30 chars of title>…" for dual-control checker review before public publishing.` Blocked attempts (non-draft state) write the same action with `status=WARNING` and a `Blocked: …` details line before the 400 is returned.
 
 ### 6.6 `POST /api/news/:id/approve` (checker, admin)
+
+**Legal from `pending_approval` only** (W2-1), and **the submitter can never approve their own item** — the guard compares `submittedBy` against the acting checker's user id, so it binds admin too: an admin who submitted the item still cannot approve it.
+
+**Request:** none (body ignored).
 
 | Status | Body |
 |---|---|
 | `200` | `{"success":true,"data":{<NewsItem>},"audit":{<AuditLog>}}` |
+| `400` | `{"success":false,"error":"Only news items pending approval can be approved"}` — item not in `pending_approval` (guard rejection audited WARNING first) |
+| `403` | `{"success":false,"error":"Self-approval is not allowed: the submitter cannot approve their own item"}` — acting checker is the submitter (guard rejection audited WARNING first) |
 | `404` | `{"error":"News item not found"}` |
 
-**State transition:** `externalSyncStatus = "synced"`, `syncToExternal = true`, `approvedBy` = checker's username, `approvedAt` = `YYYY-MM-DD HH:MM:SS` (UTC label).
+**State transition:** `externalSyncStatus = "synced"`, `syncToExternal = true`, `approvedBy` = checker's username, `approvedAt` = `YYYY-MM-DD HH:MM:SS` (UTC label). The `submittedBy`/`submittedAt` stamps remain set — they anchor the approve audit's submitter attribution.
 
-**Side effects.** (1) `audit_logs` row `action=APPROVE` (`Approved public synchronization to www.kbjcapital.co.th for "<title prefix>…".`); (2) `sync_logs` row `action=CREATE`, `status=SUCCESS`, endpoint `api.kbjcapital.co.th/v1/public/news`, `syncedBy` = checker. (The sync log records the state machine; no outbound HTTP occurs — §17.)
+**Side effects.** (1) `audit_logs` row `action=APPROVE`, details `Approved public synchronization to www.kbjcapital.co.th for "<title prefix>…" (submitted by id: <submitter id | unknown>).`; (2) `sync_logs` row `action=CREATE`, `status=SUCCESS`, endpoint `api.kbjcapital.co.th/v1/public/news`, `syncedBy` = checker — **the only code path that writes a sync log for news** (the sole path to `synced`). (The sync log records the state machine; no outbound HTTP occurs — §17.)
 
 ### 6.7 `POST /api/news/:id/reject` (checker, admin)
+
+**Legal from `pending_approval` only** (W2-1), and **the submitter can never decide their own item** — same `submittedBy` guard as approve, admin included.
 
 **Request** `application/json` (optional): `{"reason": "string"}` — default reason: `Content revised or missing mandatory regulatory wording.`
 
 | Status | Body |
 |---|---|
 | `200` | `{"success":true,"data":{<NewsItem>},"audit":{<AuditLog>}}` |
+| `400` | `{"success":false,"error":"Only news items pending approval can be rejected"}` — item not in `pending_approval` (guard rejection audited WARNING first) |
+| `403` | `{"success":false,"error":"Self-decision is not allowed: the submitter cannot reject their own item"}` — acting checker is the submitter (guard rejection audited WARNING first) |
 | `404` | `{"error":"News item not found"}` |
 
-**State transition:** `externalSyncStatus = "rejected"`, `syncToExternal = false`, and `approvedBy` is **overloaded** with `Rejected by <checker username>: <reason>` (there is no separate rejected-by/reason column — see doc 07 §5.3).
+**State transition:** `externalSyncStatus = "rejected"`, `syncToExternal = false`, and `approvedBy` is **overloaded** with `Rejected by <checker username>: <reason>` (there is no separate rejected-by/reason column — see doc 07 §5.3). `submittedBy`/`submittedAt` remain set (cleared only by the §6.3 draft reset when the maker edits the rejected item).
 
 **Side effects.** `audit_logs` row `action=REJECT`, `status=REJECTED`, details `Rejected approval for "<title prefix>…". Reason: <reason>`.
 
@@ -634,6 +656,8 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | Upload (type/mime/missing) | 400 | §5.1 messages |
 | Upload (size) | 413 | `{"success":false,"error":"File exceeds the 10MB limit."}` |
 | PUT news/banner/contact 404 | 404 | `{"error":"News item not found"}` / `{"error":"Banner not found"}` / `{"error":"Contact not found"}` (bare) |
+| News workflow state guard (§6.5–§6.7) | 400 | `{"success":false,"error":"Only draft news items can be submitted for approval"}` / `…Only news items pending approval can be approved` / `…Only news items pending approval can be rejected` — each preceded by a WARNING audit row |
+| News self-approval / self-decision guard (§6.6/§6.7) | 403 | `{"success":false,"error":"Self-approval is not allowed: the submitter cannot approve their own item"}` / `…Self-decision is not allowed: the submitter cannot reject their own item` — each preceded by a WARNING audit row |
 | Room book/release 404 | 404 | `{"error":"Room not found"}` (bare) |
 | Room book conflict | 400 | `{"error":"Room is currently booked or under maintenance"}` (bare) |
 | Unmatched /api path | 404 | `{"success":false,"error":"No API endpoint for <METHOD> <path>"}` |
@@ -659,7 +683,7 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | Planned | Upload lifecycle management | No deletion/GC endpoint for uploaded files; volume grows until manually cleaned. |
 | DCR-1 | Export shape prose says `generatedAt` | Actual field: **`exportTimestamp`** (§13.1). This document and doc 07 use the code's name. |
 | DCR-2 | HANDOVER API table implies `PUT /api/documents` | **Route does not exist** (§10.3). |
-| DCR-3 | Create-path dual-control bypass | `POST /api/news` with `syncToExternal=true` lands directly in `synced` + writes a sync log — no checker involvement (§6.2). HANDOVER §4 describes creates as `draft`. **Decided — CTO strict ruling (Wave-1 gate):** no role (admin included) reaches `synced` outside checker approve; workflow fields server-controlled; enforcement lands Wave-2 P0 with DCR-7 as one work item (FR-NEWS-009 `[PLANNED]`). |
+| DCR-3 | Create-path dual-control bypass | Pre-W2-1, `POST /api/news` with `syncToExternal=true` landed directly in `synced` + wrote a sync log — no checker involvement. HANDOVER §4 describes creates as `draft`. **Decided — CTO strict ruling (Wave-1 gate):** no role (admin included) reaches `synced` outside checker approve; workflow fields server-controlled; enforcement lands Wave-2 P0 with DCR-7 as one work item (FR-NEWS-009). **RESOLVED — W2-1 (commit 22023eb, FR-NEWS-009):** enforcement landed — workflow fields stripped at the validation layer on every create/update (§6.2/§6.3); create always enters `draft`; state guards on submit/approve/reject (400) + submitter ≠ approver/decider bar (403), admin included, every guard rejection audited WARNING (§6.5–§6.7); edit of a non-draft item force-resets it to `draft` with an AUD-P01 audit (§6.3); `submitted_by`/`submitted_at` columns added in schema lockstep (doc 07 §5.3/§12). |
 | DCR-4 | Envelope inconsistency | Reads omit `success`; some 404/400 route errors omit it too (§1.3). Clients must tolerate both. |
 | DCR-5 | `pending` dead union member (external sync) | Declared in the TS union (`src/types.ts:28`), never assigned by any code path; it is the **only** dead member — the union contains no `approved` value at all (doc 07 §3.2). |
 | DCR-8 | Manual audit append erodes trail integrity | `POST /api/audit-logs` (§11.3) lets an admin fabricate arbitrary `action`/`details` audit rows (RISK-023). **Decided — CTO ruling (Wave-2, decision #5/#6): PREFER REMOVAL.** Target: 404 for every role incl. admin; audit rows exclusively server-written via `recordAudit()`; GET audit surface unchanged. Doc-first revision (this version); route removal + test flips (TC-AUDIT-008 / TC-RBAC-026) land in the W2-2 code phase. |
@@ -671,3 +695,4 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | 1.0.0 | 2026-09-10 | worker-4 | Initial as-built specification: 38 indexed operations (37 API + static uploads), extracted from `server.ts`. |
 | 1.1.0 | 2026-09-10 | worker-4 + lead | CTO-gate revision (lead-applied): §17 DCR-5 row corrected to register facts (`pending` is the only dead union member; no `approved` value exists); DCR-3 row updated from "needs a decision" to the CTO strict ruling (Wave-2 P0, bundled with DCR-7). |
 | 1.2.0 | 2026-09-10 | worker-5 (W2-2 doc phase) | DCR-8 (CTO: PREFER REMOVAL): §11.3 `POST /api/audit-logs` marked REMOVED (target 404 every role; as-built preserved inline until W2-2 code lands); §2 access-matrix row and endpoint index annotated; §17 DCR-8 row added. GET audit-logs unchanged. |
+| 1.3.0 | 2026-09-10 | worker-4 (W2-1 truth pass) | Aligned to W2-1 strict dual-control (commit 22023eb): §6 state machine redrawn as the strict legal path (create-bypass arc removed; workflow fields server-controlled); §6.2 create defaults (syncToExternal forced false, externalSyncStatus always draft; no sync/audit side effects); §6.3 strip rule + forced non-draft→draft reset with AUD-P01 audit; §6.5–§6.7 state guards (400) + submitter ≠ approver/decider (403, admin included) with WARNING audits and submittedBy/At stamping; §15 guard bodies added; §17 DCR-3 marked RESOLVED. |

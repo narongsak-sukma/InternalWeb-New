@@ -1,6 +1,6 @@
 # 07 — Data Dictionary
 
-**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Approved (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval (W2-1 truth pass: worker-4)
 
 AS-BUILT reference for every data structure the KB J Capital Intranet & CMS Portal persists. Compiled directly from `scripts/schema.sql` (canonical PostgreSQL DDL), the `PG_DDL` constant and repository implementations in `server.ts`, the shared types in `src/types.ts`, and the tooling in `scripts/migrate.js` / `scripts/seed-users.js`. Compliance context: Bank of Thailand (BOT) financial-institution governance and Thailand PDPA B.E. 2562.
 
@@ -56,7 +56,7 @@ Enforced by TypeScript types in `src/types.ts` (and by request defaults/validati
 | `users.is_active` | `true` / `false` | Deactivated accounts are never deleted; login and session resolution reject them. |
 | `news.category` | `kbj-news`, `ncb-news`, `bot-news`, `regulation`, `hr-announcement`, `all-about-money`, `lifestyle` | `NewsCategory` (types.ts). GET /api/news filters on exact match; `all` = no filter. |
 | `news.badge_color` | `red`, `orange`, `blue`, `emerald`, `amber` | Default on create: `orange`. |
-| `news.external_sync_status` | `draft`, `pending_approval`, `rejected`, `synced`, `pending` *(dead)* | `NewsItem['externalSyncStatus']` (`src/types.ts:28`). The maker-checker state machine (as built): create → `draft` (or `synced` immediately when created with `syncToExternal=true`), submit → `pending_approval`, approve → `synced`, reject → `rejected`. *`pending` is the only dead member — declared in the union but **no code path ever assigns it**; the approve endpoint jumps straight to `synced` (DCR-3, DCR-5 in §12). The union contains no `approved` member at all.* |
+| `news.external_sync_status` | `draft`, `pending_approval`, `rejected`, `synced`, `pending` *(dead)* | `NewsItem['externalSyncStatus']` (`src/types.ts:28`). **Server-controlled (W2-1, FR-NEWS-009):** stripped from create/update request bodies at the validation layer; every create enters as `draft`. Strict machine: create → `draft`, submit → `pending_approval`, approve → `synced`, reject → `rejected`; editing a non-draft item force-resets it to `draft` (stamps cleared). *`pending` is the only dead member — declared in the union but **no code path ever assigns it** (DCR-5 in §12; DCR-3 resolved — §12). The union contains no `approved` member at all.* |
 | `news.external_category` | `press-release`, `csr`, `product-notice`, `compliance`, `money-tips`, `lifestyle` | Default on create: `press-release`. |
 | `meeting_rooms.status` | `available`, `in-use`, `maintenance` | Set to `in-use` by POST /api/rooms/:id/book, back to `available` by /release; `maintenance` only via direct DB edit. |
 | `documents.category` | `policy`, `work-rules`, `form`, `handbook`, `governance` | Default on create: `form`. |
@@ -139,13 +139,15 @@ Mapped to `NewsItem`. The richest table; drives the intranet feed and the maker-
 | `department` | text | NO | — | — | Owning department. Create-default `Corporate Communications`. | — |
 | `is_important_alert` | boolean | NO | `false` | — | High-visibility flag. | — |
 | `views` | integer | NO | `0` | — | View counter (client-updated via PUT). | — |
-| `sync_to_external` | boolean | NO | `false` | — | "Cleared for public website" flag; gated by the approval flow. | — |
-| `external_sync_status` | text | YES | — | enum-by-app (§3.2) | Maker-checker state machine value. | — |
+| `sync_to_external` | boolean | NO | `false` | — | "Live on public website" flag. **Server-controlled (W2-1):** stripped from create/update bodies — `false` at create, forced `false` on any draft reset, `true` only via the checker approve endpoint. | — |
+| `external_sync_status` | text | YES | — | enum-by-app (§3.2) | Maker-checker state machine value. **Server-controlled (W2-1):** stripped from create/update bodies; create always `draft`; transitions only via submit-approval/approve/reject. | — |
 | `external_category` | text | YES | — | enum-by-app (§3.2) | Public-site category. Create-default `press-release`. | — |
 | `attachment_url` | text | YES | — | — | Uploaded attachment path (`/uploads/<uuid>.<ext>`). | — |
 | `attachment_name` | text | YES | — | — | Original attachment filename. | Potentially **PDPA-Y** (filenames can contain names) |
-| `approved_by` | text | YES | — | — | Approving checker's username. **Overloaded by reject**: set to `Rejected by <username>: <reason>`. | **PDPA-Y** |
-| `approved_at` | text | YES | — | — | Approval instant as `YYYY-MM-DD HH:MM:SS` display label. | Metadata |
+| `approved_by` | text | YES | — | — | Approving checker's username (set only by the approve endpoint). **Overloaded by reject**: set to `Rejected by <username>: <reason>`. | **PDPA-Y** |
+| `approved_at` | text | YES | — | — | Approval instant as `YYYY-MM-DD HH:MM:SS` display label. Cleared by the edit-forced draft reset. | Metadata |
+| `submitted_by` | text | YES | — | — | **W2-1 (FR-NEWS-009).** User id of the maker/admin who submitted the item for approval; the self-approval guard compares it against the acting checker's id (submitter can never approve or reject their own item — admin included). Cleared by the edit-forced draft reset. | Pseudonymous link |
+| `submitted_at` | text | YES | — | — | **W2-1 (FR-NEWS-009).** Submission instant as `YYYY-MM-DD HH:MM:SS` display label; cleared together with `submitted_by` on draft reset. | Metadata |
 | `created_at` | timestamptz | NO | `now()` | — | Row creation. | Metadata |
 | `updated_at` | timestamptz | NO | `now()` | trigger `update_news_modtime` | Row last-modified. | Metadata |
 
@@ -345,7 +347,7 @@ Differences vs PostgreSQL worth remembering: username lookups trim + lowercase i
 
 ### 11.1 Schema provisioning — `scripts/schema.sql`
 
-Idempotent DDL: `CREATE TYPE` guarded by `duplicate_object` exception, `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`. Safe to re-run. Applied automatically at server boot by `PG_DDL` (identical statements); the script is for manual provisioning, DBA review, and CI. Docker-compose applies it only on a first-boot **empty** postgres volume — schema upgrades on existing databases are a manual step.
+Idempotent DDL: `CREATE TYPE` guarded by `duplicate_object` exception, `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`, and (W2-1) `ALTER TABLE news ADD COLUMN IF NOT EXISTS submitted_by / submitted_at` — the ALTER pair exists because `CREATE TABLE IF NOT EXISTS` does not touch pre-existing tables, so the new columns must be ensured explicitly on existing databases. Safe to re-run. Applied automatically at server boot by `PG_DDL` (identical statements); the script is for manual provisioning, DBA review, and CI. Docker-compose applies it only on a first-boot **empty** postgres volume — schema upgrades on existing databases are a manual step.
 
 ### 11.2 Content import — `scripts/migrate.js`
 
@@ -383,7 +385,7 @@ Upserts the admin by **username** (`ON CONFLICT (username) DO UPDATE` — resets
 |---|---|---|
 | DCR-1 | HANDOVER §5 / export tooling prose describe the export shape as `{generatedAt, tables:{…}}`. | The actual field is **`exportTimestamp`** (server.ts, export endpoint); `migrate.js` reads `payload.tables` regardless. |
 | DCR-2 | HANDOVER §5 API table implies `PUT /api/documents` exists ("GET/POST/PUT/DELETE /api/banners, /api/contacts, /api/documents"). | **No PUT documents route exists** — documents support GET/POST/DELETE only. |
-| DCR-3 | HANDOVER §4 says the maker's create leaves `externalSyncStatus: 'draft'`. | True only when `syncToExternal` is false; `POST /api/news` with `syncToExternal=true` creates the item **directly as `synced`** and writes a sync log — a maker acting alone can bypass dual-control at creation time. Flagged for Lead/CTO: either the create path should force `draft`/`pending_approval`, or the exception must be formally accepted. |
+| DCR-3 | HANDOVER §4 says the maker's create leaves `externalSyncStatus: 'draft'`. | Pre-W2-1, `POST /api/news` with `syncToExternal=true` created the item **directly as `synced`** and wrote a sync log — a maker acting alone could bypass dual-control at creation. **RESOLVED — W2-1 (commit 22023eb, FR-NEWS-009 strict ruling):** workflow fields (`externalSyncStatus`, `approvedBy`/`approvedAt`, `syncToExternal`) are stripped at the validation layer on every create/update; create always enters `draft`; `synced` is reachable only via checker approve (which now also bars self-approval). Schema lockstep: `submitted_by`/`submitted_at` columns added. |
 | DCR-4 | HANDOVER §5 presents the `{success:true, data}` envelope as the universal API convention. | As built, read endpoints return a bare `{data[, total]}` and several route-level 404/400 bodies omit the `success` field — clients must tolerate both shapes (detailed in doc 08 §1.3). |
 | DCR-5 | TS union `externalSyncStatus` (`src/types.ts:28`) declares `pending`; no runtime path assigns it. | Declared-but-unassigned dead member; harmless but worth pruning or wiring. (Correction per ratified register: `pending` is the **only** dead member — the union has no `approved` value at all.) |
 
@@ -397,3 +399,4 @@ Upserts the admin by **username** (`ON CONFLICT (username) DO UPDATE` — resets
 |---|---|---|---|
 | 1.0.0 | 2026-09-10 | worker-4 | Initial as-built data dictionary from `scripts/schema.sql`, `server.ts`, `src/types.ts`, `scripts/migrate.js`, `scripts/seed-users.js`. |
 | 1.1.0 | 2026-09-10 | worker-4 | CTO-gate revision: DCR numbering aligned to the ratified register (dead-union → DCR-5, envelope inconsistency → DCR-4); 5,000-entry dev audit cap demoted to an unnumbered note; corrected `externalSyncStatus` union facts — `pending` is the only dead member, no `approved` value exists in the union. |
+| 1.2.0 | 2026-09-10 | worker-4 (W2-1 truth pass) | Aligned to W2-1 strict dual-control (22023eb): §3.2/§5.3 workflow fields (`sync_to_external`, `external_sync_status`, `approved_by/at`) marked server-controlled (stripped on create/update; create always `draft`); new `submitted_by`/`submitted_at` columns documented (§5.3, §11.1 ALTER TABLE upgrade path); DCR-3 marked RESOLVED. |
