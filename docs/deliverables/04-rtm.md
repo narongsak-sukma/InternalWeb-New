@@ -2,13 +2,17 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.2.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2 revision: worker-5)
+**Version:** 1.3.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions: worker-5)
+
+> **Change log:** v1.3.0 (2026-09-10) — **FR-AUDIT-003 W2-3 extension ride-along** (SRS §3.1.10 extension, no new REQ ids — 94-REQ inventory unchanged): row extended with the three ruled W2-3 call-site classes (`SYNC_TRIGGER` / `SYSTEM_EXPORT` / `ACCESS_DENIED` per Doc 10 §9.1 as ruled/trimmed); test refs extended with the TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 flip-pins; status → AS-BUILT (core) + W2-3 ext `[PLANNED]`; §3.1 AUDIT and Total rows re-counted (90 full + 2 partial); §3.2 item 2 added (PERF renumbered to 3).
 
 > **Change log:** v1.2.0 (2026-09-10) — DCR-8 (CTO: **PREFER REMOVAL** of `POST /api/audit-logs`): FR-AUDIT-004 row re-pointed to the removal disposition (target: 404 for every role; server-side `recordAudit` the sole writer); test ref corrected to TC-AUDIT-008 (404 flip-pin; also fixes the stale TC-AUDIT-004 ref); UAT-049 marked TC-only (no user-facing scenario survives removal). §3.1 AUDIT counts and §3.3 open items updated. v1.1.0 (2026-09-10) — CTO gate REVISE applied: FR-NEWS-009 row updated to strict dual-control semantics (no role, admin included, may reach `'synced'` outside the checker approve endpoint; state + submitter≠approver guards; server-controlled workflow fields); NFR-COMP-001 row aligned; DCR-3 strict ruling recorded in §3.2/§3.3. v1.0.0 — initial draft.
 > **Change log (W2-1, same version):** dual-control enforcement **landed**: FR-NEWS-009 row `[PLANNED]` → **AS-BUILT** (implementation refs in row); FR-NEWS-002/003/005/006/007, FR-SYNC-001/002 and NFR-COMP-001 rows updated to strict behavior; §3.2 item 1 removed (implemented); §3.3 DCR-3 marked **resolved in W2-1**; coverage table NEWS/COMP/Total rows updated (91 full + 1 partial; 1 `[PLANNED]` item remains — FR-SYNC-004). *Lead-ruling extension (same pass): the forced edit-reset covers ALL non-draft states (`'pending_approval'`/`'synced'`/`'rejected'`) — content change ⇒ draft; edited-live content drops out of the public set until re-approval.*
 
 Traces every requirement in `03-srs.md` to its design reference, implementation
-status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is `[PLANNED]`).
+status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; two FRs
+carry `[PLANNED]` elements — the FR-SYNC-004 outbound call and the
+FR-AUDIT-003 W2-3 coverage extension).
 
 **Column legend**
 
@@ -129,7 +133,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 |---|---|---|---|---|---|
 | FR-AUDIT-001 | §3.1.10 | `server.ts` `recordAudit()` (session-derived actor, `req.ip`, UTC stamp) | AS-BUILT | TC-AUDIT-001 | UAT-046 |
 | FR-AUDIT-002 | §3.1.10 | `server.ts` `GET /api/audit-logs` (checker/admin); AdminCMS audit view | AS-BUILT | TC-AUDIT-002 | UAT-047 |
-| FR-AUDIT-003 | §3.1.10 | audit call sites in login/logout/users/news-approval/upload handlers (10 action types) | AS-BUILT | TC-AUDIT-003 | UAT-048 |
+| FR-AUDIT-003 | §3.1.10 | audit call sites in login/logout/users/news-approval/upload handlers (10 action types; W2-1 guard/reset audits reuse `UPDATE`/workflow values). **W2-3 coverage ext `[PLANNED]`** (Doc 10 §9.1): `SYNC_TRIGGER` (sync trigger), `SYSTEM_EXPORT` (system export), `ACCESS_DENIED` (403s + presented-cookie 401s — lead-ruled trim) | AS-BUILT (core) + W2-3 ext `[PLANNED]` | TC-AUDIT-003; ext: TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 (flip-pins) | UAT-048 |
 | FR-AUDIT-004 | §3.1.10 | **REMOVED per DCR-8** (CTO ruling, RISK-023): target state = `POST /api/audit-logs` → 404 for every role incl. admin; audit rows written exclusively by server-side `recordAudit()`; as-built endpoint remains live until the W2-2 code phase lands | AS-BUILT today → `[REMOVED per DCR-8]` in W2-2 | TC-AUDIT-008 (404 flip-pin; also corrects this row's earlier stale TC-AUDIT-004 ref) | — (TC-only; UAT-049 retired — manual append has no surviving user-facing scenario) |
 | FR-AUDIT-005 | §3.1.10 | No update/delete audit routes; `audit_logs` append-only design (`schema.sql` §9, no update trigger); in-memory cap 5,000 | AS-BUILT | TC-AUDIT-005 | — (TC-only) |
 
@@ -246,7 +250,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | DOC | FR | 3 | 3 | 0 | 3 |
 | ROOM | FR | 3 | 3 | 0 | 3 |
 | CMS | FR | 6 | 6 | 0 | 6 |
-| AUDIT | FR | 5 | 4 | 1 `[REMOVED per DCR-8]` (FR-AUDIT-004; as-built live until W2-2 code) | 3 |
+| AUDIT | FR | 5 | 3 full + 1 partial (FR-AUDIT-003 core) | FR-AUDIT-004 `[REMOVED per DCR-8]` (as-built live until W2-2 code); FR-AUDIT-003 W2-3 coverage ext `[PLANNED]` (Doc 10 §9.1) | 3 |
 | SYNC | FR | 6 | 5 + 1 partial | FR-SYNC-004 outbound call `[PLANNED]` | 6 |
 | UPL | FR | 3 | 3 | 0 | 3 |
 | SRCH | FR | 3 | 3 | 0 | 3 |
@@ -256,7 +260,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | COMP | NFR | 4 | 4 | DCR-3 ruled strict (CTO); enforced in W2-1 (FR-NEWS-009 landed) | 2 (shared) |
 | I18N | NFR | 3 | 3 | 0 | 3 |
 | MAINT | NFR | 7 | 7 | DCR-6 decision pending | 0 |
-| **Total** | | **94** | **91 full + 1 partial (FR-SYNC-004)** | 1 `[PLANNED]` item (FR-SYNC-004 outbound call), 2 proposed targets, 6 DCRs (incl. DCR-8 — ruled: removal pending W2-2 code; DCR-3 resolved in W2-1) | **62** |
+| **Total** | | **94** | **90 full + 2 partial (FR-AUDIT-003 W2-3 ext, FR-SYNC-004)** | 2 `[PLANNED]` items (FR-SYNC-004 outbound call; FR-AUDIT-003 W2-3 coverage ext — Doc 10 §9.1), 2 proposed targets, 6 DCRs (incl. DCR-8 — ruled: removal pending W2-2 code; DCR-3 resolved in W2-1) | **62** |
 
 ### 3.2 Requirements with no as-built implementation
 
@@ -265,7 +269,13 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
    machine and logging only (matches `README.md` §8 and `HANDOVER.md` §10
    "modelled, not wired"). Integration requires the real webhook endpoint and
    an additional egress NetworkPolicy rule.
-2. **NFR-PERF-001 / NFR-PERF-002 (PROPOSED):** latency targets are defined in
+2. **FR-AUDIT-003 (partial):** the three W2-3 call-site classes — sync
+   trigger (`SYNC_TRIGGER`), system export (`SYSTEM_EXPORT`), access denials
+   (`ACCESS_DENIED`, lead-ruled trim per Doc 10 §9.1) — are doc-first target
+   state; the W2-3 code phase lands after W2-2 (single `server.ts` lane).
+   Core coverage (10 action types + W2-1 reuses) is as built. Flip-pinned by
+   TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010.
+3. **NFR-PERF-001 / NFR-PERF-002 (PROPOSED):** latency targets are defined in
    this SRS but not yet measured; verification is deferred to system testing
    (`17-system-test-result.md`).
 
