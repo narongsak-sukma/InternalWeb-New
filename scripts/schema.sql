@@ -22,6 +22,7 @@
 --                                    file_size, download_url, is_new)
 --   sync_logs    -> SyncLog
 --   audit_logs   -> AuditLog        (resource_id included)
+--   rate_limit_hits -> shared failed-login budget (W2-5; repo-internal, no TS type)
 --
 -- Notes:
 --   * news.published_at is the display label the UI produces (Thai locale
@@ -62,6 +63,17 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
+
+-- W2-5 (RISK-010): shared failed-login budget for cluster-wide login rate
+-- limiting. One row per IP with a recent failed login; the atomic upsert in
+-- the repository layer rolls an expired window over on the next hit, so this
+-- table self-heals and the hourly sweeper only reclaims storage. Idempotent:
+-- existing deployments get it automatically at boot (additive-only, W2-1 pattern).
+CREATE TABLE IF NOT EXISTS rate_limit_hits (
+  ip text PRIMARY KEY,
+  window_start timestamptz NOT NULL DEFAULT now(),
+  fail_count integer NOT NULL DEFAULT 0
+);
 
 -- 3. NEWS & REGULATORY ANNOUNCEMENTS
 CREATE TABLE IF NOT EXISTS news (

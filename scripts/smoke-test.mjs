@@ -24,6 +24,15 @@
  * Usage:
  *   node scripts/smoke-test.mjs            # builds must exist (npm run build)
  *   SMOKE_PORT=4321 node scripts/smoke-test.mjs
+ *   SMOKE_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/kbj_smoke \
+ *     node scripts/smoke-test.mjs
+ *     → opt-in: additionally runs section 15 against a SECOND server spawned
+ *       in PostgreSQL mode. Use a DISPOSABLE database (the server applies
+ *       schema DDL + demo seed): proves the shared login-budget store
+ *       (rate_limit_hits) counts across processes, that the table is the
+ *       authoritative budget, and the fail-open WARNING path. Requires the
+ *       repo `pg` dependency (present in production installs); the default
+ *       run stays zero-dependency.
  *
  * Requires Node >= 18.14 (global fetch, FormData, Blob, Headers.getSetCookie).
  * No npm dependencies.
@@ -191,9 +200,10 @@ function pushLog(line) {
   if (VERBOSE) process.stdout.write(`[server] ${line}\n`);
 }
 
-function buildChildEnv() {
+function buildChildEnv(overrides = {}) {
   // Scrubbed copy of the current env: force in-memory mode (no DATABASE_URL,
-  // no stray PG* vars) and pin the frozen env contract values.
+  // no stray PG* vars) and pin the frozen env contract values. Overrides let
+  // the opt-in PG section (15) re-add DATABASE_URL + its own port.
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (/^(DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|PGSSLMODE|PGSSLROOTCERT)$/.test(key)) {
@@ -207,7 +217,7 @@ function buildChildEnv() {
   env.ADMIN_PASSWORD = ADMIN_PASSWORD;
   env.PORT = String(PORT);
   env.HOST = '127.0.0.1';
-  return env;
+  return { ...env, ...overrides };
 }
 
 function serverCommand() {
@@ -1184,6 +1194,178 @@ async function runSuite() {
 }
 
 // ---------------------------------------------------------------------------
+// Opt-in section 15: shared login-budget store in PostgreSQL mode (W2-5,
+// RISK-010). Runs only when SMOKE_DATABASE_URL is set. A SECOND server is
+// spawned against that (disposable) database; this process then manipulates
+// rate_limit_hits directly via the `pg` client, which stands in for "another
+// pod": if an out-of-process table write changes what the server does next,
+// the budget provably lives in the shared store, not in server memory.
+// ---------------------------------------------------------------------------
+
+const PG_PORT = Number(process.env.SMOKE_PG_PORT || 3211);
+const PG_BASE = `http://127.0.0.1:${PG_PORT}`;
+
+async function runPgSharedStoreSuite() {
+  const databaseUrl = process.env.SMOKE_DATABASE_URL;
+  if (!databaseUrl) return;
+
+  let pgChild = null;
+  const pgLogLines = [];
+  let client = null; // pg Client; connected in the boot check below
+
+  const pushPgLog = (line) => {
+    pgLogLines.push(line);
+    if (pgLogLines.length > 500) pgLogLines.shift();
+    if (VERBOSE) process.stdout.write(`[pg-server] ${line}\n`);
+  };
+
+  async function pgBadLogin(attempt) {
+    const res = await fetch(`${PG_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'nosuchuser', password: `WrongPassword-${attempt}` }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return res.status;
+  }
+
+  async function killPgServer() {
+    if (!pgChild) return;
+    const exited = new Promise((resolve) => {
+      if (pgChild.exitCode !== null || pgChild.signalCode !== null) resolve();
+      else pgChild.once('exit', resolve);
+    });
+    try { pgChild.kill(); } catch { /* already gone */ }
+    const forceTimer = setTimeout(() => {
+      try { pgChild.kill('SIGKILL'); } catch { /* best effort */ }
+    }, 3000);
+    await Promise.race([exited, sleep(8000)]);
+    clearTimeout(forceTimer);
+  }
+
+  section('15. Shared login-budget store - PG mode (W2-5, opt-in)');
+
+  await check('PG-mode server boots against SMOKE_DATABASE_URL (second instance, own port)', async () => {
+    const { Client } = await import('pg');
+    const cmdSpec = serverCommand();
+    assert(cmdSpec, 'no runnable server target for the PG-mode instance');
+    pgChild = spawn(cmdSpec.cmd, cmdSpec.args, {
+      cwd: ROOT,
+      env: buildChildEnv({
+        DATABASE_URL: databaseUrl,
+        PORT: String(PG_PORT),
+        UPLOAD_DIR: './uploads-test-pg',
+      }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    pgChild.stdout.setEncoding('utf8');
+    pgChild.stderr.setEncoding('utf8');
+    pgChild.stdout.on('data', (chunk) => chunk.split(/\r?\n/).forEach(pushPgLog));
+    pgChild.stderr.on('data', (chunk) => chunk.split(/\r?\n/).forEach(pushPgLog));
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const exited = pgChild.exitCode !== null ? { code: pgChild.exitCode, signal: pgChild.signalCode } : null;
+      if (exited) {
+        throw new Error(`PG-mode server exited during boot (code=${exited.code} signal=${exited.signal}); last logs: ${pgLogLines.slice(-10).join(' | ')}`);
+      }
+      try {
+        const res = await fetch(`${PG_BASE}/healthz`, { signal: AbortSignal.timeout(2000) });
+        if (res.status === 200) break;
+      } catch { /* not up yet */ }
+      if (Date.now() > deadline) {
+        throw new Error(`/healthz not reachable on port ${PG_PORT} within 30s; last logs: ${pgLogLines.slice(-10).join(' | ')}`);
+      }
+      await sleep(300);
+    }
+    // Connect out-of-process and reset the budget table so every run starts
+    // from a known state regardless of previous runs against this database.
+    client = new Client({ connectionString: databaseUrl });
+    await client.connect();
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rate_limit_hits (
+        ip text PRIMARY KEY,
+        window_start timestamptz NOT NULL DEFAULT now(),
+        fail_count integer NOT NULL DEFAULT 0
+      )`);
+    await client.query('TRUNCATE rate_limit_hits');
+    return `healthy on :${PG_PORT}; rate_limit_hits truncated`;
+  });
+
+  if (!client) return; // boot failed; nothing more to probe
+
+  await check('Failed logins are counted in rate_limit_hits and blocked with 429 (shared store active)', async () => {
+    let first429At = 0;
+    for (let i = 1; i <= 10; i++) {
+      const status = await pgBadLogin(`a${i}`);
+      if (status === 429) { first429At = i; break; }
+      assert(status === 401, `attempt ${i}: expected 401 or 429 from the PG-mode server, got ${status}`);
+    }
+    assert(first429At > 0, 'no 429 within 10 bad logins against the PG-mode server - shared budget not enforced');
+    const { rows } = await client.query('SELECT ip, fail_count FROM rate_limit_hits');
+    assert(rows.length === 1, `expected exactly one rate_limit_hits row after truncation, found ${rows.length}: ${JSON.stringify(rows)}`);
+    const failCount = Number(rows[0].fail_count);
+    assert(failCount >= 5, `rate_limit_hits.fail_count=${failCount} - the 429 did not come from the shared table`);
+    return `429 at attempt ${first429At}; rate_limit_hits row ip=${rows[0].ip} fail_count=${failCount}`;
+  });
+
+  await check('Out-of-process write to rate_limit_hits changes the verdict (table is the authoritative budget)', async () => {
+    const { rows } = await client.query('SELECT ip FROM rate_limit_hits LIMIT 1');
+    const ip = rows[0].ip;
+    // Zero the budget from OUTSIDE the server: the next failed login must be
+    // evaluated against the amended count (401), proving no in-memory cache.
+    await client.query('UPDATE rate_limit_hits SET fail_count = 0 WHERE ip = $1', [ip]);
+    const afterReset = await pgBadLogin('b1');
+    assert(afterReset === 401,
+      `after an external fail_count reset the same IP should get 401, got ${afterReset} - budget is cached in-process`);
+    // Pre-load the budget to the limit from OUTSIDE: the next attempt must be
+    // blocked (429) even though THIS server process never counted those hits.
+    await client.query('UPDATE rate_limit_hits SET fail_count = 5 WHERE ip = $1', [ip]);
+    const afterLoad = await pgBadLogin('b2');
+    assert(afterLoad === 429,
+      `after an external fail_count=5 the next login should get 429, got ${afterLoad} - external hits are invisible to the limiter`);
+    return 'external reset -> 401; external pre-load to limit -> 429';
+  });
+
+  await check('Shared-store failure fails open with a degradation WARNING (no lockout, budget skipped)', async () => {
+    // Simulate store unavailability the only way a black-box process allows:
+    // remove the table underneath it. Every subsequent increment must fail
+    // open - logins proceed as 401 (never 429), and each failure logs the
+    // WARNING with the monotonic degradation counter for deliverable-17 style
+    // reporting.
+    await client.query('DROP TABLE rate_limit_hits');
+    const statuses = [];
+    for (let i = 1; i <= 7; i++) statuses.push(await pgBadLogin(`c${i}`));
+    const blocked = statuses.filter((s) => s === 429).length;
+    assert(blocked === 0, `fail-open violated: ${blocked} of 7 attempts were rate-limited (429) with the store gone: ${statuses.join(',')}`);
+    assert(statuses.every((s) => s === 401),
+      `with the shared store unavailable all attempts must still reach credential checks (401), got ${statuses.join(',')}`);
+    await sleep(300); // give stdout/stderr pumps a beat
+    const warn = pgLogLines.find((l) => l.includes('[LoginRateLimit]') && l.includes('failing open'));
+    assert(warn, 'no "[LoginRateLimit] ... failing open" WARNING found in the PG-mode server log');
+    assert(warn.includes('degradation event #1'),
+      `fail-open WARNING must carry the monotonic degradation counter, got: ${warn}`);
+    return '7/7 attempts 401, zero 429; WARNING logged with "degradation event #1 this process"';
+  });
+
+  // Cleanup (not a check): restore the table so the database is left in a
+  // runnable state for the next run / deployment.
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rate_limit_hits (
+        ip text PRIMARY KEY,
+        window_start timestamptz NOT NULL DEFAULT now(),
+        fail_count integer NOT NULL DEFAULT 0
+      )`);
+    await client.query('TRUNCATE rate_limit_hits');
+  } catch (err) {
+    console.error('[cleanup] failed to restore rate_limit_hits:', err && err.message ? err.message : err);
+  } finally {
+    try { await client.end(); } catch { /* already closed */ }
+    await killPgServer();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 
@@ -1195,7 +1377,7 @@ function writeReport(meta, suiteError) {
   lines.push(`- Generated: ${new Date().toISOString()}`);
   lines.push(`- Node: ${process.version} on ${os.platform()} ${os.release()}`);
   lines.push(`- Target: ${BASE} (spawned \`${meta.serverMode || 'n/a'}\`, PID ${meta.pid || 'n/a'})`);
-  lines.push(`- Mode: in-memory (DATABASE_URL removed), NODE_ENV=production, UPLOAD_DIR=./uploads-test`);
+  lines.push(`- Mode: in-memory (DATABASE_URL removed), NODE_ENV=production, UPLOAD_DIR=./uploads-test${process.env.SMOKE_DATABASE_URL ? `; section 15 opt-in: second server in PG mode on :${PG_PORT} (SMOKE_DATABASE_URL)` : ''}`);
   lines.push(`- Result: **${results.length - failed.length}/${results.length} passed${failed.length ? `, ${failed.length} FAILED` : ''}**`);
   if (suiteError) lines.push(`- Suite aborted early: ${suiteError}`);
   lines.push('');
@@ -1260,6 +1442,7 @@ async function main() {
     await waitForHealth(30000);
     console.log('Server is healthy. Running checks...');
     await runSuite();
+    await runPgSharedStoreSuite(); // no-op unless SMOKE_DATABASE_URL is set
   } catch (err) {
     suiteError = err && err.message ? err.message : String(err);
     console.error(`\n[FATAL] ${suiteError}`);

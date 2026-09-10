@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import bcrypt from 'bcryptjs';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { type IncrementResponse, type Store } from 'express-rate-limit';
 import multer from 'multer';
 import { Pool } from 'pg';
 
@@ -124,6 +124,14 @@ interface SessionRecord {
   expiresAt: number;
 }
 
+// Login rate-limit policy (D1): 5 FAILED logins per 60s window per IP. The
+// budget is counted in the ACTIVE repository (W2-5, RISK-010) — a PostgreSQL
+// atomic upsert shared by every pod when DATABASE_URL is set, per-process
+// in-memory in dev. Code constants by design: no env knobs (see W2-5 design
+// note §4 — a config case must be made by ops/UAT first).
+const LOGIN_RATE_WINDOW_SEC = 60;
+const LOGIN_RATE_LIMIT = 5;
+
 interface Repository {
   readonly mode: 'memory' | 'postgres';
   /** Ensure schema (pg), seed initial content when tables are empty, no-op for memory. */
@@ -141,6 +149,15 @@ interface Repository {
   findSession(sid: string): Promise<SessionRecord | null>;
   deleteSession(sid: string): Promise<void>;
   deleteExpiredSessions(): Promise<void>;
+
+  // Shared failed-login budget (W2-5): cluster-wide when PostgreSQL-backed,
+  // per-process in dev memory. consumeLoginBudget returns the post-increment
+  // failure count for the current window plus the seconds until it resets;
+  // the caller (express-rate-limit) compares the count against the limit.
+  consumeLoginBudget(ip: string): Promise<{ count: number; retryAfterSec: number }>;
+  releaseLoginBudget(ip: string): Promise<void>;
+  clearLoginBudget(ip: string): Promise<void>;
+  purgeStaleLoginBudgets(): Promise<void>;
 
   listNews(): Promise<NewsItem[]>;
   findNews(id: string): Promise<NewsItem | null>;
@@ -190,6 +207,10 @@ class InMemoryRepository implements Repository {
   private usersById = new Map<string, User>();
   private userIdByUsername = new Map<string, string>();
   private sessionsBySid = new Map<string, SessionRecord>();
+  // W2-5: per-process failed-login budget — same contract as the PostgreSQL
+  // implementation, scoped to this process by design (dev mode runs a single
+  // process; production sets DATABASE_URL and shares the budget in PG).
+  private loginBudget = new Map<string, { windowStart: number; failCount: number }>();
 
   async init(): Promise<void> {
     console.log('[Persistence] Using IN-MEMORY stores (dev mode). Set DATABASE_URL to enable PostgreSQL.');
@@ -235,6 +256,33 @@ class InMemoryRepository implements Repository {
     const now = Date.now();
     for (const [sid, record] of this.sessionsBySid) {
       if (record.expiresAt < now) this.sessionsBySid.delete(sid);
+    }
+  }
+
+  async consumeLoginBudget(ip: string): Promise<{ count: number; retryAfterSec: number }> {
+    const now = Date.now();
+    const entry = this.loginBudget.get(ip);
+    if (!entry || now - entry.windowStart >= LOGIN_RATE_WINDOW_SEC * 1000) {
+      this.loginBudget.set(ip, { windowStart: now, failCount: 1 });
+      return { count: 1, retryAfterSec: LOGIN_RATE_WINDOW_SEC };
+    }
+    entry.failCount += 1;
+    const retryAfterSec = Math.max(0, Math.ceil((entry.windowStart + LOGIN_RATE_WINDOW_SEC * 1000 - now) / 1000));
+    return { count: entry.failCount, retryAfterSec };
+  }
+  async releaseLoginBudget(ip: string): Promise<void> {
+    const entry = this.loginBudget.get(ip);
+    if (entry) entry.failCount = Math.max(0, entry.failCount - 1);
+  }
+  async clearLoginBudget(ip: string): Promise<void> {
+    this.loginBudget.delete(ip);
+  }
+  async purgeStaleLoginBudgets(): Promise<void> {
+    // Mirrors the PG sweeper: one hour = window + grace. Correctness never
+    // depends on this — consumeLoginBudget rolls an expired window over.
+    const cutoff = Date.now() - 60 * 60 * 1000;
+    for (const [ip, entry] of this.loginBudget) {
+      if (entry.windowStart < cutoff) this.loginBudget.delete(ip);
     }
   }
 
@@ -370,6 +418,17 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
+
+-- W2-5 (RISK-010): shared failed-login budget for cluster-wide login rate
+-- limiting. One row per IP with a recent failed login; the atomic upsert in
+-- the repository layer rolls an expired window over on the next hit, so this
+-- table self-heals and the hourly sweeper only reclaims storage. Idempotent:
+-- existing deployments get it automatically at boot (additive-only, W2-1 pattern).
+CREATE TABLE IF NOT EXISTS rate_limit_hits (
+  ip text PRIMARY KEY,
+  window_start timestamptz NOT NULL DEFAULT now(),
+  fail_count integer NOT NULL DEFAULT 0
+);
 
 CREATE TABLE IF NOT EXISTS news (
   seq bigserial UNIQUE,
@@ -811,6 +870,38 @@ class PostgresRepository implements Repository {
     await this.pool.query('DELETE FROM sessions WHERE expires_at < NOW()');
   }
 
+  async consumeLoginBudget(ip: string): Promise<{ count: number; retryAfterSec: number }> {
+    // Atomic window-rollover-and-increment in ONE statement: ON CONFLICT DO
+    // UPDATE takes the row lock, so concurrent pods racing on the same IP can
+    // never lose counts. An expired window resets fail_count to 1 and slides
+    // window_start to now; otherwise fail_count increments within the window.
+    const result = await this.pool.query(
+      `INSERT INTO rate_limit_hits (ip, window_start, fail_count)
+       VALUES ($1, now(), 1)
+       ON CONFLICT (ip) DO UPDATE SET
+         window_start = CASE WHEN rate_limit_hits.window_start < now() - make_interval(secs => $2)
+                             THEN now() ELSE rate_limit_hits.window_start END,
+         fail_count   = CASE WHEN rate_limit_hits.window_start < now() - make_interval(secs => $2)
+                             THEN 1 ELSE rate_limit_hits.fail_count + 1 END
+       RETURNING fail_count,
+         GREATEST(0, CEIL(EXTRACT(epoch FROM window_start + make_interval(secs => $2) - now())))::int AS retry_after_sec`,
+      [ip, LOGIN_RATE_WINDOW_SEC]
+    );
+    const row = result.rows[0];
+    return { count: Number(row.fail_count), retryAfterSec: Number(row.retry_after_sec) };
+  }
+  async releaseLoginBudget(ip: string): Promise<void> {
+    await this.pool.query('UPDATE rate_limit_hits SET fail_count = GREATEST(0, fail_count - 1) WHERE ip = $1', [ip]);
+  }
+  async clearLoginBudget(ip: string): Promise<void> {
+    await this.pool.query('DELETE FROM rate_limit_hits WHERE ip = $1', [ip]);
+  }
+  async purgeStaleLoginBudgets(): Promise<void> {
+    // One hour = window + grace; purely storage reclamation — the upsert
+    // self-heals expired windows, so correctness never depends on this sweep.
+    await this.pool.query("DELETE FROM rate_limit_hits WHERE window_start < now() - interval '1 hour'");
+  }
+
   async listNews(): Promise<NewsItem[]> {
     const result = await this.pool.query('SELECT * FROM news ORDER BY seq DESC');
     return result.rows.map(newsFromRow);
@@ -1169,10 +1260,69 @@ function stripNewsWorkflowFields(body: Record<string, unknown> | undefined): voi
   }
 }
 
-// Login rate limiting: 5 attempts per minute per IP (D1)
+// Login rate limiting: 5 failed attempts per minute per IP (D1), counted in
+// the ACTIVE repository (W2-5, RISK-010). The store adapter below delegates
+// to `repo` at request time — the module-level default instance serves dev
+// wiring, and startServer() swaps in the PostgreSQL repository (which shares
+// the budget across every pod) before the port opens, so the limiter always
+// counts against the live repository.
+//
+// FAIL-OPEN POLICY (Lead-confirmed 2026-09-10): if the shared store errors,
+// the request proceeds WITHOUT consuming budget. Rationale: rate limiting
+// here is defense-in-depth (bcrypt cost 12 + uniform login timing + the
+// LOGIN_FAILED audit trail all remain), a full database outage already
+// blocks credential verification, and fail-closed would convert a transient
+// database blip into a lockout of every user. Every fail-open emits a
+// WARNING with the underlying error and a process-local monotonic counter
+// ("degradation event #N this process") so system-test reporting
+// (deliverable 17) can count degraded events from logs. Counter resets on
+// restart. The CTO may overrule at the codex gate — the decision lives
+// entirely in withLoginStoreFailOpen below.
+let loginStoreDegradationEvents = 0;
+
+async function withLoginStoreFailOpen<T>(
+  op: () => Promise<T>,
+  fallback: T,
+  action: string
+): Promise<T> {
+  try {
+    return await op();
+  } catch (err) {
+    loginStoreDegradationEvents += 1;
+    console.warn(
+      `[LoginRateLimit] shared store unavailable, failing open (degradation event #${loginStoreDegradationEvents} this process) during ${action}:`,
+      err instanceof Error ? err.message : err
+    );
+    return fallback;
+  }
+}
+
+const sharedLoginBudgetStore: Store = {
+  async increment(key: string): Promise<IncrementResponse> {
+    const { count, retryAfterSec } = await withLoginStoreFailOpen(
+      () => repo.consumeLoginBudget(key),
+      { count: 0, retryAfterSec: LOGIN_RATE_WINDOW_SEC },
+      'increment'
+    );
+    return {
+      totalHits: count,
+      resetTime: new Date(Date.now() + retryAfterSec * 1000),
+    };
+  },
+  async decrement(key: string): Promise<void> {
+    // Only reached on successful responses (skipSuccessfulRequests): release
+    // one budget unit so legitimate rapid logins never self-lockout.
+    await withLoginStoreFailOpen(() => repo.releaseLoginBudget(key), undefined, 'decrement');
+  },
+  async resetKey(key: string): Promise<void> {
+    await withLoginStoreFailOpen(() => repo.clearLoginBudget(key), undefined, 'resetKey');
+  },
+};
+
 const loginLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 5,
+  windowMs: LOGIN_RATE_WINDOW_SEC * 1000,
+  limit: LOGIN_RATE_LIMIT,
+  store: sharedLoginBudgetStore,
   // Only FAILED logins consume the budget (fail2ban-style): brute-force is
   // throttled while legitimate rapid logins / test suites never self-lockout.
   skipSuccessfulRequests: true,
@@ -2335,10 +2485,16 @@ async function startServer() {
     await repo.init();
   }
 
-  // Start the expired-session sweeper (hourly; unref'd so it never holds the process open)
+  // Start the expired-session sweeper (hourly; unref'd so it never holds the
+  // process open). Also purges stale login-budget windows (W2-5) — storage
+  // reclamation only; the upsert self-heals expired windows, so correctness
+  // never depends on this sweep.
   sessionSweeper = setInterval(() => {
     repo.deleteExpiredSessions().catch((err) => {
       console.error('[SessionSweeper] Failed to purge expired sessions:', err instanceof Error ? err.message : err);
+    });
+    repo.purgeStaleLoginBudgets().catch((err) => {
+      console.error('[SessionSweeper] Failed to purge stale login-rate-limit windows:', err instanceof Error ? err.message : err);
     });
   }, 60 * 60 * 1000);
   sessionSweeper.unref();
