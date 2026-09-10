@@ -1,8 +1,8 @@
 # UI Prototype Record — KB J Capital Intranet Portal
 
-**Version:** 1.1.0 · **Status:** Draft (DCR-9 revision — implementation pending) · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval (DCR-9 revision: worker-3)
+**Version:** 1.2.0 · **Status:** As-built (DCR-9 implemented 2d41c39, independently verified; codex ratification pending) · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval (DCR-9 revision: worker-3; as-built flip: lead)
 
-> **Change log** — **1.1.0 (2026-09-10)**: **DCR-9** (lead ruling — Option C of `.omc/research/inert-sync-toggles-ux.md`; UI truth-aligned to W2-1 server semantics): the CMS "External Public Web Sync" form toggle and the row-level sync toggle are **removed from the target prototype** — both were inert at the API layer since W2-1 (server strips `syncToExternal` and workflow fields via `stripNewsWorkflowFields`, server.ts). A **"Withdraw from public…"** row action (visible only on `synced` items, maker+; confirm dialog naming the consequence) rides the existing audited PUT forced-reset semantics. Also documented as fixed: the **response-discard defect** (App.tsx `handleToggleExternalSync` applied the locally built object instead of the server response) and the **fabricated client-side SyncLog rows / overstated "now LIVE" toasts** (closes gap G-1). **1.0.0**: initial AS-BUILT record (Wave-1 gate, approved).
+> **Change log** — **1.2.0 (2026-09-10)**: **DCR-9 IMPLEMENTED** — code landed on `feature/w2-1-dual-control` as **2d41c39**: form/row toggles removed; "Withdraw from public…" row action (synced-only, maker+, Thai-first confirm naming the draft consequence); toasts keyed on server responses; fabricated client SyncLog rows deleted; response-discard defect closed; honest form headings ("Edit/Create Announcement" + บันทึกเป็นร่าง · draft-until-approved subtext — lead review fix; 4 e2e selectors updated in lockstep). Independently verified by worker-1: all §5.7-§5.8/G-1 semantics confirmed, removed-symbol sweep 0 hits; gates tsc --noEmit (strict) 0 · build 0 · smoke 99/99 · e2e 63 PASS / 0 FAIL / 1 FLAKY vs fresh production server on :3220. Companion commit c7db581 syncs the strict-mode manifests from develop (branch lockfile predated the W2-4 merge). **1.1.0 (2026-09-10)**: **DCR-9** (lead ruling — Option C of `.omc/research/inert-sync-toggles-ux.md`; UI truth-aligned to W2-1 server semantics): the CMS "External Public Web Sync" form toggle and the row-level sync toggle are **removed from the target prototype** — both were inert at the API layer since W2-1 (server strips `syncToExternal` and workflow fields via `stripNewsWorkflowFields`, server.ts). A **"Withdraw from public…"** row action (visible only on `synced` items, maker+; confirm dialog naming the consequence) rides the existing audited PUT forced-reset semantics. Also documented as fixed: the **response-discard defect** (App.tsx `handleToggleExternalSync` applied the locally built object instead of the server response) and the **fabricated client-side SyncLog rows / overstated "now LIVE" toasts** (closes gap G-1). **1.0.0**: initial AS-BUILT record (Wave-1 gate, approved).
 
 > This document records the **actual React SPA as the approved prototype** —
 > there is no separate Figma/mockup artifact; the running application is the
@@ -296,7 +296,7 @@ right rail ("Admin Quick Actions" for admins).
 └───────────────────────────────────────────────────┴────────────────────────┘
 ```
 
-Maker-checker in the CMS (**target state per DCR-9**, UI truth-aligned to the
+Maker-checker in the CMS (**as-built per DCR-9 — landed 2d41c39**, UI truth-aligned to the
 W2-1 server semantics): every announcement is saved as `draft` — the form
 carries **no publish/sync toggle** (the pre-W2-1 "External Public Web Sync"
 toggle and its "Auto-sync enabled" chip are removed; they had been inert at
@@ -368,7 +368,7 @@ outbound HTTP call is performed yet (see §10 / RISK-001).
   success banners with `role="status"`.
 - **Optimistic-free updates:** handlers throw on API failure; App state
   mutates only after the server confirms, so a failed save leaves prior state
-  untouched. *(DCR-9 fix, target state: the sync-toggle path had violated
+  untouched. *(DCR-9 fix — as-built (landed 2d41c39): the sync-toggle path had violated
   this — `handleToggleExternalSync` applied the locally built object instead
   of the server response and fabricated local SyncLog rows / overstated
   toasts; with the toggles removed, state and feedback derive from the
@@ -415,7 +415,7 @@ via the Lead/DCR process.
 
 | # | Gap | Evidence / note |
 |---|---|---|
-| G-1 | **CLOSED — DCR-9 (Wave-2 lead ruling; implementation pending).** The sync-status UI overstated reality three ways: publish-promising toggles inert at the API layer (server strips `syncToExternal`/workflow fields since W2-1), "now LIVE on www.kbjcapital.co.th" toasts + optimistic local `SyncLog` rows fabricated for syncs that never happened, and the toggle handler applying local state instead of the server response. Fix per Option C: toggles removed; "Withdraw from public" (confirm dialog) rides the audited PUT forced-reset; state/toasts/logs derive from the server-returned item. Residual truth (not a gap): no outbound HTTP call is performed yet — the webhook stays `[PLANNED]` (RISK-001, doc 05 §8.1). | `.omc/research/inert-sync-toggles-ux.md` (evidence: App.tsx L227–242/260–275/290–325, AdminCMS.tsx L1574–1621/1821–1865); doc 12 TC-CMS-008 note; doc 05 §3.3. |
+| G-1 | **CLOSED — DCR-9 (Wave-2 lead ruling; implemented 2d41c39, independently verified 2026-09-10).** The sync-status UI overstated reality three ways: publish-promising toggles inert at the API layer (server strips `syncToExternal`/workflow fields since W2-1), "now LIVE on www.kbjcapital.co.th" toasts + optimistic local `SyncLog` rows fabricated for syncs that never happened, and the toggle handler applying local state instead of the server response. Fix per Option C: toggles removed; "Withdraw from public" (confirm dialog) rides the audited PUT forced-reset; state/toasts/logs derive from the server-returned item. Residual truth (not a gap): no outbound HTTP call is performed yet — the webhook stays `[PLANNED]` (RISK-001, doc 05 §8.1). | `.omc/research/inert-sync-toggles-ux.md` (evidence: App.tsx L227–242/260–275/290–325, AdminCMS.tsx L1574–1621/1821–1865); doc 12 TC-CMS-008 note; doc 05 §3.3. |
 | G-2 | No i18n framework: bilingual strings are hardcoded, so coverage drifts (some toasts are English-only, e.g. "New Announcement Published to Employee Intranet successfully!"). | §6 above; a string-catalog extraction is a candidate refactor. |
 | G-3 | Room booking takes free-text time ("เวลา / Time") with no calendar/time-slot picker or conflict detection in the UI; only current occupancy is shown. | `DirectoryAndRooms.tsx` booking modal fields. |
 | G-4 | No dark mode; palette is fixed light. | §2. |
