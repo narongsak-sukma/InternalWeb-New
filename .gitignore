@@ -13,3 +13,5 @@ coverage/
 !.omc/skills/
 uploads/
 uploads*/
+# nested OMC session state (workers with shifted cwd)
+docs/deliverables/.omc/
