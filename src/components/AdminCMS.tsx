@@ -263,7 +263,9 @@ interface AdminCMSProps {
   onAddNews: (item: NewsItem) => void;
   onUpdateNews: (item: NewsItem) => void;
   onDeleteNews: (id: string) => void;
-  onToggleExternalSync: (id: string) => void;
+  /** DCR-9: withdraw a live (synced) item from the public site — rides the
+   *  existing audited PUT forced-reset semantics (synced → draft). */
+  onWithdrawFromPublic: (id: string) => void;
   onSubmitForApproval?: (id: string) => void;
   onApproveNews?: (id: string) => void;
   onRejectNews?: (id: string, reason?: string) => void;
@@ -292,7 +294,7 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
   onAddNews,
   onUpdateNews,
   onDeleteNews,
-  onToggleExternalSync,
+  onWithdrawFromPublic,
   onSubmitForApproval,
   onApproveNews,
   onRejectNews,
@@ -327,11 +329,8 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
   const [newsBadgeColor, setNewsBadgeColor] = useState<'red' | 'orange' | 'blue' | 'emerald' | 'amber'>('amber');
   const [newsImageUrl, setNewsImageUrl] = useState('https://images.unsplash.com/photo-1542744094-3a31f272c490?auto=format&fit=crop&w=1000&q=80');
   const [newsIsImportantAlert, setNewsIsImportantAlert] = useState(false);
-  const [newsSyncToExternal, setNewsSyncToExternal] = useState(false);
-  // Canonical union from NewsItem['externalCategory'] — a narrower hand-rolled
-  // literal set broke strict typing at the setNewsExternalCategory call sites
-  // (values 'money-tips'/'lifestyle' are legal per src/types.ts).
-  const [newsExternalCategory, setNewsExternalCategory] = useState<NonNullable<NewsItem['externalCategory']>>('press-release');
+  // DCR-9: no publish/sync form controls — workflow fields are server-controlled
+  // (W2-1 strips them from every payload); the only path to "live" is checker approve.
 
   // Contact Form State
   const [isAddingContact, setIsAddingContact] = useState(false);
@@ -398,7 +397,7 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
     JSON.stringify({
       t: newsTitle, e: newsTitleEn, c: newsCategory, s: newsSummary, x: newsContent,
       d: newsDepartment, b: newsBadge, bc: newsBadgeColor, i: newsImageUrl,
-      a: newsIsImportantAlert, sy: newsSyncToExternal, ec: newsExternalCategory,
+      a: newsIsImportantAlert,
     }) !== newsSnapshot;
   const bannerDirty =
     isAddingBanner &&
@@ -524,13 +523,11 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
     setNewsBadgeColor(item.badgeColor || 'amber');
     setNewsImageUrl(item.imageUrl || '');
     setNewsIsImportantAlert(!!item.isImportantAlert);
-    setNewsSyncToExternal(!!item.syncToExternal);
-    setNewsExternalCategory(item.externalCategory || 'press-release');
     setNewsSnapshot(
       JSON.stringify({
         t: item.title, e: item.titleEn || '', c: item.category, s: item.summary, x: item.content,
         d: item.department, b: item.badge || 'NEWS', bc: item.badgeColor || 'amber', i: item.imageUrl || '',
-        a: !!item.isImportantAlert, sy: !!item.syncToExternal, ec: item.externalCategory || 'press-release',
+        a: !!item.isImportantAlert,
       })
     );
     setNewsFormError(null);
@@ -549,12 +546,10 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
     setNewsBadgeColor('amber');
     setNewsImageUrl('');
     setNewsIsImportantAlert(false);
-    setNewsSyncToExternal(false);
-    setNewsExternalCategory('press-release');
     setNewsSnapshot(
       JSON.stringify({
         t: '', e: '', c: 'kbj-news', s: '', x: '', d: 'Marketing & PR', b: 'ANNOUNCEMENT',
-        bc: 'amber', i: '', a: false, sy: false, ec: 'press-release',
+        bc: 'amber', i: '', a: false,
       })
     );
     setNewsFormError(null);
@@ -573,8 +568,6 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
     setNewsBadgeColor('amber');
     setNewsImageUrl('');
     setNewsIsImportantAlert(false);
-    setNewsSyncToExternal(false);
-    setNewsExternalCategory('press-release');
     setNewsSnapshot('');
     setNewsFormError(null);
   };
@@ -895,9 +888,11 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
       department: newsDepartment,
       isImportantAlert: newsIsImportantAlert,
       views: existing?.views ?? 1,
-      syncToExternal: newsSyncToExternal,
-      externalSyncStatus: newsSyncToExternal ? 'synced' : 'draft',
-      externalCategory: newsExternalCategory,
+      // DCR-9: workflow fields are server-controlled (W2-1 strips them) — the
+      // form never claims publication state; every save enters/returns to draft
+      // until a checker approves. syncToExternal stays in the payload only to
+      // satisfy the NewsItem type (the server forces false regardless).
+      syncToExternal: false,
     };
 
     setSavingNews(true);
@@ -1075,11 +1070,14 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
     }
   };
 
-  const handleToggleSyncRow = async (id: string) => {
+  // DCR-9: the only row-level public-web action — withdraw a live item. Opens
+  // the confirm dialog naming the consequence (doc 11 §5.8); the App handler
+  // rides the existing PUT forced-reset semantics (synced → draft, AUD-P01).
+  const handleWithdrawRow = async (id: string) => {
     try {
-      await onToggleExternalSync(id);
+      await onWithdrawFromPublic(id);
     } catch {
-      setActionError('เปลี่ยนสถานะการซิงก์ไม่สำเร็จ / Failed to toggle sync status.');
+      setActionError('เพิกถอนไม่สำเร็จ / Failed to withdraw — please try again.');
     }
   };
 
@@ -1360,8 +1358,14 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-6 bg-amber-500 rounded-sm" />
                   <h3 className="text-base font-bold text-slate-900">
-                    {editingNewsId ? 'Edit Article & Sync Settings' : 'Create & Publish New Announcement'}
+                    {editingNewsId ? 'Edit Announcement' : 'Create New Announcement'}
                   </h3>
+                  {/* DCR-9 (lead review fix): headings no longer promise
+                      publish/sync — every save enters/stays draft until a
+                      checker approves (doc 11 §5.7). */}
+                  <span className="text-[10px] text-slate-500 font-semibold">
+                    บันทึกเป็นร่าง · draft until approved
+                  </span>
                   {newsDirty && (
                     <span className="ml-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-300">
                       ยังไม่บันทึก / Unsaved
@@ -1571,55 +1575,6 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
                   )}
                 </div>
 
-                {/* HIGHLIGHTED FEATURE: External Web Sync Controls */}
-                <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 via-slate-50 to-amber-50 border-2 border-blue-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Globe className="w-5 h-5 text-blue-600" />
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-900">
-                          External Public Web Sync (www.kbjcapital.co.th)
-                        </h4>
-                        <p className="text-[11px] text-slate-500">
-                          เปิดให้เนื้อหานี้ซิงก์ขึ้นสู่เว็บไซต์ภายนอกสำหรับลูกค้ารายย่อยและสาธารณชนโดยอัตโนมัติ
-                        </p>
-                      </div>
-                    </div>
-
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={newsSyncToExternal}
-                        onChange={(e) => setNewsSyncToExternal(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
-                    </label>
-                  </div>
-
-                  {newsSyncToExternal && (
-                    <div className="pt-2 border-t border-blue-100 flex items-center gap-4">
-                      <span className="text-xs font-semibold text-slate-700">
-                        External Category:
-                      </span>
-                      <select
-                        value={newsExternalCategory}
-                        onChange={(e) => setNewsExternalCategory(e.target.value as any)}
-                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs"
-                      >
-                        <option value="press-release">Press Release & News</option>
-                        <option value="compliance">Consumer & Compliance Directive</option>
-                        <option value="csr">CSR & Sustainability</option>
-                        <option value="product-notice">Kashjoy Loan & Product Alert</option>
-                      </select>
-
-                      <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Auto-sync enabled
-                      </span>
-                    </div>
-                  )}
-                </div>
-
                 {/* Important Alert Toggle */}
                 <div className="flex items-center gap-2">
                   <input
@@ -1820,18 +1775,37 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
                               )
                             ) : item.syncToExternal && item.externalSyncStatus === 'synced' ? (
                             <div className="flex flex-col items-center gap-0.5">
-                              <button
-                                onClick={() => handleToggleSyncRow(item.id)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 transition cursor-pointer"
-                                title="Click to toggle sync with www.kbjcapital.co.th"
+                              {/* DCR-9: read-only live badge — publication is checker-only;
+                                  the single row action is an honestly-labeled withdrawal. */}
+                              <span
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800"
+                                title="เผยแพร่บนเว็บไซต์สาธารณะ / Live on www.kbjcapital.co.th"
                               >
                                 <Globe className="w-3 h-3" />
-                                <span>Approved & Live</span>
-                              </button>
+                                <span>Live on Public Web</span>
+                              </span>
                               {item.approvedBy && (
                                 <span className="text-[9px] text-slate-400 font-mono">
                                   ✓ {item.approvedBy.split('@')[0]}
                                 </span>
+                              )}
+                              {canWrite && (
+                                <button
+                                  onClick={() =>
+                                    setConfirmCfg({
+                                      tone: 'warning',
+                                      title: 'เพิกถอนจากเว็บไซต์สาธารณะ / Withdraw from public web',
+                                      message: `เพิกถอน "${item.title}" ออกจาก www.kbjcapital.co.th\nรายการจะกลับสู่สถานะ "ร่าง" และจะไม่แสดงบนเว็บไซต์สาธารณะอีกจนกว่าจะได้รับการอนุมัติใหม่\nThe item returns to draft and leaves the public site until it is re-approved.`,
+                                      confirmLabel: 'เพิกถอน / Withdraw',
+                                      onConfirm: () => handleWithdrawRow(item.id),
+                                    })
+                                  }
+                                  className="text-[10px] text-rose-600 hover:underline font-bold mt-0.5 cursor-pointer"
+                                  title="Withdraw from the public website — the item returns to draft and needs re-approval"
+                                  aria-label={`เพิกถอน: ${item.title} / Withdraw from public web`}
+                                >
+                                  Withdraw from public…
+                                </button>
                               )}
                             </div>
                           ) : item.externalSyncStatus === 'rejected' ? (
@@ -1847,17 +1821,10 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
                             </div>
                           ) : (
                             <div className="flex flex-col items-center gap-1">
-                              <button
-                                onClick={() => handleToggleSyncRow(item.id)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-500 hover:bg-slate-200 transition cursor-pointer"
-                                title="Click to publish internally or sync"
-                              >
-                                <span>Internal Only</span>
-                              </button>
                               {canWrite && onSubmitForApproval && (
                                 <button
                                   onClick={() => handleSubmitApprovalRow(item.id)}
-                                  className="text-[10px] text-[#F97316] hover:text-[#EA580C] font-bold hover:underline cursor-pointer"
+                                  className="text-[10px] text-[#F97316] hover:text-[#EA580C] font-bold hover:underline cursor-pointer mt-0.5"
                                   title="Submit for Maker-Checker dual approval"
                                 >
                                   + Request Approval
