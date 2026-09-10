@@ -64,6 +64,12 @@ CTO (codex) solves directly.
 | 1 | Lead review of doc set (consistency, cross-refs, no divergence) | lead | done 2026-09-10 |
 | 1 | CTO gate: deliverable docs (substitute opus critic, per decision #4) | CTO | APPROVED 2026-09-10 (decision #6) — merged to develop |
 | 2 | Implementation waves (decomposed from approved docs) | workers | unblocked — see .omc/handoffs/wave2-plan-draft.md |
+| 2 | W2-1 dual-control bundle (DCR-3+7+AUD-P01/02/03) | worker-2 | in progress (task #10; merge holds for codex) |
+| 2 | W2-2 audit-endpoint removal (DCR-8) doc phase | worker-5 | in progress (task #11; code after W2-1) |
+| 2 | W2-3 audit coverage gaps AUD-P06/05/07 | worker-5 | queued (task #12, after W2-2) |
+| 2 | W2-4 TypeScript strict (DCR-6) inventory + src fixes | worker-3 | in progress (task #13; enable after W2-1) |
+| 2 | W2-5 shared rate-limit store (RISK-010) design | worker-1 | in progress (task #14; code after W2-1) |
+| 2 | W2-6 sync webhook (FR-SYNC-004) design + k8s egress | worker-4 | in progress (task #15; code after W2-1; external blocker) |
 | 3 | Test/UAT/pentest/manual deliverables 17–21 | workers | blocked by Wave 2 |
 
 ## 4. CTO decision log (append-only)
