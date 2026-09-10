@@ -74,9 +74,10 @@ Reading of the map:
   safety) — all carry active or planned controls.
 - **4 low (score ≤3):** monitored; none currently justifies schedule impact.
 
-Top actions for the next wave boundary: confirm RISK-003 CNI enforcement,
-close RISK-005/006/007 in the deployment runbook, and decompose RISK-001 into
-Wave-2 tasks with codex-gated acceptance.
+Top actions for the next wave boundary: schedule the RISK-021 P0 enforcement
+fix first (DCR-3), confirm RISK-003 CNI enforcement, close RISK-005/006/007
+in the deployment runbook, and decompose RISK-001 into Wave-2 tasks with
+codex-gated acceptance.
 
 ## 4. References
 
