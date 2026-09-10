@@ -2831,8 +2831,6 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
                               ? 'bg-rose-100 text-rose-800'
                               : log.action === 'SUBMIT_APPROVAL'
                               ? 'bg-amber-100 text-amber-900'
-                              : log.action === 'SYNC_PUBLIC'
-                              ? 'bg-blue-100 text-blue-800'
                               : 'bg-slate-100 text-slate-700'
                           }`}
                         >
@@ -3432,9 +3430,7 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
                           ? 'bg-rose-500'
                           : log.action === 'SUBMIT_APPROVAL'
                             ? 'bg-amber-500'
-                            : log.action === 'SYNC_PUBLIC'
-                              ? 'bg-blue-500'
-                              : 'bg-[#F97316]'
+                            : 'bg-[#F97316]'
                     }`}
                   />
                   {idx < arr.length - 1 && <div className="w-0.5 h-full bg-slate-100 my-1" />}

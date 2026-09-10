@@ -116,7 +116,7 @@ export interface AuditLog {
   timestamp: string;
   actor: string;
   actorRole: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SUBMIT_APPROVAL' | 'APPROVE' | 'REJECT' | 'SYNC_PUBLIC' | 'LOGIN' | 'LOGIN_FAILED' | 'LOGOUT' | 'USER_CREATE' | 'USER_ACTIVATE' | 'USER_DEACTIVATE' | 'FILE_UPLOAD';
+  action: 'UPDATE' | 'SUBMIT_APPROVAL' | 'APPROVE' | 'REJECT' | 'LOGIN' | 'LOGIN_FAILED' | 'LOGOUT' | 'USER_CREATE' | 'USER_ACTIVATE' | 'USER_DEACTIVATE' | 'FILE_UPLOAD' | 'SYNC_TRIGGER' | 'SYSTEM_EXPORT' | 'ACCESS_DENIED';
   targetResource: string;
   resourceId: string;
   details: string;

@@ -1213,6 +1213,24 @@ const requireAuth: express.RequestHandler = async (req, res, next) => {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
     const user = token ? await resolveSession(token) : null;
     if (!user) {
+      // AUD-P07 (W2-3, lead-ruled trim): a session cookie that was presented
+      // but failed validation (tampered signature, unknown/expired sid,
+      // deactivated user) is an attack signal — audit it. 401s with no cookie
+      // (plain anon probes) stay request-log-only by design: the JSON request
+      // logger already records them, and duplicating them into the capped
+      // audit store would evict real security events. See doc 10 §9.1.
+      if (token) {
+        await recordAudit({
+          actor: 'anonymous',
+          actorRole: 'Anonymous',
+          action: 'ACCESS_DENIED',
+          targetResource: 'API Access Control',
+          resourceId: `${req.method} ${req.path}`,
+          details: `Denied ${req.method} ${req.path} - presented session cookie failed validation.`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+      }
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
     req.user = toSafeUser(user);
@@ -1223,11 +1241,37 @@ const requireAuth: express.RequestHandler = async (req, res, next) => {
 };
 
 function requireRole(...allowedRoles: UserRole[]): express.RequestHandler {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
+      // Unreachable in practice (every requireRole mount sits behind
+      // requireAuth, which owns the presented-cookie 401 audit above) —
+      // defense-in-depth only.
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
     if (!allowedRoles.includes(req.user.role)) {
+      // AUD-P07 (W2-3): every authenticated 403 is audited unconditionally —
+      // privilege probing must be visible to compliance. Lead-ruled coverage;
+      // see doc 10 §9.1.
+      //
+      // The access decision stands regardless of the audit-write outcome:
+      // Express 4 does not catch rejected middleware promises, so an unwrapped
+      // await here would leave the 403 unsent and the request hanging until
+      // client timeout. A failed audit write logs the error and the denial
+      // still sends.
+      try {
+        await recordAudit({
+          actor: req.user!.username,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'ACCESS_DENIED',
+          targetResource: 'API Access Control',
+          resourceId: `${req.method} ${req.path}`,
+          details: `Denied ${req.method} ${req.path} - role '${req.user!.role}' not in [${allowedRoles.join(', ')}].`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+      } catch (auditErr) {
+        console.error('[Audit] Failed to record ACCESS_DENIED 403 audit:', auditErr instanceof Error ? auditErr.message : auditErr);
+      }
       return res.status(403).json({ success: false, error: 'Insufficient permissions' });
     }
     next();
@@ -1939,6 +1983,20 @@ app.post('/api/sync/trigger', requireAuth, requireRole('admin'), async (req, res
 
   await repo.insertSyncLog(newLog);
 
+  // AUD-P05 (W2-3): the forced handshake is a privileged bulk operation —
+  // it leaves an audit trail entry alongside the sync log. resourceId
+  // 'BULK-ALL' matches the sync-log itemId for exact cross-table correlation.
+  await recordAudit({
+    actor: req.user!.username,
+    actorRole: ROLE_LABELS[req.user!.role],
+    action: 'SYNC_TRIGGER',
+    targetResource: 'Public Edge Gateway',
+    resourceId: 'BULK-ALL',
+    details: `Forced full public-web handshake; ${syncCount} item(s) verified.`,
+    ipAddress: req.ip,
+    status: 'SUCCESS',
+  });
+
   res.json({
     success: true,
     message: 'Public web synchronized successfully',
@@ -2342,8 +2400,24 @@ app.get('/api/system/export', requireAuth, requireRole('admin'), async (req, res
     repo.listAuditLogs(),
     repo.listSyncLogs(),
   ]);
+  // AUD-P06 (W2-3): bulk data exfiltration is a PDPA-relevant event — audit
+  // every export. resourceId = the export's own timestamp (DCR-1 field name),
+  // correlating the audit row with the exact snapshot a migrate.js consumer
+  // loads. The lists above were already read, so this row appears in the
+  // NEXT export, not the current one.
+  const exportTimestamp = new Date().toISOString();
+  await recordAudit({
+    actor: req.user!.username,
+    actorRole: ROLE_LABELS[req.user!.role],
+    action: 'SYSTEM_EXPORT',
+    targetResource: 'System Export',
+    resourceId: exportTimestamp,
+    details: `Exported full system snapshot (${news.length} news, ${documents.length} documents, ${auditLogs.length} audit rows).`,
+    ipAddress: req.ip,
+    status: 'SUCCESS',
+  });
   res.json({
-    exportTimestamp: new Date().toISOString(),
+    exportTimestamp,
     version: '2.0.0',
     schemaTarget: 'postgresql',
     storage: repo.mode,

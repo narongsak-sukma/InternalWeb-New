@@ -1175,6 +1175,14 @@ async function runSuite() {
   });
 
   // =========================================================================
+  // Section 16 (W2-3 flip-pins) runs HERE - after the admin logout of
+  // section 13 (it re-logs-in with fresh sessions) but BEFORE section 14
+  // exhausts the failed-login limiter: express-rate-limit blocks every login
+  // from a saturated key (successes skip COUNTING, not rejection), so any
+  // login after section 14 within the 60s window would 429.
+  await runW23AuditSuite();
+
+  // =========================================================================
   section('14. Login rate limit (runs LAST - exhausts the per-IP budget)');
 
   await check('Repeated bad logins trigger HTTP 429 (5 attempts/min/IP per D1)', async () => {
@@ -1363,6 +1371,127 @@ async function runPgSharedStoreSuite() {
     try { await client.end(); } catch { /* already closed */ }
     await killPgServer();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Section 16 (W2-3, default suite): audit-coverage flip-pins — TC-SYNC-004
+// (AUD-P05 SYNC_TRIGGER), TC-AUDIT-009 (AUD-P06 SYSTEM_EXPORT) and
+// TC-AUDIT-010 (AUD-P07 ACCESS_DENIED, lead-ruled trim). Runs AFTER section
+// 14 exhausted the FAILED-login limiter budget — fresh logins here are
+// successful ones, which never consume that budget (skipSuccessfulRequests).
+// ---------------------------------------------------------------------------
+
+async function runW23AuditSuite() {
+  section('16. W2-3 audit coverage (flipped): TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 (AUD-P05/06/07)');
+
+  // Fresh sessions: the default suite logged the section-13 admin out and
+  // section-14 hammered the login endpoint; successful logins are unbudgeted.
+  const adminLogin = await login(ADMIN_USERNAME, ADMIN_PASSWORD);
+  assert(adminLogin.cookie, `admin re-login failed (${adminLogin.status}): ${bodySnippet(adminLogin)}`);
+  const admin2 = adminLogin.cookie;
+  const staffLogin = await login(STAFF.username, STAFF.password);
+  assert(staffLogin.cookie, `staff login failed (${staffLogin.status}): ${bodySnippet(staffLogin)}`);
+  const staff2 = staffLogin.cookie;
+
+  const getTrail = async () => {
+    const t = await req('GET', '/api/audit-logs', { cookie: admin2 });
+    expectStatus(t, 200, 'GET /api/audit-logs admin');
+    return t.json.data || [];
+  };
+  const isAd = (e) => String(e.action || '').toUpperCase() === 'ACCESS_DENIED';
+
+  await check('TC-SYNC-004 (flipped): POST /api/sync/trigger writes a SYNC_TRIGGER audit row (AUD-P05)', async () => {
+    const r = await req('POST', '/api/sync/trigger', { cookie: admin2 });
+    expectStatus(r, 200, 'POST /api/sync/trigger admin');
+    const logs = await req('GET', '/api/sync/logs', { cookie: admin2 });
+    expectStatus(logs, 200, 'GET /api/sync/logs admin');
+    const forceRow = (logs.json.data || []).find(
+      (l) => String(l.action || '').toUpperCase() === 'FORCE_SYNC' && l.itemId === 'BULK-ALL',
+    );
+    assert(forceRow, 'no FORCE_SYNC / BULK-ALL sync-log row after the trigger - handler changed shape?');
+    const auditRow = (await getTrail()).find((e) => String(e.action || '').toUpperCase() === 'SYNC_TRIGGER');
+    assert(auditRow, 'expected a SYNC_TRIGGER audit entry after POST /api/sync/trigger - AUD-P05 not implemented');
+    assert(String(auditRow.resourceId) === 'BULK-ALL',
+      `SYNC_TRIGGER resourceId must be BULK-ALL (sync-log itemId correlation), got "${auditRow.resourceId}"`);
+    assert(String(auditRow.targetResource) === 'Public Edge Gateway',
+      `SYNC_TRIGGER targetResource must be "Public Edge Gateway", got "${auditRow.targetResource}"`);
+    assert(String(auditRow.actor).includes(ADMIN_USERNAME),
+      `SYNC_TRIGGER actor must be the admin (${ADMIN_USERNAME}), got "${auditRow.actor}"`);
+    assert(String(auditRow.status).toUpperCase() === 'SUCCESS', `SYNC_TRIGGER status must be SUCCESS, got "${auditRow.status}"`);
+    assert(String(auditRow.details).includes(`${r.json.syncedItemsCount} item(s)`),
+      `SYNC_TRIGGER details must quote the verified count, got: "${auditRow.details}"`);
+    return `SYNC_TRIGGER row correlates with the FORCE_SYNC sync log (BULK-ALL, ${r.json.syncedItemsCount} item(s))`;
+  });
+
+  await check('TC-AUDIT-009 (flipped): GET /api/system/export writes a SYSTEM_EXPORT row keyed by exportTimestamp (AUD-P06)', async () => {
+    const ex1 = await req('GET', '/api/system/export', { cookie: admin2 });
+    expectStatus(ex1, 200, 'GET /api/system/export admin');
+    const ts1 = ex1.json && ex1.json.exportTimestamp;
+    assert(typeof ts1 === 'string' && ts1, `export response must keep exportTimestamp (DCR-1), got: ${bodySnippet(ex1)}`);
+    assert(ex1.json.tables && Array.isArray(ex1.json.tables.audit_logs) && Array.isArray(ex1.json.tables.news),
+      `export response shape must be unchanged (tables payload), got: ${bodySnippet(ex1)}`);
+    const selfRow = (ex1.json.tables.audit_logs || []).find(
+      (e) => String(e.action || '').toUpperCase() === 'SYSTEM_EXPORT' && e.resourceId === ts1,
+    );
+    assert(!selfRow, 'the SYSTEM_EXPORT row lands after the snapshot lists are read - it must not appear in its own export');
+    const auditRow = (await getTrail()).find(
+      (e) => String(e.action || '').toUpperCase() === 'SYSTEM_EXPORT' && e.resourceId === ts1,
+    );
+    assert(auditRow, 'expected a SYSTEM_EXPORT audit entry keyed by this export\'s exportTimestamp - AUD-P06 not implemented');
+    assert(String(auditRow.actor).includes(ADMIN_USERNAME),
+      `SYSTEM_EXPORT actor must be the admin (${ADMIN_USERNAME}), got "${auditRow.actor}"`);
+    assert(String(auditRow.status).toUpperCase() === 'SUCCESS', `SYSTEM_EXPORT status must be SUCCESS, got "${auditRow.status}"`);
+    assert(String(auditRow.details).includes(`${ex1.json.counts.news} news`),
+      `SYSTEM_EXPORT details must quote table counts, got: "${auditRow.details}"`);
+    const ex2 = await req('GET', '/api/system/export', { cookie: admin2 });
+    expectStatus(ex2, 200, 'GET /api/system/export admin (second)');
+    const carried = (ex2.json.tables.audit_logs || []).find(
+      (e) => String(e.action || '').toUpperCase() === 'SYSTEM_EXPORT' && e.resourceId === ts1,
+    );
+    assert(carried, 'the first export\'s SYSTEM_EXPORT row must appear in the NEXT export snapshot');
+    return `SYSTEM_EXPORT row correlated to its snapshot (${ts1}); response shape unchanged; visible in the next export`;
+  });
+
+  await check('TC-AUDIT-010 class 1 (flipped): authenticated 403 writes an ACCESS_DENIED row (AUD-P07)', async () => {
+    const r = await req('GET', '/api/users', { cookie: staff2 });
+    expectRoleBlocked(r, 'GET /api/users staff');
+    const row = (await getTrail()).find(
+      (e) => isAd(e) && String(e.resourceId) === 'GET /api/users' && String(e.actor).includes(STAFF.username),
+    );
+    assert(row, 'expected an ACCESS_DENIED audit entry for the staff 403 - AUD-P07 (403 class) not implemented');
+    assert(String(row.status).toUpperCase() === 'WARNING', `ACCESS_DENIED status must be WARNING, got "${row.status}"`);
+    assert(String(row.details).includes("role 'staff'"),
+      `ACCESS_DENIED details must name the refused role, got: "${row.details}"`);
+    return `staff 403 on GET /api/users audited (${row.details})`;
+  });
+
+  await check('TC-AUDIT-010 classes 2+3 (flipped): no-cookie 401 NOT audited; tampered-cookie 401 audited as anonymous (AUD-P07 ruled trim)', async () => {
+    // Class 2 - anon probe, no cookie: request-log only, no audit row.
+    const before = (await getTrail()).filter(isAd).length;
+    const anon = await req('GET', '/api/contacts', {});
+    expectAuthRequired(anon, 'GET /api/contacts anon (no cookie)');
+    const afterAnon = (await getTrail()).filter(isAd).length;
+    assert(afterAnon === before,
+      `no-cookie 401 must NOT write an audit row (lead-ruled trim): ACCESS_DENIED count ${before} -> ${afterAnon}`);
+    // Class 3 - cookie presented but failed validation: attack signal, audited.
+    const bad = await req('GET', '/api/contacts', { cookie: `${SESSION_COOKIE}=forged-session-id.deadbeefsignature` });
+    expectAuthRequired(bad, 'GET /api/contacts tampered cookie');
+    const row = (await getTrail()).find(
+      (e) => isAd(e) && String(e.resourceId) === 'GET /api/contacts' && String(e.actor) === 'anonymous',
+    );
+    assert(row, 'expected an ACCESS_DENIED audit entry for the presented-but-failed cookie 401 - AUD-P07 (401 class) not implemented');
+    assert(String(row.actorRole) === 'Anonymous', `failed-cookie actorRole must be Anonymous, got "${row.actorRole}"`);
+    assert(String(row.details).includes('presented session cookie failed validation'),
+      `failed-cookie details must say why it was denied, got: "${row.details}"`);
+    assert(String(row.status).toUpperCase() === 'WARNING', `ACCESS_DENIED status must be WARNING, got "${row.status}"`);
+    // No double-write: login-endpoint 401s carry LOGIN_FAILED only (section 13
+    // exercised one; requireAuth is not mounted on the login route).
+    const loginAd = (await getTrail()).find(
+      (e) => isAd(e) && String(e.resourceId) === 'POST /api/auth/login',
+    );
+    assert(!loginAd, 'login-endpoint 401s must write LOGIN_FAILED only, never ACCESS_DENIED (no double-write)');
+    return 'trim verified: anon 401 silent, tampered-cookie 401 audited (anonymous/WARNING), login 401 not double-written';
+  });
 }
 
 // ---------------------------------------------------------------------------
