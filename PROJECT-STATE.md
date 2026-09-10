@@ -67,7 +67,7 @@ CTO (codex) solves directly.
 | 2 | W2-1 dual-control bundle (DCR-3+7+AUD-P01/02/03) | worker-2 | in progress (task #10; merge holds for codex) |
 | 2 | W2-2 audit-endpoint removal (DCR-8) | worker-5 | doc phase DONE 2026-09-10 (docs 03/04/08/10/12 v-bumped, committed to develop; RTM §2.6 MAINT table row split — lead; UAT count corrected 65 refs/62 distinct). Code phase (route removal + TC-AUDIT-008/TC-RBAC-026 flips + doc 09 v-bump) queued after W2-1 |
 | 2 | W2-3 audit coverage gaps AUD-P06/05/07 | worker-5 | analysis phase in progress (task #12 — implementation spec in doc 10 §9 lane; code after W2-2 code phase) |
-| 2 | W2-4 TypeScript strict (DCR-6) inventory + src fixes | worker-3 | in progress (task #13; enable after W2-1) |
+| 2 | W2-4 TypeScript strict (DCR-6) | worker-3 | Phases A+B DONE 2026-09-10 — root cause: @types/react{,-dom} missing (React=any, checker blind to frontend); with types: exactly 1 strict error (AdminCMS L331 union), fixed type-only. Lead landed feature/w2-4-strict-mode (3077e52 types+fix, 97bef96 strict flip; `tsc --noEmit` exit 0 incl. W2-1 in-flight tree). MERGE after W2-1 (no half-strict race) |
 | 2 | W2-5 shared rate-limit store (RISK-010) design | worker-1 | in progress (task #14; code after W2-1) |
 | 2 | W2-6 sync webhook (FR-SYNC-004) design + k8s egress | worker-4 | in progress (task #15; code after W2-1; external blocker) |
 | 3 | Test/UAT/pentest/manual deliverables 17–21 | workers | blocked by Wave 2 |
