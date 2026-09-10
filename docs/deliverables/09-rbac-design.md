@@ -1,8 +1,17 @@
 # Deliverable 09 — Role-Based Access Control (RBAC) Design
 
-**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval (W2-2 code phase: worker-2)
 
-> **Change log** — **1.1.0 (2026-09-10)**: CTO gate REVISE — §8.3 `[PLANNED]`
+> **Change log** — **1.2.0 (2026-09-10)**: W2-2 code phase — **DCR-8 removal
+> landed** (CTO ruling, RISK-023, decision #5/#6: **PREFER REMOVAL**):
+> `POST /api/audit-logs` route deleted from `server.ts` (and from the
+> `/api/openapi.json` document) — the endpoint now falls through to the JSON
+> `/api` 404 catch-all for **every** role incl. admin
+> (`{success:false, error:"No API endpoint for POST /api/audit-logs"}`,
+> doc 08 §11.3). §4 role table, §6.5 row and §10 (admin bullet + item 3)
+> re-pointed to the removal disposition; audit rows are written exclusively
+> by server-side `recordAudit()`. Pinned by TC-AUDIT-008 / TC-RBAC-026
+> (doc 12, flipped). **1.1.0 (2026-09-10)**: CTO gate REVISE — §8.3 `[PLANNED]`
 > fix aligned to the CTO's strict dual-control ruling: no role (admin
 > included) may reach `synced` outside the approve path; approve/reject
 > require `pending_approval` (else 400) **and** approver ≠ submitter (else
@@ -61,7 +70,7 @@ has rank 0.
 
 | Role | Rank | Label (system, `ROLE_LABELS`) | Intended users | Capability summary |
 |---|---|---|---|---|
-| `admin` | 4 | Administrator | IT administrators / system owners | Full access: all content CRUD incl. deletes, user management, sync operations, system export, manual audit append |
+| `admin` | 4 | Administrator | IT administrators / system owners | Full access: all content CRUD incl. deletes, user management, sync operations, system export. **No manual audit append** — `POST /api/audit-logs` removed in W2-2 (DCR-8) |
 | `checker` | 3 | Checker (Compliance / VP) | Compliance officers, VP reviewers | Read everything staff can, approve/reject public-bound announcements, read the audit trail, upload files. **Cannot author content** (403) |
 | `maker` | 2 | Maker (Author) | Department authors / corporate communications | Author and edit news, banners, contacts, documents; submit for approval; upload files |
 | `staff` | 1 | Staff (Read-only) | Every employee | Read authenticated content (directory, policy documents), book/release meeting rooms |
@@ -176,7 +185,15 @@ Legend: **A** = allowed (2xx) · **401** = authentication required ·
 | Method & path | anon | staff | maker | checker | admin |
 |---|---|---|---|---|---|
 | GET `/api/audit-logs` | 401 | 403 | 403 | A | A |
-| POST `/api/audit-logs` (manual append, see Doc 10 §6) | 401 | 403 | 403 | 403 | A |
+| POST `/api/audit-logs` **[REMOVED per DCR-8, W2-2]** | 404 | 404 | 404 | 404 | 404 |
+
+*DCR-8 (CTO: **PREFER REMOVAL**, RISK-023):* the manual audit-append
+endpoint was deleted in the W2-2 code phase — `POST /api/audit-logs` now
+falls through to the JSON `/api` 404 catch-all for **every** role incl.
+admin (`{success:false, error:"No API endpoint for POST /api/audit-logs"}`,
+doc 08 §11.3), and audit rows are appended exclusively by server-side
+`recordAudit()`. *(Pre-W2-2 as built: admin → 201 with defaults; other
+roles → 403 — see Doc 10 §6.)* Pinned by TC-AUDIT-008 / TC-RBAC-026.
 
 ### 6.6 Deletion & administration (admin only)
 
@@ -375,8 +392,9 @@ Verified capability sets per role (what a *legitimate* holder can do):
 - **checker:** approvals + audit read + upload. Deliberately cannot author
   content (403 on all §6.3 rows) — separation of duties. Can book rooms and
   read everything staff reads.
-- **admin:** unrestricted, including manual audit append (§6.5) and system
-  export.
+- **admin:** unrestricted, **except** manual audit append — `POST
+  /api/audit-logs` was removed in W2-2 (DCR-8, §6.5); admin retains audit
+  **read** (§6.5) and system export.
 
 Observed over-grants / shared-capability notes (as built, none violate the
 matrix, listed for the risk register):
@@ -386,10 +404,14 @@ matrix, listed for the risk register):
    an honor-system meeting-room board; `[PLANNED]` owner/whitelist release.
 2. **Book/release on a room under maintenance:** book checks
    `status === 'available'` (400 otherwise); release does not check state.
-3. **Manual audit append (`POST /api/audit-logs`, admin):** exists for
-   operational annotations but lets an admin insert arbitrary
-   action/details rows into the compliance trail — integrity considerations
-   in Doc 10 §9.
+3. **Manual audit append (`POST /api/audit-logs`, admin) — REMOVED in W2-2
+   (DCR-8):** the endpoint existed for operational annotations but let an
+   admin insert arbitrary action/details rows into the compliance trail
+   (integrity considerations in Doc 10 §9). Per the CTO ruling
+   (**PREFER REMOVAL**, RISK-023) the route was deleted: the endpoint now
+   answers 404 for every role incl. admin, and audit rows are written
+   exclusively by server-side `recordAudit()` (§6.5 note). Over-grant
+   closed; pinned by TC-AUDIT-008 / TC-RBAC-026.
 4. **Single-tier admin:** no distinction between IT admin and content admin;
    all §6.6 powers travel together.
 

@@ -1802,22 +1802,12 @@ app.get('/api/audit-logs', requireAuth, requireRole('checker', 'admin'), async (
   res.json({ data: await repo.listAuditLogs() });
 });
 
-app.post('/api/audit-logs', requireAuth, requireRole('admin'), async (req, res) => {
-  const newAudit: AuditLog = {
-    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
-    timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-    actor: req.user!.username,
-    actorRole: ROLE_LABELS[req.user!.role],
-    action: req.body.action || 'UPDATE',
-    targetResource: req.body.targetResource || 'General Portal',
-    resourceId: req.body.resourceId || 'PORTAL-GEN',
-    details: req.body.details || 'User initiated state change.',
-    ipAddress: req.ip,
-    status: req.body.status || 'SUCCESS',
-  };
-  await repo.insertAuditLog(newAudit);
-  res.status(201).json({ success: true, data: newAudit });
-});
+// DCR-8 (W2-2): the manual audit-append endpoint (POST /api/audit-logs,
+// admin) was REMOVED — it allowed arbitrary fabrication of compliance rows.
+// Audit rows are now appended exclusively by server-side recordAudit(), and
+// POST /api/audit-logs falls through to the JSON /api 404 catch-all for
+// every caller (404 {success:false, error:"No API endpoint for POST
+// /api/audit-logs"}). See doc 08 §11.3 and doc 10 §9 (DCR-8).
 
 // ==========================================
 // AUTH & USER MANAGEMENT ENDPOINTS
@@ -2183,7 +2173,6 @@ app.get('/api/openapi.json', (req, res) => {
       },
       '/api/audit-logs': {
         get: { summary: 'Retrieve immutable BOT compliance audit trail (checker or admin)', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Audit entries' } } },
-        post: { summary: 'Append audit entry (admin only)', security: [{ cookieAuth: [] }], responses: { '201': { description: 'Created' } } },
       },
       '/api/sync/logs': { get: { summary: 'List external synchronization logs (admin only)', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Sync logs' } } } },
       '/api/sync/trigger': { post: { summary: 'Trigger handshake edge cache synchronization (admin only)', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Synchronized' } } } },

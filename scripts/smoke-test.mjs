@@ -967,6 +967,32 @@ async function runSuite() {
     return 'server-side actors recorded for submit, approve, login, user-create';
   });
 
+  // TC-AUDIT-008 + TC-RBAC-026 (flipped, post DCR-8 removal): the manual
+  // audit-append endpoint no longer exists. Pre-removal as built: admin → 201
+  // (defaults applied), other roles → 403. Post-removal contract: 404 with the
+  // JSON /api catch-all body for EVERY role incl. admin — audit rows are
+  // appended exclusively by server-side recordAudit().
+  await check('TC-AUDIT-008/TC-RBAC-026 (flipped): POST /api/audit-logs returns 404 for every role (manual append removed, DCR-8)', async () => {
+    const expectedError = 'No API endpoint for POST /api/audit-logs';
+    for (const [label, cookie] of [
+      ['admin (TC-AUDIT-008)', adminCookie],
+      ['checker', checkerCookie],
+      ['maker', makerCookie],
+      ['staff (TC-RBAC-026)', staffCookie],
+    ]) {
+      const r = await req('POST', '/api/audit-logs', {
+        cookie,
+        json: { action: 'UPDATE', details: 'fabrication attempt should be impossible' },
+      });
+      expectStatus(r, 404, `POST /api/audit-logs ${label}`);
+      assert(r.json && r.json.success === false,
+        `expected success:false for ${label}, got: ${bodySnippet(r)}`);
+      assert(r.json.error === expectedError,
+        `expected error "${expectedError}" for ${label}, got: ${bodySnippet(r)}`);
+    }
+    return '404 catch-all for admin, checker, maker, staff — no API path writes audit rows';
+  });
+
   // =========================================================================
   section('10. Admin-only: sync, system export');
 
