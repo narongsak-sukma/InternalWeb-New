@@ -1,8 +1,15 @@
 # Deliverable 12 — Test Plan
 
-**Version:** 1.2.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.3.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval (W2-2 revision: worker-5)
 
-> **Change log** — **1.2.0 (2026-09-10)**: CTO gate REVISE — TC-SEC-011 and
+> **Change log** — **1.3.0 (2026-09-10)**: W2-2 doc phase — DCR-8 (CTO
+> ruling, RISK-023, decision #5/#6: **PREFER REMOVAL** of
+> `POST /api/audit-logs`): TC-AUDIT-008 and TC-RBAC-026 EXPECTED updated to
+> the post-removal contract (404 for every role incl. admin; audit
+> fabrication via API impossible) and kept as explicit flip-pins that flip
+> when the W2-2 code lands (as-built today: admin 201 / other roles 403);
+> §5.1 UAT-049 retired to TC-only with RTM ref counts updated.
+> **1.2.0 (2026-09-10)**: CTO gate REVISE — TC-SEC-011 and
 > TC-COMP-001 aligned to the strict dual-control ruling (no role carve-out:
 > create/update can never yield `synced`, approve/reject on
 > non-`pending_approval` → 400, approver == submitter → 403); §5.1 states
@@ -128,11 +135,15 @@ scenario completes with the business outcome and no error toast
 Doc 04 (RTM) traces each requirement to fine-grained acceptance references
 `UAT-001`..`UAT-065`. Those IDs are **requirement-level checks exercised
 inside** the six role scenarios above — they are not separate staged events.
-The RTM contains **64 UAT references covering 63 distinct ids** (UAT-023 is
-cited twice — FR-NEWS-006 and NFR-COMP-001). **UAT-050 does not exist**: no
-RTM row references it. **UAT-011 is likewise unreferenced** (its requirement
-FR-SES-005 is TC-only in the RTM) and stays reserved. Mapping (each RTM
-UAT-0nn ref resolves to exactly one scenario):
+The RTM (v1.2.0) contains **65 UAT references covering 62 distinct ids** —
+UAT-015, UAT-023 and UAT-047 are each cited twice (FR row + the shared
+NFR-COMP row). **UAT-049 is retired
+to TC-only per DCR-8** — the FR-AUDIT-004 row no longer references a UAT item
+(manual audit append had no UI, and post-removal there is nothing
+user-observable; coverage is TC-AUDIT-008 / TC-RBAC-026 only). **UAT-050 does
+not exist**: no RTM row references it. **UAT-011 is likewise unreferenced**
+(its requirement FR-SES-005 is TC-only in the RTM) and stays reserved.
+Mapping (each RTM UAT-0nn ref resolves to exactly one scenario):
 
 | RTM refs | REQs covered | Scenario |
 |---|---|---|
@@ -161,7 +172,7 @@ UAT-0nn ref resolves to exactly one scenario):
 | UAT-042 | FR-CMS-003 (inline errors / toasts) | UAT-2 |
 | UAT-045 | FR-CMS-006 (public portal components) | UAT-6 |
 | UAT-046..048 | FR-AUDIT-001/002/003 (actor stamping, trail read, action types) | UAT-3 |
-| UAT-049 | FR-AUDIT-004 (manual append, admin) | UAT-4 |
+| UAT-049 | — retired to TC-only (DCR-8: FR-AUDIT-004 removal; covered by TC-AUDIT-008 / TC-RBAC-026) | — |
 | UAT-051 | FR-SYNC-001 (status machine incl. DCR-3/DCR-5 behavior) | UAT-2 |
 | UAT-052..054 | FR-SYNC-002/003/004 (sync-log writes, admin log read, trigger) | UAT-4 |
 | UAT-055 | FR-SYNC-005 (External Web Sync preview, maker+) | UAT-2 |
@@ -309,7 +320,7 @@ cases.
 | TC-AUDIT-005 | Upload event recorded | maker upload | Inspect trail | FILE_UPLOAD with uuid filename + byte size | FR-AUDIT | P1 |
 | TC-AUDIT-006 | Actor integrity (client spoof ignored) | staff session | Perform actions while sending spoofed `actor` fields in body; read trail | Stored actor = session username/role, never client values (smoke §9) | FR-AUDIT | P0 |
 | TC-AUDIT-007 | No mutation routes | admin | PUT/DELETE/PATCH /api/audit-logs(:id) | JSON 404 — append-only | FR-AUDIT | P0 |
-| TC-AUDIT-008 | Manual append admin-only + actor server-derived | admin/maker | POST /api/audit-logs | admin 201 (actor from session); maker 403; defaults applied | FR-AUDIT | P1 |
+| TC-AUDIT-008 | Manual audit append REMOVED per DCR-8 — no API fabrication path (flip-pin) | admin/maker (and checker/anon spot-check) | POST /api/audit-logs (any body) | **Post-removal (flips when W2-2 code lands):** 404 `{success:false, error:"No API endpoint for POST /api/audit-logs"}` for **every** role incl. admin; no new trail row; GET trail unchanged. *As-built today (pin):* admin 201 (actor from session; defaults applied); maker 403 | FR-AUDIT-004 | P1 |
 
 ### 6.11 Public sync — SYNC
 
@@ -397,7 +408,7 @@ authenticated-wrong-role → 403 `Insufficient permissions`.
 | TC-RBAC-023 | checker DELETE /api/banners/:id | 403 | FR-SEC |
 | TC-RBAC-024 | maker DELETE /api/contacts/:id | 403 | FR-SEC |
 | TC-RBAC-025 | checker DELETE /api/documents/:id | 403 | FR-SEC |
-| TC-RBAC-026 | checker POST /api/audit-logs | 403 | FR-AUDIT |
+| TC-RBAC-026 | checker POST /api/audit-logs | 404 (DCR-8 flip-pin — flips when W2-2 code lands; as-built today = 403) | FR-AUDIT-004 |
 | TC-RBAC-027 | anon POST /api/upload | 401 | FR-UPL |
 | TC-RBAC-028 | anon GET /api/users | 401 | FR-USER |
 | TC-RBAC-029 | staff book/release allowed (positive control) | 200 | FR-ROOM |

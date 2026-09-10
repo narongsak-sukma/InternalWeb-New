@@ -2,7 +2,10 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2 revision: worker-5)
+
+> **Change log:** v1.2.0 (2026-09-10) — DCR-8 (CTO ruling, RISK-023, decision #5/#6: **PREFER REMOVAL**): FR-AUDIT-004 retitled to the removal target state (POST /api/audit-logs → 404; no API audit fabrication outside server-side `recordAudit`); DCR-8 entry added to the §2.6 DCR log. Current as-built (endpoint live) is explicitly preserved in the requirement text until the W2-2 code phase lands. Prior: v1.1.0 CTO-gate revision; v1.0.0 initial.
+> **Change log (W2-1, same version):** dual-control enforcement **landed** (DCR-3/DCR-7 + AUD-P01/02/03): FR-NEWS-009 `[PLANNED]` → **AS-BUILT**; FR-NEWS-002/003 acceptance criteria rewritten to the strict behavior (create always `'draft'`, no create/update sync log, workflow fields stripped, rejected→draft on edit); FR-SYNC-001(d) and NFR-COMP-001 as-built-gap notes resolved; §2.6 DCR-3 marked **resolved in W2-1**; §4 inventory counts updated.
 
 > **Change log:** v1.1.0 (2026-09-10) — CTO gate REVISE applied: FR-NEWS-009 rewritten to the strict dual-control ruling (post-fix, no role — admin included — may reach `'synced'` outside the checker approve endpoint; state + submitter≠approver guards; server-controlled workflow fields; no admin carve-out; future override = separate break-glass requirement); NFR-COMP-001 aligned; DCR-3 disposition recorded in §2.6. v1.0.0 — initial draft.
 
@@ -189,18 +192,21 @@ users are rejected at login and their existing sessions stop resolving.
   conventions, but `tsconfig.json` lacks `"strict": true`. Decide whether to
   enable strict mode (may surface type errors to fix in Wave 2) or amend the
   documented constraint. Documented as built in §2.5 / NFR-MAINT-001.
-- **DCR-3 (compliance):** `POST /api/news` with `syncToExternal: true` creates
+- **DCR-3 (compliance):** `POST /api/news` with `syncToExternal: true` created
   the item directly with `externalSyncStatus: 'synced'`
-  (`server.ts:1306,1315`), and `PUT /api/news/:id` re-syncs likewise
-  (`server.ts:1346`) — **without checker approval**, bypassing maker-checker
+  (`server.ts:1306,1315` pre-fix), and `PUT /api/news/:id` re-synced likewise
+  (`server.ts:1346` pre-fix) — **without checker approval**, bypassing maker-checker
   dual control. Documented as built in FR-NEWS-002/003 acceptance criteria;
-  remediation requirement **FR-NEWS-009 `[PLANNED]`** added. HANDOVER §4
+  remediation requirement **FR-NEWS-009** added. HANDOVER §4
   describes public-sync publishing as maker-checker. **CTO ruling (Wave-1
   gate, REVISE): strict dual control** — post-fix, no role (admin included)
   may reach `'synced'` outside the checker approve endpoint, with state and
   submitter ≠ approver guards; full guard set in FR-NEWS-009. Any future
   admin override must be a separate, explicitly risk-accepted break-glass
-  requirement (out of scope).
+  requirement (out of scope). **RESOLVED in W2-1 (v1.2.0): FR-NEWS-009 is now
+  AS-BUILT** — create always persists `'draft'` (no create/update sync log),
+  workflow fields are stripped at the validation layer, and the state +
+  submitter ≠ approver guards are enforced on submit/approve/reject.
 - **DCR-4 (API contract):** the response envelope is **mixed as built** —
   reads return bare `{data[, total]}` without a `success` field; mutations
   return `{success:true, data}`; auth/validation failures return
@@ -212,6 +218,16 @@ users are rejected at login and their existing sessions stop resolving.
   (`src/types.ts:28`) additionally declares `'pending'`, which is never
   produced at runtime (dead union member); no `'approved'` status exists.
   Documented as built in FR-SYNC-001.
+- **DCR-8 (audit integrity — REMOVAL ruled):** `POST /api/audit-logs`
+  (manual audit append, admin-only) lets an admin insert arbitrary
+  `action`/`details` rows into the compliance trail, eroding the trail's
+  evidentiary value (RISK-023). **CTO ruling (Wave-2, decision #5/#6): PREFER
+  REMOVAL.** Target state (FR-AUDIT-004): the endpoint answers 404 and audit
+  rows are appended **exclusively** by server-side `recordAudit()`; the audit
+  action set enumerated in FR-AUDIT-003 remains the complete set. The current
+  as-built (endpoint live, FR-AUDIT-004 v1.1.0 behavior) remains in force
+  until the W2-2 code phase removes the route — doc-first per PROJECT-STATE
+  §7; flip-pinned by TC-AUDIT-008 / TC-RBAC-026.
 
 ---
 
@@ -339,12 +355,12 @@ Acceptance: (a) anonymous request succeeds; (b) category filter returns only tha
 **FR-NEWS-002 — Create news item.**
 Actor: maker, admin. Inputs: `POST /api/news` JSON with title/summary/content/category etc. (server applies defaults, e.g. title default "ประกาศใหม่", author default = caller's display name).
 Outputs: 201 with the created item; when `syncToExternal` is true at creation, `externalSyncStatus` is initialized to `'synced'` and a `CREATE` sync log is written; otherwise status is `'draft'`.
-Acceptance: (a) maker or admin → 201; staff/checker → 403; anonymous → 401; (b) created item is readable via FR-NEWS-001; (c) `syncToExternal:true` yields a sync-log entry attributed to the caller; (d) **as built (DCR-3)**: a maker creating an item with `syncToExternal:true` gets `externalSyncStatus:'synced'` immediately (`server.ts:1306,1315`) — **no checker approval is required on this direct-publish path**, bypassing the maker-checker flow; remediation is FR-NEWS-009 `[PLANNED]`.
+Acceptance: (a) maker or admin → 201; staff/checker → 403; anonymous → 401; (b) created item is readable via FR-NEWS-001; (c) the item is always created with `externalSyncStatus:'draft'` and `syncToExternal:false` — client-supplied `syncToExternal`/`externalSyncStatus`/`approvedBy`/`approvedAt` are stripped (FR-NEWS-009); (d) create writes **no** `sync_logs` row (a sync log is written only by checker approve). *(Pre-W2-1 as-built gap (DCR-3) removed — see §2.6.)*
 
 **FR-NEWS-003 — Update news item.**
 Actor: maker, admin. Inputs: `PUT /api/news/:id` with partial item JSON.
 Outputs: 200 with the merged item (the `id` in the URL is authoritative — body id cannot change it); 404 for unknown id; blank/whitespace id → 400 (`requireResourceId`); when the updated item has `syncToExternal`, an `UPDATE` sync log is written.
-Acceptance: (a) unknown id → 404; (b) `id` cannot be reassigned; (c) `PUT /api/news/%20` → 400; (d) staff/checker → 403; (e) **as built (DCR-3)**: a maker setting `syncToExternal:true` via update re-syncs the item to `'synced'` without checker approval (`server.ts:1346`) — same direct-publish bypass as FR-NEWS-002; remediation is FR-NEWS-009 `[PLANNED]`.
+Acceptance: (a) unknown id → 404; (b) `id` cannot be reassigned; (c) `PUT /api/news/%20` → 400; (d) staff/checker → 403; (e) the update can never change workflow state: client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` are stripped (FR-NEWS-009) and update writes **no** `sync_logs` row; (f) editing a `'rejected'` item resets it to `'draft'` (prior approval/submission stamps cleared, forced transition audited — AUD-P01). *(Pre-W2-1 as-built gap (DCR-3) removed — see §2.6.)*
 
 **FR-NEWS-004 — Delete news item.**
 Actor: admin. Inputs: `DELETE /api/news/:id`.
@@ -372,16 +388,17 @@ Actor: maker, admin (create/update). Inputs: `isImportantAlert: boolean` on crea
 Outputs: stored on the item; the SPA header surfaces an unread-alert indicator that opens the flagged article modal.
 Acceptance: (a) an item created with `isImportantAlert:true` shows the header alert affordance while it is the current flagged item; (b) flagging is per-item data, persisted and returned by the API.
 
-**FR-NEWS-009 — Enforce strict dual control on public publishing `[PLANNED]`.**
-Post-fix, the public-sync status `'synced'` shall be reachable **only** through the checker approve endpoint — by **no role, admin included** — and all workflow fields shall be server-controlled. Amends the target semantics of FR-NEWS-005/006/007 as follows.
+**FR-NEWS-009 — Enforce strict dual control on public publishing.**
+The public-sync status `'synced'` is reachable **only** through the checker approve endpoint — by **no role, admin included** — and all workflow fields are server-controlled. Amends the semantics of FR-NEWS-005/006/007 as follows. **Implemented in W2-1** (see Status).
 Actor: all roles (maker, checker, admin).
-Controls (target):
-- Create/update (`POST /api/news`, `PUT /api/news/:id`): the workflow fields `externalSyncStatus`, `approvedBy`, `approvedAt` and the `syncToExternal` flag are **server-controlled** — client-supplied values for these fields are stripped/ignored from create/update payloads, and a new or updated item is persisted as `'draft'` with `syncToExternal:false`.
-- Submit (FR-NEWS-005): accepted only when the item is in `'draft'`; any other state → 400.
-- Approve/reject (FR-NEWS-006/007): accepted only when the item is in `'pending_approval'`; any other state → 400. Additionally, the approver identity must differ from the submitter identity (**submitter ≠ approver guard**); a self-approval attempt → 403.
-Outputs (target): `'synced'` (with `approvedBy`/`approvedAt` stamps and `syncToExternal:true`) can only be produced by a valid checker approve of a `'pending_approval'` item that was submitted by a different identity; every path remains audited (FR-AUDIT-003).
-Acceptance (target): (a) no role — including admin — can produce `'synced'` via create/update or via any endpoint other than checker approve; (b) approve/reject on an item not in `'pending_approval'` → 400; (c) approve by the same identity that submitted the item → 403; (d) submit-approval on an item not in `'draft'` → 400; (e) client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` in create/update payloads have no effect on persisted state; (f) regression tests cover each guard (a)–(e).
-Status: **`[PLANNED]`** — not implemented as built (DCR-3; CTO strict ruling at the Wave-1 gate). *Note:* any future admin override capability must be introduced as a separate, explicitly risk-accepted **break-glass requirement** — it is explicitly out of scope for the current requirements.
+Controls (as built):
+- Create/update (`POST /api/news`, `PUT /api/news/:id`): the workflow fields `externalSyncStatus`, `approvedBy`, `approvedAt` and the `syncToExternal` flag are **server-controlled** — client-supplied values for these fields are stripped at the validation layer (`stripNewsWorkflowFields`, applied to the request body so all current and future news mutation endpoints inherit it), and a new item is persisted as `'draft'` with `syncToExternal:false`; create/update write **no** `sync_logs` row.
+- Submit (FR-NEWS-005): accepted only when the item is in `'draft'`; any other state → 400. The submitter identity is persisted on the item (`news.submitted_by` user id + `submitted_at`) for the self-approval guard, and the SUBMIT_APPROVAL audit entry names the submitter.
+- Approve/reject (FR-NEWS-006/007): accepted only when the item is in `'pending_approval'`; any other state → 400. Additionally, the approver identity must differ from the submitter identity (**submitter ≠ approver guard**, compared as user ids via `submitted_by`); a self-decision attempt → 403.
+- Forced transition: editing a `'rejected'` item resets it to `'draft'` with the prior cycle's approval/submission stamps cleared — the only legal path is `draft → pending_approval → synced|rejected`.
+Outputs (as built): `'synced'` (with `approvedBy`/`approvedAt` stamps and `syncToExternal:true`) can only be produced by a valid checker approve of a `'pending_approval'` item that was submitted by a different identity; every path remains audited (FR-AUDIT-003) — forced transitions and guard rejections each write an audit row with the reason in `details` (AUD-P01/02/03).
+Acceptance: (a) no role — including admin — can produce `'synced'` via create/update or via any endpoint other than checker approve; (b) approve/reject on an item not in `'pending_approval'` → 400; (c) approve by the same identity that submitted the item → 403; (d) submit-approval on an item not in `'draft'` → 400; (e) client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` in create/update payloads have no effect on persisted state; (f) regression tests cover each guard (a)–(e) (`scripts/smoke-test.mjs` maker-checker section, TC-SEC-011/TC-COMP-001).
+Status: **AS-BUILT (W2-1, v1.2.0)** — implemented in `server.ts` (`stripNewsWorkflowFields` validation-layer strip; guards on submit-approval/approve/reject; `news.submitted_by`/`submitted_at` columns in `scripts/schema.sql` and the server DDL, lockstep per NFR-MAINT-004). *Note:* any future admin override capability must be introduced as a separate, explicitly risk-accepted **break-glass requirement** — it is explicitly out of scope for the current requirements.
 
 #### 3.1.5 Hero banners (BANNER)
 
@@ -509,10 +526,16 @@ Acceptance: (a) checker and admin can list entries; (b) maker/staff cannot.
 Actor: system. Inputs: —. Outputs: at minimum these actions are audited: `LOGIN`, `LOGIN_FAILED`, `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`, `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `FILE_UPLOAD` — each with actor, role label, target resource, details, IP and status.
 Acceptance: exercising each source action produces the corresponding entry (status `SUCCESS` / `WARNING` for failed login / `REJECTED` for rejection).
 
-**FR-AUDIT-004 — Manual audit entry (admin).**
-Actor: admin. Inputs: `POST /api/audit-logs` JSON `{action?, targetResource?, resourceId?, details?, status?}` (defaults: `UPDATE`, `General Portal`, `PORTAL-GEN`, "User initiated state change.", `SUCCESS`).
-Outputs: 201 with the created entry; actor stamped from the session; IP recorded.
-Acceptance: (a) admin → 201 with defaults applied; (b) other roles → 403; (c) the entry's actor equals the session user regardless of body contents.
+**FR-AUDIT-004 — No manual audit fabrication `[REMOVED per DCR-8]`.**
+Target state (doc-first; the as-built endpoint remains live until the W2-2
+code phase lands — see DCR-8 in §2.6): the audit trail can never be written
+through the API by any actor, admin included; audit rows are appended
+**exclusively by server-side `recordAudit()`** as a side effect of the
+actions in FR-AUDIT-003.
+Actor: — (constraint). Inputs: `POST /api/audit-logs` (any body).
+Outputs: HTTP 404 `{success:false, error:"No API endpoint for POST /api/audit-logs"}` (JSON `/api` catch-all) for every caller — anonymous, staff, maker, checker, admin.
+Acceptance (post-removal, Wave-2): (a) `POST /api/audit-logs` → 404 for **every** role including admin; (b) no API path appends `audit_logs` rows outside server-side `recordAudit()`; (c) the audit action set enumerated in FR-AUDIT-003 remains the complete set (no client-selectable `action` values enter the trail); (d) GET `/api/audit-logs` (FR-AUDIT-002) is unchanged.
+*[As-built today (until W2-2): admin → 201 with defaults; other roles → 403; actor server-stamped — documented in doc 08 §11.3 and doc 10 §5 AUD-11; flip-pins TC-AUDIT-008 / TC-RBAC-026.]*
 
 **FR-AUDIT-005 — Append-only integrity.**
 Actor: — (constraint). Inputs: —.

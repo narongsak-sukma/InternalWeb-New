@@ -1,6 +1,8 @@
 # Deliverable 10 — Audit Log Design
 
-**Version:** 1.0.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval (W2-2 revision: worker-5)
+
+> **Change log:** v1.1.0 (2026-09-10) — DCR-8 (CTO ruling, RISK-023, decision #5/#6: **PREFER REMOVAL** of `POST /api/audit-logs`): §5 AUD-11 and the §6 POST row re-dispositioned to removal — post-fix the audit surface is GET-only and rows are written exclusively by server-side `recordAudit()`; §2 union note and §4 actor bullet annotated with the target; §6 planned-scope paragraph moved from "removal or re-scoping" to the decided removal; §9 AUD-P05 workaround note updated; §10 DCR-8 traceability row added. The current as-built (endpoint live) remains stated in place until the W2-2 code phase lands; flip-pins TC-AUDIT-008 / TC-RBAC-026 (Doc 12). v1.0.0 — initial as-built draft.
 
 > This document describes the audit trail **AS BUILT**. Sources of truth:
 > `server.ts` (`recordAudit()` and every call site; `audit_logs` DDL),
@@ -62,9 +64,13 @@ Indexes: `idx_audit_actor (actor)`, `idx_audit_action (action)`,
 Accepted `action` values (TS union): `CREATE`, `UPDATE`, `DELETE`,
 `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `SYNC_PUBLIC`, `LOGIN`, `LOGIN_FAILED`,
 `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`, `FILE_UPLOAD`.
-Of these, `CREATE` / `UPDATE` / `DELETE` / `SYNC_PUBLIC` **have no automatic
-call site** — they can only enter the trail via the admin manual-append
-endpoint (§6).
+As built, `CREATE` / `UPDATE` / `DELETE` / `SYNC_PUBLIC` **have no automatic
+call site** — today they can only enter the trail via the admin manual-append
+endpoint (§6). **Post-DCR-8 target (doc-first):** with that endpoint removed,
+these four values have **no runtime writer at all** — the trail's live action
+set is exactly the server-side catalog §5 AUD-01…AUD-10 (plus legacy seed
+`SYNC_PUBLIC` fixture rows). The endpoint stays live until the W2-2 code
+phase lands.
 
 Status semantics: `SUCCESS` = the action took effect; `REJECTED` = a checker
 denied publication (the rejection itself succeeded); `WARNING` = security
@@ -109,10 +115,12 @@ The actor can never be injected by a client:
   the investigation signal), and `details` embeds it verbatim.
 - Logout resolves the user from the destroyed session record; if the user row
   vanished it records `unknown-user:<userId>` / `Unknown`.
-- The one client-influenced write path is the admin-only manual append
-  (§6), where `action`, `targetResource`, `resourceId`, `details`, `status`
-  come from the request body — but `actor`, `actorRole`, `ipAddress` remain
-  server-derived.
+- As built, the one client-influenced write path is the admin-only manual
+  append (§6), where `action`, `targetResource`, `resourceId`, `details`,
+  `status` come from the request body — but `actor`, `actorRole`, `ipAddress`
+  remain server-derived. **Post-DCR-8 target: this path is removed** (CTO
+  ruling, RISK-023) — every field of every audit row becomes exclusively
+  server-derived; the endpoint stays live until the W2-2 code phase lands.
 
 `scripts/smoke-test.mjs` §9 verifies this property end-to-end (creates a
 user, logs in, performs actions, asserts the stored actor/role match the
@@ -132,7 +140,7 @@ session, not any client-supplied echo).
 | AUD-08 | `USER_ACTIVATE` | PATCH `/api/users/:id` (`isActive: true`) | admin | `User Account` / user id | `Activated user "<username>".` | SUCCESS |
 | AUD-09 | `USER_DEACTIVATE` | PATCH `/api/users/:id` (`isActive: false`) | admin | `User Account` / user id | `Deactivated user "<username>".` | SUCCESS |
 | AUD-10 | `FILE_UPLOAD` | POST `/api/upload` (success, 201) | maker, checker, admin | `File Upload` / server filename `<uuid>.<ext>` | `Uploaded "<original name>" (<size> bytes).` (fire-and-forget write) | SUCCESS |
-| AUD-11 | *manual* (any allowed `action` string; default `UPDATE`) | POST `/api/audit-logs` | admin | from body (defaults `General Portal` / `PORTAL-GEN`) | from body (default `User initiated state change.`) | from body (default SUCCESS) |
+| AUD-11 | *manual* (any allowed `action` string; default `UPDATE`) | POST `/api/audit-logs` — **REMOVED per DCR-8** (target: 404 every role incl. admin; as-built live until W2-2) | admin | from body (defaults `General Portal` / `PORTAL-GEN`) | from body (default `User initiated state change.`) | from body (default SUCCESS) |
 
 Notes:
 - **Not audited:** rejected logins that fail input validation (non-string /
@@ -168,15 +176,17 @@ AUD-P01/P02/P03 gap items below. Pinned as-built by TC-NEWS-011 (Doc 12).
 | Endpoint | Access | Behavior (as built) |
 |---|---|---|
 | GET `/api/audit-logs` | checker, admin (`requireRole('checker','admin')`) | Returns `{ data: [AuditLog…] }`, **all** entries, newest-first. **No filters, no pagination, no query parameters** — the entire trail is transferred in one response. |
-| POST `/api/audit-logs` | admin only | Manual append; body may set `action`, `targetResource`, `resourceId`, `details`, `status`; actor fields and IP are server-derived; returns 201 with the created entry. |
+| POST `/api/audit-logs` | ~~admin only~~ | **REMOVED per DCR-8** (CTO ruling, RISK-023, decision #5/#6 — target: 404 for every role incl. admin; audit rows exclusively server-written by `recordAudit()`; GET surface unchanged; flip-pins TC-AUDIT-008 / TC-RBAC-026). *As built until the W2-2 code phase lands:* admin-only manual append — body may set `action`, `targetResource`, `resourceId`, `details`, `status`; actor fields and IP server-derived; returns 201. |
 
 UI: the CMS "BOT / PDPA Audit Trail" tab (checker+) renders the trail;
 `refreshAuditLogs()` is gated to checker+ client-side (Doc 09 §7).
 
 `[PLANNED]` Wave 2 query hardening: server-side pagination (`?page`,
 `?limit`), filters (`actor`, `action`, `from`, `to`, `status`), full-text
-search over `details`, CSV/PDF export for examiners, and removal or
-re-scoping of the manual append endpoint (integrity risk noted in Doc 09 §10).
+search over `details`, CSV/PDF export for examiners. The formerly open
+"removal or re-scoping of the manual append endpoint" item (integrity risk
+noted in Doc 09 §10) is **decided — REMOVED** per DCR-8 (CTO ruling, Wave-2
+decision #5/#6; route removal lands with the W2-2 code phase).
 
 ## 7. Retention
 
@@ -212,7 +222,7 @@ proposed action ids for the Wave 2 backlog:
 | AUD-P02 | `CONTENT_UPDATE` | PUT `/api/news/:id`, `/api/banners/:id`, `/api/contacts/:id` | Edits are invisible; maker-checker history starts only at submit |
 | AUD-P03 | `CONTENT_DELETE` | DELETE `/api/news|banners|contacts|documents/:id` (admin) | Destructive, unaudited (sync log written only for externally-synced news) |
 | AUD-P04 | `ROOM_BOOK` / `ROOM_RELEASE` | POST `/api/rooms/:id/book` & `/release` | Shared-resource usage is unattributable |
-| AUD-P05 | `SYNC_TRIGGER` | POST `/api/sync/trigger` (admin) | Writes only a `sync_logs` row, not an audit entry; manual append is the workaround |
+| AUD-P05 | `SYNC_TRIGGER` | POST `/api/sync/trigger` (admin) | Writes only a `sync_logs` row, not an audit entry; the as-built workaround (manual append) is removed by DCR-8, leaving a real audit call site as the only option |
 | AUD-P06 | `SYSTEM_EXPORT` | GET `/api/system/export` (admin) | Bulk data exfiltration event (PDPA relevant) — unaudited |
 | AUD-P07 | `ACCESS_DENIED` | every 401/403 from `requireAuth`/`requireRole` | Privilege-probing attempts are currently invisible to compliance |
 | AUD-P08 | `UPLOAD_REJECTED` | POST `/api/upload` failures (400/413) | Whitelist hits signal malicious probing |
@@ -232,6 +242,7 @@ minimize retained personal data).
 | Query access §6 | FR-AUDIT-*, FR-AUTH-* | TC-RBAC-013 (maker 403), TC-AUDIT-001 |
 | Append-only §3 | FR-AUDIT-* | TC-AUDIT-007 (no mutation routes) |
 | Coverage gaps §9 | FR-AUDIT-`[PLANNED]` | Wave 2 test additions |
+| DCR-8 removal (§5 AUD-11 / §6) | FR-AUDIT-004 `[REMOVED per DCR-8]` (Doc 03 v1.2.0) | TC-AUDIT-008 / TC-RBAC-026 (404 flip-pins, Doc 12) |
 
 Exact FR identifiers are enumerated in Doc 03 (SRS); Doc 04 (RTM)
 reconciles — mismatches resolve to Doc 03 in the Lead pass.

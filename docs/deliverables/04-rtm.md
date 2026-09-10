@@ -2,9 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2 revision: worker-5)
 
-> **Change log:** v1.1.0 (2026-09-10) — CTO gate REVISE applied: FR-NEWS-009 row updated to strict dual-control semantics (no role, admin included, may reach `'synced'` outside the checker approve endpoint; state + submitter≠approver guards; server-controlled workflow fields); NFR-COMP-001 row aligned; DCR-3 strict ruling recorded in §3.2/§3.3. v1.0.0 — initial draft.
+> **Change log:** v1.2.0 (2026-09-10) — DCR-8 (CTO: **PREFER REMOVAL** of `POST /api/audit-logs`): FR-AUDIT-004 row re-pointed to the removal disposition (target: 404 for every role; server-side `recordAudit` the sole writer); test ref corrected to TC-AUDIT-008 (404 flip-pin; also fixes the stale TC-AUDIT-004 ref); UAT-049 marked TC-only (no user-facing scenario survives removal). §3.1 AUDIT counts and §3.3 open items updated. v1.1.0 (2026-09-10) — CTO gate REVISE applied: FR-NEWS-009 row updated to strict dual-control semantics (no role, admin included, may reach `'synced'` outside the checker approve endpoint; state + submitter≠approver guards; server-controlled workflow fields); NFR-COMP-001 row aligned; DCR-3 strict ruling recorded in §3.2/§3.3. v1.0.0 — initial draft.
 
 Traces every requirement in `03-srs.md` to its design reference, implementation
 status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is `[PLANNED]`).
@@ -129,7 +129,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | FR-AUDIT-001 | §3.1.10 | `server.ts` `recordAudit()` (session-derived actor, `req.ip`, UTC stamp) | AS-BUILT | TC-AUDIT-001 | UAT-046 |
 | FR-AUDIT-002 | §3.1.10 | `server.ts` `GET /api/audit-logs` (checker/admin); AdminCMS audit view | AS-BUILT | TC-AUDIT-002 | UAT-047 |
 | FR-AUDIT-003 | §3.1.10 | audit call sites in login/logout/users/news-approval/upload handlers (10 action types) | AS-BUILT | TC-AUDIT-003 | UAT-048 |
-| FR-AUDIT-004 | §3.1.10 | `server.ts` `POST /api/audit-logs` (admin, defaults, session-stamped actor) | AS-BUILT | TC-AUDIT-004 | UAT-049 |
+| FR-AUDIT-004 | §3.1.10 | **REMOVED per DCR-8** (CTO ruling, RISK-023): target state = `POST /api/audit-logs` → 404 for every role incl. admin; audit rows written exclusively by server-side `recordAudit()`; as-built endpoint remains live until the W2-2 code phase lands | AS-BUILT today → `[REMOVED per DCR-8]` in W2-2 | TC-AUDIT-008 (404 flip-pin; also corrects this row's earlier stale TC-AUDIT-004 ref) | — (TC-only; UAT-049 retired — manual append has no surviving user-facing scenario) |
 | FR-AUDIT-005 | §3.1.10 | No update/delete audit routes; `audit_logs` append-only design (`schema.sql` §9, no update trigger); in-memory cap 5,000 | AS-BUILT | TC-AUDIT-005 | — (TC-only) |
 
 *Automated evidence:* smoke-test "audit-actor integrity" section asserts client-supplied actors are ignored.
@@ -220,7 +220,8 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
-| NFR-MAINT-001 | §3.2.6 | TypeScript ~5.8 end-to-end; `npm run lint` (`tsc --noEmit`); esbuild `dist/server.cjs`. **DCR-6: `strict` not enabled in `tsconfig.json`** | AS-BUILT (DCR-6 pending) | TC-MAINT-001 | — (TC-only) || NFR-MAINT-002 | §3.2.6 | `GET /api/openapi.json` handler (OpenAPI 3.0.3, cookieAuth scheme, full path list) | AS-BUILT | TC-MAINT-002 | — (TC-only) |
+| NFR-MAINT-001 | §3.2.6 | TypeScript ~5.8 end-to-end; `npm run lint` (`tsc --noEmit`); esbuild `dist/server.cjs`. **DCR-6: `strict` not enabled in `tsconfig.json`** | AS-BUILT (DCR-6 pending) | TC-MAINT-001 | — (TC-only) |
+| NFR-MAINT-002 | §3.2.6 | `GET /api/openapi.json` handler (OpenAPI 3.0.3, cookieAuth scheme, full path list) | AS-BUILT | TC-MAINT-002 | — (TC-only) |
 | NFR-MAINT-003 | §3.2.6 | JSON request-logger middleware (time/method/path/status/durationMs/ip) | AS-BUILT | TC-MAINT-003 | — (TC-only) |
 | NFR-MAINT-004 | §3.2.6 | `PG_DDL` ≡ `scripts/schema.sql` (lockstep DDL, `IF NOT EXISTS` idempotency); `seedIfEmpty()` | AS-BUILT | TC-MAINT-004 | — (TC-only) |
 | NFR-MAINT-005 | §3.2.6 | Single multi-stage image for compose + k8s; all knobs env-driven (`README.md` §4) | AS-BUILT | TC-MAINT-005 | — (TC-only) |
@@ -244,7 +245,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | DOC | FR | 3 | 3 | 0 | 3 |
 | ROOM | FR | 3 | 3 | 0 | 3 |
 | CMS | FR | 6 | 6 | 0 | 6 |
-| AUDIT | FR | 5 | 5 | 0 | 4 |
+| AUDIT | FR | 5 | 4 | 1 `[REMOVED per DCR-8]` (FR-AUDIT-004; as-built live until W2-2 code) | 3 |
 | SYNC | FR | 6 | 5 + 1 partial | FR-SYNC-004 outbound call `[PLANNED]` | 6 |
 | UPL | FR | 3 | 3 | 0 | 3 |
 | SRCH | FR | 3 | 3 | 0 | 3 |
@@ -254,7 +255,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | COMP | NFR | 4 | 4 | DCR-3 ruled strict (CTO); remediation FR-NEWS-009 `[PLANNED]` Wave 2 | 2 (shared) |
 | I18N | NFR | 3 | 3 | 0 | 3 |
 | MAINT | NFR | 7 | 7 | DCR-6 decision pending | 0 |
-| **Total** | | **94** | **90 full + 1 partial (FR-SYNC-004)** | 2 `[PLANNED]` items (FR-NEWS-009; FR-SYNC-004 outbound call), 2 proposed targets, 5 DCRs | **63** |
+| **Total** | | **94** | **90 full + 1 partial (FR-SYNC-004)** | 2 `[PLANNED]` items (FR-NEWS-009; FR-SYNC-004 outbound call), 2 proposed targets, 6 DCRs (incl. DCR-8 — ruled: removal pending W2-2 code) | **62** |
 
 ### 3.2 Requirements with no as-built implementation
 
@@ -306,6 +307,13 @@ Everything else in the matrix is implemented in the current tree
   `draft`/`pending_approval`/`synced`/`rejected` only; the TS union member
   `'pending'` (`src/types.ts:28`) is dead and no `'approved'` status exists.
   Documented as built in FR-SYNC-001. CTO ratifies at the gate.
+- **DCR-8** (audit integrity): `POST /api/audit-logs` (admin manual append)
+  allows arbitrary audit-row fabrication. **CTO ruling (Wave-2, decision
+  #5/#6): PREFER REMOVAL** — FR-AUDIT-004 now specifies the removal target
+  state (404 for every role; server-side `recordAudit()` the sole writer).
+  Doc-first revision landed; the code phase (W2-2) removes the route and
+  flips TC-AUDIT-008 / TC-RBAC-026 to their post-removal expectations. UAT-049
+  retired to TC-only.
 - **05-sds (pending):** worker-3's SDS should add §-level design references
   to this matrix; today the concrete code anchors above serve as the design
   references.

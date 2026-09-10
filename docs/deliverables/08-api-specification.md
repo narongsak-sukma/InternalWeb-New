@@ -1,6 +1,6 @@
 # 08 — API Specification
 
-**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval (W2-2 revision: worker-5)
 
 Complete as-built specification of the HTTP API served by the Express gateway in `server.ts` (bundled to `dist/server.cjs`). Every endpoint, status code, validation rule, default value, and side effect below was extracted from the code — nothing is aspirational. A machine-readable (partial) mirror is served at `GET /api/openapi.json`.
 
@@ -93,7 +93,7 @@ Roles: `admin` > `checker` (compliance) > `maker` (author) > `staff` (read-only)
 | `POST /api/news/:id/approve` `/reject` | 401 | 403 | 403 | ✅ | ✅ |
 | `DELETE /api/{news,banners,contacts,documents}/:id` | 401 | 403 | 403 | 403 | ✅ |
 | `GET /api/audit-logs` | 401 | 403 | 403 | ✅ | ✅ |
-| `POST /api/audit-logs` | 401 | 403 | 403 | 403 | ✅ |
+| `POST /api/audit-logs` | 401 | 403 | 403 | 403 | ✅ *(live today)* — **REMOVED per DCR-8**: target 404 for every role incl. admin (as-built until W2-2 code lands; §11.3) |
 | `GET /api/sync/logs`, `POST /api/sync/trigger` | 401 | 403 | 403 | 403 | ✅ |
 | `GET /api/system/export` | 401 | 403 | 403 | 403 | ✅ |
 | `GET/POST /api/users`, `PATCH /api/users/:id` | 401 | 403 | 403 | 403 | ✅ |
@@ -476,11 +476,24 @@ Returns the in-code constant `INITIAL_TOOLS` verbatim: `{"data":[{id,name,descri
 
 `200` → `{"data":[<AuditLog>…]}` (newest first). Fields per doc 07 §5.9. No query/filter parameters are supported (as built).
 
-### 11.3 `POST /api/audit-logs` (admin)
+### 11.3 `POST /api/audit-logs` — **REMOVED per DCR-8** (CTO ruling, RISK-023, decision #5/#6)
 
-Manual audit append. **Request** `application/json` (all optional; defaults): `action` → `UPDATE`; `targetResource` → `General Portal`; `resourceId` → `PORTAL-GEN`; `details` → `User initiated state change.`; `status` → `SUCCESS`. `actor`, `actorRole`, `ipAddress`, `id`, `timestamp` are always server-controlled. Values are not validated against the TS unions (as built — free text accepted).
+**Target state (doc-first):** the endpoint is removed. `POST /api/audit-logs`
+returns `404` `{success:false, error:"No API endpoint for POST /api/audit-logs"}`
+(the JSON `/api` catch-all) for **every caller — anonymous, staff, maker,
+checker, and admin**. Audit rows are appended exclusively by server-side
+`recordAudit()`; the API offers no audit-fabrication path. GET `/api/audit-logs`
+(§11.2) is unchanged. Verification flip-pins: TC-AUDIT-008 / TC-RBAC-026
+(doc 12).
 
-`201` → `{"success":true,"data":{<AuditLog>}}`; `401`/`403`.
+*[As-built today, until the W2-2 code phase lands:* manual audit append for
+admin. Request `application/json` (all optional; defaults): `action` →
+`UPDATE`; `targetResource` → `General Portal`; `resourceId` → `PORTAL-GEN`;
+`details` → `User initiated state change.`; `status` → `SUCCESS`. `actor`,
+`actorRole`, `ipAddress`, `id`, `timestamp` always server-controlled; values
+not validated against the TS unions (free text accepted). `201` →
+`{"success":true,"data":{<AuditLog>}}`; `401`/`403`. — *documented in doc 10
+§5 AUD-11 and FR-AUDIT-004 (SRS v1.2.0) for removal.]*
 
 ---
 
@@ -597,7 +610,7 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | 31 | DELETE | `/api/documents/:id` | admin | §10.3 |
 | 32 | GET | `/api/tools` | anon | §11.1 |
 | 33 | GET | `/api/audit-logs` | checker/admin | §11.2 |
-| 34 | POST | `/api/audit-logs` | admin | §11.3 |
+| 34 | POST | `/api/audit-logs` | ~~admin~~ **REMOVED per DCR-8** (target 404 all roles; as-built live until W2-2) | §11.3 |
 | 35 | GET | `/api/sync/logs` | admin | §12.1 |
 | 36 | POST | `/api/sync/trigger` | admin | §12.2 |
 | 37 | GET | `/api/system/export` | admin | §13.1 |
@@ -649,6 +662,7 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | DCR-3 | Create-path dual-control bypass | `POST /api/news` with `syncToExternal=true` lands directly in `synced` + writes a sync log — no checker involvement (§6.2). HANDOVER §4 describes creates as `draft`. **Decided — CTO strict ruling (Wave-1 gate):** no role (admin included) reaches `synced` outside checker approve; workflow fields server-controlled; enforcement lands Wave-2 P0 with DCR-7 as one work item (FR-NEWS-009 `[PLANNED]`). |
 | DCR-4 | Envelope inconsistency | Reads omit `success`; some 404/400 route errors omit it too (§1.3). Clients must tolerate both. |
 | DCR-5 | `pending` dead union member (external sync) | Declared in the TS union (`src/types.ts:28`), never assigned by any code path; it is the **only** dead member — the union contains no `approved` value at all (doc 07 §3.2). |
+| DCR-8 | Manual audit append erodes trail integrity | `POST /api/audit-logs` (§11.3) lets an admin fabricate arbitrary `action`/`details` audit rows (RISK-023). **Decided — CTO ruling (Wave-2, decision #5/#6): PREFER REMOVAL.** Target: 404 for every role incl. admin; audit rows exclusively server-written via `recordAudit()`; GET audit surface unchanged. Doc-first revision (this version); route removal + test flips (TC-AUDIT-008 / TC-RBAC-026) land in the W2-2 code phase. |
 
 ## 18. Change history
 
@@ -656,3 +670,4 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 |---|---|---|---|
 | 1.0.0 | 2026-09-10 | worker-4 | Initial as-built specification: 38 indexed operations (37 API + static uploads), extracted from `server.ts`. |
 | 1.1.0 | 2026-09-10 | worker-4 + lead | CTO-gate revision (lead-applied): §17 DCR-5 row corrected to register facts (`pending` is the only dead union member; no `approved` value exists); DCR-3 row updated from "needs a decision" to the CTO strict ruling (Wave-2 P0, bundled with DCR-7). |
+| 1.2.0 | 2026-09-10 | worker-5 (W2-2 doc phase) | DCR-8 (CTO: PREFER REMOVAL): §11.3 `POST /api/audit-logs` marked REMOVED (target 404 every role; as-built preserved inline until W2-2 code lands); §2 access-matrix row and endpoint index annotated; §17 DCR-8 row added. GET audit-logs unchanged. |
