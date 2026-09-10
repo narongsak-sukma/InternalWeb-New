@@ -69,7 +69,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | FR-NEWS-006 | §3.1.4 | `server.ts` `POST /api/news/:id/approve` (checker/admin → `synced`, `approvedBy`/`approvedAt`, `APPROVE` audit, sync log) | AS-BUILT | TC-NEWS-006 | UAT-023 |
 | FR-NEWS-007 | §3.1.4 | `server.ts` `POST /api/news/:id/reject` (checker/admin → `rejected`, reason persisted, `REJECT` audit `REJECTED`) | AS-BUILT | TC-NEWS-007 | UAT-024 |
 | FR-NEWS-008 | §3.1.4 | `news.is_important_alert` column; `src/components/Header.tsx` unread-alert affordance → `ArticleDetailModal.tsx` | AS-BUILT | TC-NEWS-008 | UAT-025 |
-| FR-NEWS-009 | §3.1.4 | No implementation yet — remediation of DCR-3: restrict create/update direct publish so `'synced'` requires checker approval (or CTO-ratified equivalent disposition) | **[PLANNED]** | TC-NEWS-009 (planned) | — (TC-only) |
+| FR-NEWS-009 | §3.1.4 | No implementation yet — remediation of DCR-3: restrict create/update direct publish so `'synced'` requires checker approval (or CTO-ratified equivalent disposition) | **[PLANNED]** | TC-SEC-011 (post-fix, doc 12) | — (TC-only) |
 
 *Automated evidence:* smoke-test and `tests/e2e-walkthrough.mjs` drive the full maker-checker flow.
 
@@ -218,7 +218,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
-| NFR-MAINT-001 | §3.2.6 | TypeScript ~5.8 end-to-end; `npm run lint` (`tsc --noEmit`); esbuild `dist/server.cjs`. **DCR-2: `strict` not enabled in `tsconfig.json`** | AS-BUILT (DCR-2 pending) | TC-MAINT-001 | — (TC-only) || NFR-MAINT-002 | §3.2.6 | `GET /api/openapi.json` handler (OpenAPI 3.0.3, cookieAuth scheme, full path list) | AS-BUILT | TC-MAINT-002 | — (TC-only) |
+| NFR-MAINT-001 | §3.2.6 | TypeScript ~5.8 end-to-end; `npm run lint` (`tsc --noEmit`); esbuild `dist/server.cjs`. **DCR-6: `strict` not enabled in `tsconfig.json`** | AS-BUILT (DCR-6 pending) | TC-MAINT-001 | — (TC-only) || NFR-MAINT-002 | §3.2.6 | `GET /api/openapi.json` handler (OpenAPI 3.0.3, cookieAuth scheme, full path list) | AS-BUILT | TC-MAINT-002 | — (TC-only) |
 | NFR-MAINT-003 | §3.2.6 | JSON request-logger middleware (time/method/path/status/durationMs/ip) | AS-BUILT | TC-MAINT-003 | — (TC-only) |
 | NFR-MAINT-004 | §3.2.6 | `PG_DDL` ≡ `scripts/schema.sql` (lockstep DDL, `IF NOT EXISTS` idempotency); `seedIfEmpty()` | AS-BUILT | TC-MAINT-004 | — (TC-only) |
 | NFR-MAINT-005 | §3.2.6 | Single multi-stage image for compose + k8s; all knobs env-driven (`README.md` §4) | AS-BUILT | TC-MAINT-005 | — (TC-only) |
@@ -251,7 +251,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | AVAIL | NFR | 6 | 6 | 0 | 0 |
 | COMP | NFR | 4 | 4 | DCR-3 disposition pending (FR-NEWS-009) | 2 (shared) |
 | I18N | NFR | 3 | 3 | 0 | 3 |
-| MAINT | NFR | 7 | 7 | DCR-2 decision pending | 0 |
+| MAINT | NFR | 7 | 7 | DCR-6 decision pending | 0 |
 | **Total** | | **94** | **90 full + 1 partial (FR-SYNC-004)** | 2 `[PLANNED]` items (FR-NEWS-009; FR-SYNC-004 outbound call), 2 proposed targets, 5 DCRs | **63** |
 
 ### 3.2 Requirements with no as-built implementation
@@ -279,7 +279,7 @@ Everything else in the matrix is implemented in the current tree
   `exportTimestamp`, not `generatedAt`. Documented as built in FR-SYNC-006
   (this matrix already uses `exportTimestamp`); any other doc using
   `generatedAt` is corrected against it. CTO ratifies at the gate.
-- **DCR-2** (tsconfig strict): `tsconfig.json` lacks `"strict": true` while
+- **DCR-6** (tsconfig strict): `tsconfig.json` lacks `"strict": true` while
   conventions claim "TypeScript strict" — affects NFR-MAINT-001 and the SRS
   §2.5 constraint list. Needs CTO decision (enable strict in Wave 2 or amend
   the constraint).

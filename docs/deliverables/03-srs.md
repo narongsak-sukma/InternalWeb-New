@@ -143,7 +143,8 @@ users are rejected at login and their existing sessions stop resolving.
 1. **Language:** TypeScript ~5.8 (ES2022, `moduleResolution: bundler`) end to
    end; `npm run lint` (`tsc --noEmit`) is the type gate.
    *DCR note:* `tsconfig.json` does not currently enable `"strict": true` —
-   see DCR-2 in §2.6; as built the codebase is not compiled in strict mode.
+   see DCR-6 in §2.6 (DCR numbering follows the repo-wide register,
+   PROJECT-STATE.md §8); as built the codebase is not compiled in strict mode.
 2. **Backend:** Express 4 gateway in one file (`server.ts`); Express
    middleware chain only (no nested microservices); `express-rate-limit`,
    `multer`, `bcryptjs`, `pg` dependencies.
@@ -182,7 +183,7 @@ users are rejected at login and their existing sessions stop resolving.
 - **DCR-1 (field name):** the system-export timestamp field is
   `exportTimestamp`, **not** `generatedAt`. Documented as built in
   FR-SYNC-006; any doc claiming `generatedAt` is corrected against it.
-- **DCR-2 (constraint mismatch):** "TypeScript strict" is claimed in project
+- **DCR-6 (constraint mismatch):** "TypeScript strict" is claimed in project
   conventions, but `tsconfig.json` lacks `"strict": true`. Decide whether to
   enable strict mode (may surface type errors to fix in Wave 2) or amend the
   documented constraint. Documented as built in §2.5 / NFR-MAINT-001.
@@ -662,7 +663,7 @@ as-built implementation.
 
 #### 3.2.6 Maintainability (MAINT)
 
-**NFR-MAINT-001 — Single-language type-checked codebase.** Server and SPA are TypeScript ~5.8 (one language end to end); `npm run lint` (`tsc --noEmit`) is the merge gate; the production server ships as an esbuild CJS bundle (`dist/server.cjs`). *DCR-2: strict mode not currently enabled.*
+**NFR-MAINT-001 — Single-language type-checked codebase.** Server and SPA are TypeScript ~5.8 (one language end to end); `npm run lint` (`tsc --noEmit`) is the merge gate; the production server ships as an esbuild CJS bundle (`dist/server.cjs`). *DCR-6: strict mode not currently enabled.*
 *Acceptance:* `npm run lint` and `npm run build` pass on the merged tree.
 
 **NFR-MAINT-002 — Machine-readable API contract.** `GET /api/openapi.json` publishes an OpenAPI 3.0.3 document (cookie security scheme `kbj_session`, per-path summaries and response codes) kept in sync with the routes; consumers never rely on prose.

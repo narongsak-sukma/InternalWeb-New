@@ -1,6 +1,13 @@
 # Deliverable 12 — Test Plan
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+
+> **Change log** — **1.1.0 (2026-09-10)**: RTM/SRS reconciliation (Lead review):
+> added the 19 TC definitions referenced by Doc 04 RTM but not previously
+> defined here — TC-AVAIL-001..006, TC-COMP-001..004, TC-MAINT-001..007,
+> TC-SYNC-005/006 — plus TC-I18N-001..003 to complete every RTM TC reference;
+> added §5.1 UAT traceability mapping UAT-001..065 → scenario IDs UAT-1..6;
+> TC totals updated (§6). **1.0.0 (2026-09-10)**: initial as-built test plan.
 
 > This plan governs all verification of the KB J Capital intranet portal —
 > both the existing AS-BUILT assets (`scripts/smoke-test.mjs`,
@@ -111,13 +118,65 @@ scenario completes with the business outcome and no error toast
 | UAT-5 | staff (negative) | Try to reach CMS by URL state and deleted-account login | CMS never renders (view snaps back); deactivated account login fails with generic error |
 | UAT-6 | anonymous | Visit portal logged out | Only public marketing surfaces (news list, banners, rooms, tools) and the login screen; directory/documents demand login |
 
+### 5.1 UAT traceability (RTM reconciliation)
+
+Doc 04 (RTM) traces each requirement to fine-grained acceptance references
+`UAT-001`..`UAT-065`. Those IDs are **requirement-level checks exercised
+inside** the six role scenarios above — they are not separate staged events.
+Mapping (each RTM UAT-0nn ref resolves to exactly one scenario; **UAT-011 is
+not referenced** — its requirement FR-SES-005 is TC-only in the RTM — and
+stays reserved):
+
+| RTM refs | REQs covered | Scenario |
+|---|---|---|
+| UAT-001, 003, 004 | FR-AUTH-001/003/004 (login, logout, /me) | UAT-1 |
+| UAT-002, 005, 006 | FR-AUTH-002/005/006 (rate limit, timing, LOGIN_FAILED) | UAT-5 |
+| UAT-007, 009 | FR-SES-001/003 (token verify, cookie flags) | UAT-1 / UAT-5 |
+| UAT-008, 010, 012 | FR-SES-002/004/006 (session persistence, isActive gate, secret guard) | UAT-4 |
+| UAT-013..017 | FR-USER-001..005 (list, create, activate/deactivate, no-delete, bootstrap) | UAT-4 |
+| UAT-018, 025 | FR-NEWS-001/008 (public list, important alert) | UAT-1 / UAT-6 |
+| UAT-019, 020, 022 | FR-NEWS-002/003/005 (create, update, submit — incl. DCR-3 paths) | UAT-2 |
+| UAT-021 | FR-NEWS-004 (admin delete) | UAT-4 |
+| UAT-023, 024 | FR-NEWS-006/007 + NFR-COMP-001 (approve / reject — dual control) | UAT-3 |
+| UAT-026 | FR-BANNER-001 (public banners) | UAT-6 |
+| UAT-027, 028 | FR-BANNER-002/003 (create, update) | UAT-2 |
+| UAT-029 | FR-BANNER-004 (delete) | UAT-4 |
+| UAT-030 | FR-CONTACT-001 (directory search) | UAT-1 |
+| UAT-031, 032 | FR-CONTACT-002/003 (create, update) | UAT-2 |
+| UAT-033 | FR-CONTACT-004 (delete) | UAT-4 |
+| UAT-034 | FR-DOC-001 (documents list) | UAT-1 |
+| UAT-035 | FR-DOC-002 (register document) | UAT-2 |
+| UAT-036 | FR-DOC-003 (delete) | UAT-4 |
+| UAT-037 | FR-ROOM-001 (public rooms list) | UAT-6 |
+| UAT-038, 039 | FR-ROOM-002/003 (book, release) | UAT-1 |
+| UAT-040, 043, 044 | FR-CMS-001/004/005 (view gating, offline fallback, session restore) | UAT-1 |
+| UAT-041 | FR-CMS-002 (role-conditional CMS controls) | UAT-3 |
+| UAT-042 | FR-CMS-003 (inline errors / toasts) | UAT-2 |
+| UAT-045 | FR-CMS-006 (public portal components) | UAT-6 |
+| UAT-046..048 | FR-AUDIT-001/002/003 (actor stamping, trail read, action types) | UAT-3 |
+| UAT-049 | FR-AUDIT-004 (manual append, admin) | UAT-4 |
+| UAT-051 | FR-SYNC-001 (status machine incl. DCR-3/DCR-5 behavior) | UAT-2 |
+| UAT-052..054 | FR-SYNC-002/003/004 (sync-log writes, admin log read, trigger) | UAT-4 |
+| UAT-055 | FR-SYNC-005 (External Web Sync preview, maker+) | UAT-2 |
+| UAT-056 | FR-SYNC-006 (system export, admin) | UAT-4 |
+| UAT-057..059 | FR-UPL-001/002/003 (upload+audit, whitelist/limits, UUID serving) | UAT-2 |
+| UAT-060, 062 | FR-SRCH-001/003 (global search, contacts search) | UAT-1 |
+| UAT-061 | FR-SRCH-002 (public news search) | UAT-6 |
+| UAT-063..065 | NFR-I18N-001..003 (Thai-first strings, bilingual fields, Thai dates) | UAT-1 |
+
 ## 6. Test case catalog
 
 Conventions: ID `TC-<DOMAIN>-<nnn>`; priority **P0** (release gate), **P1**
 (must fix before UAT sign-off), **P2** (best effort). REQ refs use the
-`FR-<DOMAIN>-<nnn>` scheme; exact identifiers are enumerated in Doc 03 and
-reconciled by Doc 04 (RTM) — the Lead pass aligns this table to those IDs.
-Preconditions marked "(fresh)" mean a just-started server/stack per §3.
+`FR-<DOMAIN>-<nnn>` / `NFR-<DOMAIN>-<nnn>` scheme enumerated in Doc 03 and
+reconciled by Doc 04 (RTM) — as of v1.1.0 every TC id the RTM references is
+defined here.
+
+**Catalog inventory (v1.1.0):** AUTH 10 · SES 10 · NEWS 12 · BANNER 5 ·
+CONTACT 5 · DOC 5 · ROOM 6 · CMS 8 · USER 8 · AUDIT 8 · SYNC 6 · UPL 8 ·
+SRCH 4 · PERF 4 · RBAC 30 · SEC 13 · SYS 6 · AVAIL 6 · COMP 4 · MAINT 7 ·
+I18N 3 = **168 test cases**, plus 6 UAT scenarios (§5) tracing the 64 RTM
+acceptance references UAT-001..065 (§5.1).
 
 ### 6.1 Authentication — AUTH
 
@@ -250,6 +309,8 @@ Preconditions marked "(fresh)" mean a just-started server/stack per §3.
 | TC-SYNC-002 | Trigger writes FORCE_SYNC log | admin | POST /api/sync/trigger | 200; log row BULK-ALL with counted items; syncedBy=admin | FR-SYNC | P0 |
 | TC-SYNC-003 | Approve writes CREATE sync log | checker approves | Inspect sync logs | Row with item id, endpoint api.kbjcapital.co.th/v1/public/news | FR-SYNC | P1 |
 | TC-SYNC-004 | Sync trigger audited? (gap) | admin | Trigger; check audit | **No audit row (sync_logs only)** — documented gap AUD-P05 | FR-AUDIT | P2 |
+| TC-SYNC-005 | External Web Sync preview (FR-SYNC-005) | maker, staff sessions | Open "External Web Sync" view; staff attempts same | Maker+ sees preview of externally-synced content (`syncToExternal`/`synced` items) with CMS shortcut, reflecting current synced news; staff view absent (gated with the CMS view set) | FR-SYNC | P1 |
+| TC-SYNC-006 | System export shape + consumer (FR-SYNC-006) | admin, maker | GET /api/system/export; run `DATABASE_URL=… node scripts/migrate.js export.json` against fresh PG | Admin: 200 `{exportTimestamp, version:"2.0.0", schemaTarget, storage, counts, tables:{news,banners,contacts,meeting_rooms,documents,audit_logs,sync_logs}}` — timestamp field is **`exportTimestamp`** (DCR-1), counts match store; migrate.js loads `payload.tables`; maker → 403 | FR-SYNC | P0 |
 
 ### 6.12 Uploads — UPL
 
@@ -363,6 +424,52 @@ middleware regression that 403s everything.
 | TC-SYS-004 | Export → migrate round-trip | in-memory data | GET /api/system/export → `node scripts/migrate.js export.json` against fresh PG | Tables populated; counts match export | FR-SES | P1 |
 | TC-SYS-005 | Readiness pulls pod when DB dies | stack | Stop postgres; GET /readyz | 503; recovers 200 on PG restart | FR-SES | P0 |
 | TC-SYS-006 | Manifest validation | — | `docker compose config`; `kubectl kustomize k8s` | Both validate | FR-SES | P1 |
+
+### 6.19 Availability — AVAIL (NFR-AVAIL-001..006, SRS §3.2.3)
+
+Overlapping operational pins already defined above are cross-referenced rather
+than duplicated; each AVAIL id is the RTM-facing definition.
+
+| ID | Title | Pre | Steps | Expected | REQ | Pri |
+|---|---|---|---|---|---|---|
+| TC-AVAIL-001 | Liveness probe independent of DB | any env; PG optional | GET `/healthz` (+ `/health`, `/api/health`); stop PostgreSQL; repeat | 200 `{status:"healthy", probe:"liveness", timestamp, uptime, service, version:"2.0.0", k8s{…}}`; **still 200 with DB down** (no restart loops); Docker HEALTHCHECK polls it every 30 s | NFR-AVAIL-001 | P0 |
+| TC-AVAIL-002 | Readiness probe repository-aware | ENV-PROD-MODE | GET `/readyz` healthy; stop PG; repeat; restart PG; repeat | Healthy: 200 checks `{database, cache, cmsStore}`; PG down: 503 `{status:"not_ready", reason:"Database unavailable"}`; recovers 200 (overlaps TC-SES-011 / TC-SYS-005) | NFR-AVAIL-002 | P0 |
+| TC-AVAIL-003 | Graceful shutdown sequence | compose stack | `docker stop` / SIGTERM the app; watch logs | Sweeper cleared → HTTP server closed → pool closed → exit 0; force-exit only after 10 s timeout; k8s pairs with preStop drain + 35 s grace (overlaps TC-SES-013) | NFR-AVAIL-003 | P0 |
+| TC-AVAIL-004 | Durable persistence, fail-fast DB | ENV-PROD-MODE | Create content; restart app; verify; then point DATABASE_URL at a dead PG and boot | Content/users/sessions persist on pgdata volume across restarts; unreachable PG at boot = fatal exit with clear error (no silent in-memory fallback); prod boot **without** DATABASE_URL logs explicit data-loss warning (overlaps TC-SYS-002) | NFR-AVAIL-004 | P0 |
+| TC-AVAIL-005 | Backup & data portability | stack + export artifact | Verify compose `pg_isready` gating; GET /api/system/export; `migrate.js` into fresh PG; confirm uploads volume | Health gating prevents premature traffic; export+migrate reproduce data; uploads survive on volume/PVC; schema upgrade via manual `psql -f schema.sql` documented path (overlaps TC-SYS-004) | NFR-AVAIL-005 | P1 |
+| TC-AVAIL-006 | Process resilience | running server | Trigger unhandledRejection scenario; malformed body; oversized body | Rejection logged+suppressed (pod serves on); body-parser failures → clean 400/413 JSON; unexpected errors → single-line 500 JSON; k8s startup probe guards slow boots | NFR-AVAIL-006 | P1 |
+
+### 6.20 Compliance — COMP (NFR-COMP-001..004, SRS §3.2.4)
+
+| ID | Title | Pre | Steps | Expected | REQ | Pri |
+|---|---|---|---|---|---|---|
+| TC-COMP-001 | Segregation of duties (BOT dual control) | maker + checker sessions | Maker attempts approve/reject; checker attempts authoring; inspect approvedBy/audit on approvals | Maker → 403 on approve/reject (TC-RBAC-011/012); checker → 403 on authoring (TC-RBAC-004); approvals stamped + audited. **DCR-3 open item:** direct-publish path weakens strict dual control as built — post-fix enforcement verified by TC-SEC-011 (FR-NEWS-009 `[PLANNED]`) | NFR-COMP-001 | P0 |
+| TC-COMP-002 | PDPA accountability | admin + audit reader | Perform sensitive ops; read trail; inspect request logs | Append-only audit rows with actor/role/action/target/IP/outcome (TC-AUDIT-001..007); accounts deactivated, never deleted (TC-USER-008); request logs carry time/method/path/status/durationMs/ip | NFR-COMP-002 | P0 |
+| TC-COMP-003 | Data minimization | any session | Inspect /api/auth/me, /api/users, login data; decode cookie; list upload dir | No `passwordHash` in any response (SafeUser projection); cookie value = signed sid only (no PII); uploads stored under UUID names (no user filenames) | NFR-COMP-003 | P0 |
+| TC-COMP-004 | Timely access revocation | admin + victim session | Deactivate victim; victim retries request + relogin; advance/expire a session | Existing session 401 on next request; relogin 401; 7-day expiry ceiling enforced + hourly sweep removes expired rows | NFR-COMP-004 | P0 |
+
+### 6.21 Maintainability — MAINT (NFR-MAINT-001..007, SRS §3.2.6)
+
+| ID | Title | Pre | Steps | Expected | REQ | Pri |
+|---|---|---|---|---|---|---|
+| TC-MAINT-001 | Single-language type-checked build | repo | `npm run lint`; `npm run build`; inspect tsconfig | `tsc --noEmit` exit 0 (merge gate); SPA + `dist/server.cjs` esbuild bundle build; **DCR-6: `strict` mode not enabled in tsconfig — enabling it is `[PLANNED]`** (SRS §3.2.6) | NFR-MAINT-001 | P0 |
+| TC-MAINT-002 | Machine-readable API contract | — | GET `/api/openapi.json` | OpenAPI 3.0.3 with `cookieAuth` scheme (`kbj_session`); paths enumerate the live routes with summaries/response codes | NFR-MAINT-002 | P1 |
+| TC-MAINT-003 | Structured request logging | running server | Make requests incl. one /@vite internal; read stdout | One JSON line per request `{time, method, path, status, durationMs, ip}`; Vite internals and node_modules paths excluded | NFR-MAINT-003 | P1 |
+| TC-MAINT-004 | Idempotent schema management | PG | Boot server twice; run `scripts/schema.sql` again; check seeds | `CREATE TABLE IF NOT EXISTS` + idempotent enum creation — no errors on re-run; seed rows inserted only into completely empty tables; server `PG_DDL` ≡ `schema.sql` | NFR-MAINT-004 | P1 |
+| TC-MAINT-005 | One image, env-only configuration | image built | Run same image dev (no DATABASE_URL) and compose (PG) | Identical image both envs; DB mode, NODE_ENV flags, UPLOAD_DIR, HOST/PORT all env-selected — no rebuild to move environments | NFR-MAINT-005 | P1 |
+| TC-MAINT-006 | API envelope & error semantics (DCR-4 pin) | any session | Exercise one endpoint of each class: read, mutation, auth failure, validation failure, per-resource 404, room 400, unknown /api path | Reads bare `{data[,total]}` (no `success`); mutations `{success:true,…}`; auth/validation/rate-limit `{success:false,error}`; per-resource 404s + room errors bare `{error}`; unknown /api → `{success:false}` JSON 404; status taxonomy 400/401/403/404/409/413/429/500 consistent (full pin = TC-SEC-012) | NFR-MAINT-006 | P1 |
+| TC-MAINT-007 | Data migration & QA tooling | export artifact; fresh PG | `node scripts/migrate.js export.json`; `node scripts/seed-users.js`; re-run smoke + e2e suites | Import populates tables; seed-users provisions accounts; both suites repeatable green (exit 0) | NFR-MAINT-007 | P1 |
+
+### 6.22 Internationalization — I18N (NFR-I18N-001..003, SRS §3.2.5)
+
+Referenced by RTM rows NFR-I18N-001..003; added for completeness so every
+RTM TC reference resolves in this catalog.
+
+| ID | Title | Pre | Steps | Expected | REQ | Pri |
+|---|---|---|---|---|---|---|
+| TC-I18N-001 | Thai-first bilingual UI strings | SPA loaded | Inspect LoginPage, portal header, CMS surfaces | Thai-first bilingual strings throughout (e.g. "เข้าสู่ระบบ / Sign in"), no English-only orphan screens | NFR-I18N-001 | P1 |
+| TC-I18N-002 | Bilingual data fields & search | seeded data with `title_en`/`name_en` | Search news by English title; contacts by English name | `_en` columns surfaced in UI and matched by search paths | NFR-I18N-002 | P1 |
+| TC-I18N-003 | Thai locale defaults | — | Create news via API/UI; inspect defaults | `publishedAt` uses `toLocaleDateString('th-TH')` (e.g. "10 ก.ย. 2026" form); read time "3 นาที"; `published_at` stored as display label per schema note | NFR-I18N-003 | P2 |
 
 ## 7. Entry & exit criteria per level
 

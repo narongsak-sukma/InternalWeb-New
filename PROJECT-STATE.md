@@ -61,8 +61,8 @@ CTO (codex) solves directly.
 | 1 | Docs 05+06 (architecture lane) | worker-3 | done 2026-09-10 |
 | 1 | Docs 07+08 (data/API lane) | worker-4 | done 2026-09-10 |
 | 1 | Docs 09+10+12 (security/QA lane) | worker-5 | done 2026-09-10 |
-| 1 | Lead review of doc set (consistency, cross-refs, no divergence) | lead | pending |
-| 1 | CTO gate: deliverable docs (codex read-only) | CTO | pending |
+| 1 | Lead review of doc set (consistency, cross-refs, no divergence) | lead | done 2026-09-10 |
+| 1 | CTO gate: deliverable docs (codex read-only) | CTO | in progress |
 | 2 | Implementation waves (decomposed from approved docs) | workers | blocked by Wave-1 gate |
 | 3 | Test/UAT/pentest/manual deliverables 17–21 | workers | blocked by Wave 2 |
 
@@ -72,6 +72,7 @@ CTO (codex) solves directly.
 |---|---|---|---|
 | 1 | 2026-09-10 | Project charter: doc-first, 21-deliverable checklist, wave model; workers=flash-class executors; codex=CTO gate; lead sole merge authority | CHARTERED (lead, per user full-authority grant) |
 | 2 | 2026-09-10 | DCR-1..5 triage (see §8). DCR-3 maker-checker bypass CONFIRMED in code by lead (server.ts:1306) → as-built documented everywhere, dual-control enforcement queued as Wave-2 P0 backlog, CTO ratifies at Wave-1 gate | TRIAGED (lead) — pending CTO ratification |
+| 3 | 2026-09-10 | Lead review of 12-doc set PASSED: REQ SRS↔RTM 1:1 (94); all RTM TC refs resolve in doc 12 (168 TC defs, 21 series); UAT-001..065 mapped; DCR numbering unified to §8 register (strict-mode=DCR-6); RTM FR-NEWS-009 TC ref fixed to TC-SEC-011; role matrices 08↔09 agree; 9 tables + 13 components covered; HANDOVER fixed per DCR-1/2 | REVIEW PASSED (lead) → to CTO gate |
 
 ## 8. DCR register (doc change requests)
 

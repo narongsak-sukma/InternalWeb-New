@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"grep -o \\\"TC-[A-Z]*-[0-9]*\\\" docs/deliverables/04-rtm.md | sort -u > /tmp/rtm_tcs.txt && grep -o \\\"TC-[A-Z]*-[0-9]*\\\" docs/deliverables/12-test-plan.md | sort -u > /tmp/doc12_tcs.txt && ec...",
+  "error": "Exit code 2\nugrep: warning: docs/deliverables/04-rtm.md: No such file or directory\nugrep: warning: docs/deliverables/12-test-plan.md: No such file or directory\nRTM TC refs:        0 | Doc12 defines:        0\n--- Missing from doc 12:\n--- (end missing list)\nugrep: warning: docs/deliverables/12-test-plan.md: No such file or directory",
+  "timestamp": "2026-09-10T05:22:54.750Z",
+  "retry_count": 2
+}
