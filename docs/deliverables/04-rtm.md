@@ -2,7 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
+
+> **Change log:** v1.1.0 (2026-09-10) — CTO gate REVISE applied: FR-NEWS-009 row updated to strict dual-control semantics (no role, admin included, may reach `'synced'` outside the checker approve endpoint; state + submitter≠approver guards; server-controlled workflow fields); NFR-COMP-001 row aligned; DCR-3 strict ruling recorded in §3.2/§3.3. v1.0.0 — initial draft.
 
 Traces every requirement in `03-srs.md` to its design reference, implementation
 status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is `[PLANNED]`).
@@ -69,7 +71,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | FR-NEWS-006 | §3.1.4 | `server.ts` `POST /api/news/:id/approve` (checker/admin → `synced`, `approvedBy`/`approvedAt`, `APPROVE` audit, sync log) | AS-BUILT | TC-NEWS-006 | UAT-023 |
 | FR-NEWS-007 | §3.1.4 | `server.ts` `POST /api/news/:id/reject` (checker/admin → `rejected`, reason persisted, `REJECT` audit `REJECTED`) | AS-BUILT | TC-NEWS-007 | UAT-024 |
 | FR-NEWS-008 | §3.1.4 | `news.is_important_alert` column; `src/components/Header.tsx` unread-alert affordance → `ArticleDetailModal.tsx` | AS-BUILT | TC-NEWS-008 | UAT-025 |
-| FR-NEWS-009 | §3.1.4 | No implementation yet — remediation of DCR-3: restrict create/update direct publish so `'synced'` requires checker approval (or CTO-ratified equivalent disposition) | **[PLANNED]** | TC-SEC-011 (post-fix, doc 12) | — (TC-only) |
+| FR-NEWS-009 | §3.1.4 | No implementation yet — **CTO strict ruling on DCR-3**: post-fix NO role (admin included) reaches `'synced'` outside the checker approve endpoint; approve/reject require `'pending_approval'` (else 400) and submitter ≠ approver (else 403); submit-approval accepts `'draft'` only (else 400); workflow fields (`externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal`) server-controlled, stripped from create/update payloads; future admin override = separate break-glass requirement (out of scope) | **[PLANNED]** | TC-SEC-011 (post-fix, doc 12) | — (TC-only) |
 
 *Automated evidence:* smoke-test and `tests/e2e-walkthrough.mjs` drive the full maker-checker flow.
 
@@ -201,7 +203,7 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
-| NFR-COMP-001 | §3.2.4 | `requireRole('checker','admin')` on approve/reject; maker 403; approval stamps. **Direct-publish bypass = DCR-3 open item; remediation FR-NEWS-009 `[PLANNED]`** | AS-BUILT (DCR-3 disposition pending) | TC-COMP-001 | UAT-023 (dual control) |
+| NFR-COMP-001 | §3.2.4 | `requireRole('checker','admin')` on approve/reject; maker 403; approval stamps. **Strict target (CTO ruling, FR-NEWS-009 `[PLANNED]`): no role — admin included — reaches `'synced'` outside checker approve; state + submitter≠approver guards server-enforced for ALL roles. As-built gap = DCR-3 direct-publish path** | AS-BUILT (strict remediation FR-NEWS-009 `[PLANNED]`, Wave 2) | TC-COMP-001 | UAT-023 (dual control) |
 | NFR-COMP-002 | §3.2.4 | Append-only `audit_logs` + `recordAudit`; no-delete user lifecycle; JSON request logs with IP | AS-BUILT | TC-COMP-002 | UAT-047 |
 | NFR-COMP-003 | §3.2.4 | `toSafeUser` everywhere; cookie = signed sid only; UUID upload filenames | AS-BUILT | TC-COMP-003 | — (TC-only) |
 | NFR-COMP-004 | §3.2.4 | `resolveSession` isActive gate; login isActive rejection; session sweeper | AS-BUILT | TC-COMP-004 | UAT-015 |
@@ -249,18 +251,23 @@ status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is
 | SEC | NFR | 7 | 7 | 0 | 0 (TC-only) |
 | PERF | NFR | 4 | 2 | 2 PROPOSED (targets pending doc 17) | 0 |
 | AVAIL | NFR | 6 | 6 | 0 | 0 |
-| COMP | NFR | 4 | 4 | DCR-3 disposition pending (FR-NEWS-009) | 2 (shared) |
+| COMP | NFR | 4 | 4 | DCR-3 ruled strict (CTO); remediation FR-NEWS-009 `[PLANNED]` Wave 2 | 2 (shared) |
 | I18N | NFR | 3 | 3 | 0 | 3 |
 | MAINT | NFR | 7 | 7 | DCR-6 decision pending | 0 |
 | **Total** | | **94** | **90 full + 1 partial (FR-SYNC-004)** | 2 `[PLANNED]` items (FR-NEWS-009; FR-SYNC-004 outbound call), 2 proposed targets, 5 DCRs | **63** |
 
 ### 3.2 Requirements with no as-built implementation
 
-1. **FR-NEWS-009 `[PLANNED]`:** dual-control enforcement on news
-   create/update (maker cannot reach `'synced'` directly). Not implemented as
-   built — the direct-publish bypass exists today (DCR-3,
-   `server.ts:1306,1315,1346`) and is documented as-built in FR-NEWS-002/003.
-   Awaits the CTO-ratified DCR-3 disposition before Wave 2.
+1. **FR-NEWS-009 `[PLANNED]`:** strict dual-control enforcement per the CTO
+   ruling on DCR-3 — post-fix **no role, admin included**, may reach
+   `'synced'` outside the checker approve endpoint; approve/reject require
+   `'pending_approval'` (400) and submitter ≠ approver (403); submit-approval
+   accepts `'draft'` only (400); workflow fields
+   (`externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal`) are
+   server-controlled and stripped from create/update payloads. Not implemented
+   as built — the direct-publish bypass exists today (DCR-3,
+   `server.ts:1306,1315,1346`) and is documented as-built in FR-NEWS-002/003;
+   implementation lands in Wave 2.
 2. **FR-SYNC-004 (partial):** the outbound HTTP call/webhook to the public
    website is **`[PLANNED]`** — `/api/sync/trigger` currently drives the state
    machine and logging only (matches `README.md` §8 and `HANDOVER.md` §10
@@ -286,8 +293,11 @@ Everything else in the matrix is implemented in the current tree
 - **DCR-3** (maker-checker bypass): `POST/PUT /api/news` with
   `syncToExternal:true` reaches `'synced'` without checker approval
   (`server.ts:1306,1315,1346`) — affects FR-NEWS-002/003, FR-SYNC-001,
-  NFR-COMP-001; remediation requirement FR-NEWS-009 `[PLANNED]` added to
-  this matrix. Needs CTO decision before the RTM can be frozen for Wave 2.
+  NFR-COMP-001; remediation requirement FR-NEWS-009 `[PLANNED]` recorded in
+  this matrix. **Ruled by the CTO at the Wave-1 gate: strict dual control**
+  (no role exemption; state + identity guards; server-controlled workflow
+  fields — see FR-NEWS-009). Wave 2 implements; any future admin override
+  requires a separate, explicitly risk-accepted break-glass requirement.
 - **DCR-4** (mixed envelope): reads return bare `{data[,total]}` and some
   404s/booking errors bare `{error}` — no `success` field. Documented as
   built in NFR-MAINT-006 (SRS §3.2.6); docs claiming a uniform

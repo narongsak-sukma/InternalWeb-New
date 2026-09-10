@@ -49,7 +49,7 @@ CTO (codex) solves directly.
 | 18 | UAT Result | `docs/deliverables/18-uat-result.md` | Wave 3 |
 | 19 | VA/Pentest Report | `docs/deliverables/19-va-pentest-report.md` | Wave 3 |
 | 20 | Security Remediation Report | `docs/deliverables/20-security-remediation.md` | Wave 3 |
-| 21 | User Manual | `docs/deliverables/21-user-manual.md | Wave 3 |
+| 21 | User Manual | `docs/deliverables/21-user-manual.md` | Wave 3 |
 
 ## 3. Wave board (task → owner → status)
 
@@ -62,7 +62,7 @@ CTO (codex) solves directly.
 | 1 | Docs 07+08 (data/API lane) | worker-4 | done 2026-09-10 |
 | 1 | Docs 09+10+12 (security/QA lane) | worker-5 | done 2026-09-10 |
 | 1 | Lead review of doc set (consistency, cross-refs, no divergence) | lead | done 2026-09-10 |
-| 1 | CTO gate: deliverable docs (codex read-only) | CTO | in progress |
+| 1 | CTO gate: deliverable docs (substitute opus critic, per decision #4) | CTO | REVISE → fix round 1 in progress (workers 1/2/4/5) |
 | 2 | Implementation waves (decomposed from approved docs) | workers | blocked by Wave-1 gate |
 | 3 | Test/UAT/pentest/manual deliverables 17–21 | workers | blocked by Wave 2 |
 
@@ -73,6 +73,8 @@ CTO (codex) solves directly.
 | 1 | 2026-09-10 | Project charter: doc-first, 21-deliverable checklist, wave model; workers=flash-class executors; codex=CTO gate; lead sole merge authority | CHARTERED (lead, per user full-authority grant) |
 | 2 | 2026-09-10 | DCR-1..5 triage (see §8). DCR-3 maker-checker bypass CONFIRMED in code by lead (server.ts:1306) → as-built documented everywhere, dual-control enforcement queued as Wave-2 P0 backlog, CTO ratifies at Wave-1 gate | TRIAGED (lead) — pending CTO ratification |
 | 3 | 2026-09-10 | Lead review of 12-doc set PASSED: REQ SRS↔RTM 1:1 (94); all RTM TC refs resolve in doc 12 (168 TC defs, 21 series); UAT-001..065 mapped; DCR numbering unified to §8 register (strict-mode=DCR-6); RTM FR-NEWS-009 TC ref fixed to TC-SEC-011; role matrices 08↔09 agree; 9 tables + 13 components covered; HANDOVER fixed per DCR-1/2 | REVIEW PASSED (lead) → to CTO gate |
+| 4 | 2026-09-10 | codex CTO gate ABORTED — account usage limit hit (resets 2026-09-15 09:01 or on credit top-up); no verdict produced (.omc/artifacts/cto-gate-wave1.md). SUBSTITUTE: Wave-1 docs gate runs via independent opus critic agent (read-only, fresh context, same verdict contract — not lead self-approval). codex remains BINDING for auth/security/data-lane CODE merges in Wave 2; if still rate-limited at that point, merges hold until codex returns or user tops up credits (surfaced to user) | OUTAGE PROTOCOL (lead, per full-authority grant) |
+| 5 | 2026-09-10 | Substitute CTO gate verdict = **REVISE** (full verdict: .omc/artifacts/cto-gate-wave1-substitute.md). All 8 DCRs RATIFIED. STRICT dual-control ruling adopted (no role incl. admin reaches 'synced' outside checker approve; state+identity guards; workflow fields server-controlled; break-glass = separate future requirement). Wave-2 priorities ratified: P0 dual-control bundle (DCR-3+7 + AUD-P01/02/03) → DCR-8 (prefer REMOVAL of POST /api/audit-logs) → AUD-P06/05/07; P1 strict mode + shared rate-limit store + sync webhook; P2 envelope + RWX + migration tooling; P3 dead-enum + audit hardening + DB immutability. 3 blockers (SRS FR-NEWS-009 carve-out; doc 12 TC-SEC-011 carve-out; doc 07 §12 DCR numbering) → fix round dispatched to workers 2/5/4 + RISK-022/023 to worker-1; critic re-review limited to the three fixes → APPROVE flip | REVISE — fix round 1 of 3 (lead executed, per decision #4 authority) |
 
 ## 8. DCR register (doc change requests)
 
@@ -80,12 +82,12 @@ CTO (codex) solves directly.
 |---|---|---|---|
 | DCR-1 | worker-4 | Export field is `exportTimestamp` (server.ts:2072), not `generatedAt` (HANDOVER §5 wrong) | ACCEPT — fix HANDOVER §5 in W1 review pass |
 | DCR-2 | worker-4 | No `PUT /api/documents` route exists; HANDOVER §5 implies it | ACCEPT — fix HANDOVER §5 |
-| DCR-3 | worker-4, confirmed by lead | `POST /api/news` (and update) with `syncToExternal=true` creates directly as `externalSyncStatus:'synced'` (server.ts:1306,1315,1346) — maker bypasses checker dual control (BOT governance violation). **Corollary (worker-5, verified):** bypass path writes ONLY sync_logs (admin-only visibility) and NO audit entry — invisible to checkers | ACCEPT as finding — document as-built + [PLANNED] enforcement fix; Wave-2 P0 backlog; RISK-021; CTO ratifies |
+| DCR-3 | worker-4, confirmed by lead | `POST /api/news` (and update) with `syncToExternal=true` creates directly as `externalSyncStatus:'synced'` (server.ts:1306,1315,1346) — maker bypasses checker dual control (BOT governance violation). **Corollary (worker-5, verified):** bypass path writes ONLY sync_logs (admin-only visibility) and NO audit entry — invisible to checkers | ACCEPT as finding — **CTO-RATIFIED w/ conditions**: STRICT semantics (no role incl. admin reaches 'synced' outside approve; approver≠submitter guard; submit draft-only; workflow fields stripped/server-controlled); AUD-P01/02/03 audit coverage in the SAME change; Wave-2 P0 bundle with DCR-7; RISK-021 |
 | DCR-4 | worker-4 | Response envelope inconsistent — reads & some 404s return bare data, no `success` field | ACCEPT — doc 08 as-built; [PLANNED] normalization Wave-2 P2 |
-| DCR-5 | worker-4 | TS union declares `externalSyncStatus` values 'approved'/'pending' never assigned at runtime (real: draft/pending_approval/synced/rejected) | ACCEPT — doc 07 as-built; dead-union cleanup Wave-2 P3 |
+| DCR-5 | worker-4, corrected by CTO gate | TS union declares `'pending'` as the ONLY dead member (there is NO 'approved' member — src/types.ts:28); runtime values: draft/pending_approval/synced/rejected | ACCEPT — RATIFIED with correction; docs aligned; dead-union cleanup Wave-2 P3 |
 | DCR-6 | worker-2, confirmed by lead | `tsconfig.json` has NO `"strict": true` (nor strictNullChecks) — "TypeScript strict" is convention only; code passes tsc in non-strict mode | ACCEPT — enable strict + fix fallout in Wave-2 P1 (MAINT quality gate); SRS states as-built + [PLANNED] |
-| DCR-7 | worker-5, confirmed by lead | NO server-side state guards on maker-checker: approve/reject callable from ANY state (server.ts:1409+ — no check that item is pending_approval); PUT can overwrite approvedBy/approvedAt | ACCEPT as finding — as-built documented; state-machine enforcement = Wave-2 P0; CTO ratifies |
-| DCR-8 | worker-5, confirmed by lead | `POST /api/audit-logs` (server.ts:1670, admin) appends arbitrary audit rows — audit-trail integrity risk | ACCEPT as finding — as-built documented (AUD-11); restrict/remove manual append = Wave-2 P0 (security lane, needs codex PASS); CTO ratifies |
+| DCR-7 | worker-5, confirmed by lead | NO server-side state guards on maker-checker: approve/reject callable from ANY state (server.ts:1407/1444); submit-approval accepts any state (1384); PUT spread overwrites approvedBy/approvedAt (1338-1342) | ACCEPT — **CTO-RATIFIED**; Wave-2 P0 bundle WITH DCR-3 (one work item); scope adendum: submit guarded to draft, workflow fields stripped on create/update, approver≠submitter guard; RISK-022 |
+| DCR-8 | worker-5, confirmed by lead | `POST /api/audit-logs` (server.ts:1670, admin) appends arbitrary audit rows under an "Immutable" comment (1665) — audit-trail integrity risk | ACCEPT — **CTO-RATIFIED w/ instruction**: PREFER REMOVAL of the endpoint over restriction; if break-glass retained, the append act itself must be audit-logged and role-scoped below blanket admin; Wave-2 P0; codex PASS mandatory; RISK-023 |
 
 ## 5. Git protocol
 

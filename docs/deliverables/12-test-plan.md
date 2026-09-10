@@ -1,8 +1,13 @@
 # Deliverable 12 — Test Plan
 
-**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
 
-> **Change log** — **1.1.0 (2026-09-10)**: RTM/SRS reconciliation (Lead review):
+> **Change log** — **1.2.0 (2026-09-10)**: CTO gate REVISE — TC-SEC-011 and
+> TC-COMP-001 aligned to the strict dual-control ruling (no role carve-out:
+> create/update can never yield `synced`, approve/reject on
+> non-`pending_approval` → 400, approver == submitter → 403); §5.1 states
+> explicitly that UAT-050 does not exist; §6 inventory notes the intentional
+> TC-SES-007..009 numbering gap. **1.1.0 (2026-09-10)**: RTM/SRS reconciliation (Lead review):
 > added the 19 TC definitions referenced by Doc 04 RTM but not previously
 > defined here — TC-AVAIL-001..006, TC-COMP-001..004, TC-MAINT-001..007,
 > TC-SYNC-005/006 — plus TC-I18N-001..003 to complete every RTM TC reference;
@@ -123,9 +128,11 @@ scenario completes with the business outcome and no error toast
 Doc 04 (RTM) traces each requirement to fine-grained acceptance references
 `UAT-001`..`UAT-065`. Those IDs are **requirement-level checks exercised
 inside** the six role scenarios above — they are not separate staged events.
-Mapping (each RTM UAT-0nn ref resolves to exactly one scenario; **UAT-011 is
-not referenced** — its requirement FR-SES-005 is TC-only in the RTM — and
-stays reserved):
+The RTM contains **64 UAT references covering 63 distinct ids** (UAT-023 is
+cited twice — FR-NEWS-006 and NFR-COMP-001). **UAT-050 does not exist**: no
+RTM row references it. **UAT-011 is likewise unreferenced** (its requirement
+FR-SES-005 is TC-only in the RTM) and stays reserved. Mapping (each RTM
+UAT-0nn ref resolves to exactly one scenario):
 
 | RTM refs | REQs covered | Scenario |
 |---|---|---|
@@ -172,11 +179,14 @@ Conventions: ID `TC-<DOMAIN>-<nnn>`; priority **P0** (release gate), **P1**
 reconciled by Doc 04 (RTM) — as of v1.1.0 every TC id the RTM references is
 defined here.
 
-**Catalog inventory (v1.1.0):** AUTH 10 · SES 10 · NEWS 12 · BANNER 5 ·
+**Catalog inventory (v1.2.0):** AUTH 10 · SES 10 · NEWS 12 · BANNER 5 ·
 CONTACT 5 · DOC 5 · ROOM 6 · CMS 8 · USER 8 · AUDIT 8 · SYNC 6 · UPL 8 ·
 SRCH 4 · PERF 4 · RBAC 30 · SEC 13 · SYS 6 · AVAIL 6 · COMP 4 · MAINT 7 ·
 I18N 3 = **168 test cases**, plus 6 UAT scenarios (§5) tracing the 64 RTM
-acceptance references UAT-001..065 (§5.1).
+acceptance references UAT-001..065 (§5.1). The ids TC-SES-007..009 are
+**intentionally absent** — the SES series numbering skips after 006 (probes
+continued at TC-SES-010..013); the catalog is self-consistent at 10 SES
+cases.
 
 ### 6.1 Authentication — AUTH
 
@@ -410,7 +420,7 @@ middleware regression that 403s everything.
 | TC-SEC-008 | Uploads dir not listable | any | GET /uploads/ | No index (index:false) | FR-SEC | P2 |
 | TC-SEC-009 | Login timing uniformity | — | Compare unknown-user vs wrong-password latency | Same order of magnitude (dummy bcrypt hash) | FR-SEC | P2 |
 | TC-SEC-010 | Container hardening | image built | Inspect Dockerfile/runtime | Non-root uid 10001, read-only rootfs in k8s, HEALTHCHECK wired | FR-SEC | P1 |
-| TC-SEC-011 | Dual-control enforcement (post DCR-3 fix) | `[PLANNED]` blocked until Wave 2 fix | POST /api/news `syncToExternal:true`; approve a `draft`; PUT workflow fields | After fix: create/update cannot yield `synced` (strip/ignore → stays `draft`); approve/reject require `pending_approval` (else 400); `approvedBy/approvedAt` server-set only | FR-CMS | P0 |
+| TC-SEC-011 | Dual-control enforcement (post DCR-3 fix) | `[PLANNED]` blocked until Wave 2 fix | POST /api/news and PUT /api/news/:id with `syncToExternal:true` as maker AND as admin; approve/reject items in draft/synced/rejected states; submitter then attempts to approve own item (incl. admin submitter) | After fix, **for every role including admin**: create/update never yield `synced` (payload stripped/server-controlled → stays `draft`); approve/reject on any non-`pending_approval` state → 400; **approver == submitter → 403** (no self-approval, admin included); `approvedBy/approvedAt` server-set only | FR-CMS | P0 |
 | TC-SEC-012 | Response-envelope inconsistency (DCR-4, as-built pin) | any session | GET /api/news, /api/banners; GET /api/news/:bad-id (PUT) | **As built:** reads return `{data[,total]}` with **no** `success` field; some 404s return bare `{error}` without `success:false`; the id-guard 400s **do** include `success:false`. Test pins the mixed envelope so clients (and Doc 08) treat `success` as mutation-only until the contract is unified | FR-SEC | P1 |
 | TC-SEC-013 | Dead enum values never emitted (DCR-5) | — | Full workflow sweep; inspect all payloads + audit rows | `externalSyncStatus` ∈ {draft, pending_approval, synced, rejected} only (`'pending'` never emitted); audit `action` values limited to the live set of Doc 10 §5 (`SYNC_PUBLIC`/`CREATE`/`UPDATE`/`DELETE` only via manual append) | FR-AUDIT | P2 |
 
@@ -443,7 +453,7 @@ than duplicated; each AVAIL id is the RTM-facing definition.
 
 | ID | Title | Pre | Steps | Expected | REQ | Pri |
 |---|---|---|---|---|---|---|
-| TC-COMP-001 | Segregation of duties (BOT dual control) | maker + checker sessions | Maker attempts approve/reject; checker attempts authoring; inspect approvedBy/audit on approvals | Maker → 403 on approve/reject (TC-RBAC-011/012); checker → 403 on authoring (TC-RBAC-004); approvals stamped + audited. **DCR-3 open item:** direct-publish path weakens strict dual control as built — post-fix enforcement verified by TC-SEC-011 (FR-NEWS-009 `[PLANNED]`) | NFR-COMP-001 | P0 |
+| TC-COMP-001 | Segregation of duties (BOT dual control) | maker + checker sessions | Maker attempts approve/reject; checker attempts authoring; submitter attempts own-item approval (checker and admin variants); inspect approvedBy/audit on approvals | Maker → 403 on approve/reject (TC-RBAC-011/012); checker → 403 on authoring (TC-RBAC-004); approvals stamped + audited. **Post-fix (strict ruling, TC-SEC-011 semantics):** approver == submitter → 403 for every role incl. admin; create/update can never reach `synced`. **DCR-3 open item:** direct-publish path weakens strict dual control as built — post-fix enforcement verified by TC-SEC-011 (FR-NEWS-009 `[PLANNED]`) | NFR-COMP-001 | P0 |
 | TC-COMP-002 | PDPA accountability | admin + audit reader | Perform sensitive ops; read trail; inspect request logs | Append-only audit rows with actor/role/action/target/IP/outcome (TC-AUDIT-001..007); accounts deactivated, never deleted (TC-USER-008); request logs carry time/method/path/status/durationMs/ip | NFR-COMP-002 | P0 |
 | TC-COMP-003 | Data minimization | any session | Inspect /api/auth/me, /api/users, login data; decode cookie; list upload dir | No `passwordHash` in any response (SafeUser projection); cookie value = signed sid only (no PII); uploads stored under UUID names (no user filenames) | NFR-COMP-003 | P0 |
 | TC-COMP-004 | Timely access revocation | admin + victim session | Deactivate victim; victim retries request + relogin; advance/expire a session | Existing session 401 on next request; relogin 401; 7-day expiry ceiling enforced + hourly sweep removes expired rows | NFR-COMP-004 | P0 |

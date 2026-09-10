@@ -1,6 +1,6 @@
 # 07 — Data Dictionary
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
 
 AS-BUILT reference for every data structure the KB J Capital Intranet & CMS Portal persists. Compiled directly from `scripts/schema.sql` (canonical PostgreSQL DDL), the `PG_DDL` constant and repository implementations in `server.ts`, the shared types in `src/types.ts`, and the tooling in `scripts/migrate.js` / `scripts/seed-users.js`. Compliance context: Bank of Thailand (BOT) financial-institution governance and Thailand PDPA B.E. 2562.
 
@@ -56,7 +56,7 @@ Enforced by TypeScript types in `src/types.ts` (and by request defaults/validati
 | `users.is_active` | `true` / `false` | Deactivated accounts are never deleted; login and session resolution reject them. |
 | `news.category` | `kbj-news`, `ncb-news`, `bot-news`, `regulation`, `hr-announcement`, `all-about-money`, `lifestyle` | `NewsCategory` (types.ts). GET /api/news filters on exact match; `all` = no filter. |
 | `news.badge_color` | `red`, `orange`, `blue`, `emerald`, `amber` | Default on create: `orange`. |
-| `news.external_sync_status` | `draft`, `pending_approval`, `approved*`, `rejected`, `synced`, `pending*` | `NewsItem['externalSyncStatus']`. The maker-checker state machine (as built): create → `draft` (or `synced` immediately when created with `syncToExternal=true`), submit → `pending_approval`, approve → `synced`, reject → `rejected`. *`approved` and `pending` are declared in the TS union but **no code path ever assigns them** — the approve endpoint jumps straight to `synced` (DCR-3, §11).* |
+| `news.external_sync_status` | `draft`, `pending_approval`, `rejected`, `synced`, `pending` *(dead)* | `NewsItem['externalSyncStatus']` (`src/types.ts:28`). The maker-checker state machine (as built): create → `draft` (or `synced` immediately when created with `syncToExternal=true`), submit → `pending_approval`, approve → `synced`, reject → `rejected`. *`pending` is the only dead member — declared in the union but **no code path ever assigns it**; the approve endpoint jumps straight to `synced` (DCR-3, DCR-5 in §12). The union contains no `approved` member at all.* |
 | `news.external_category` | `press-release`, `csr`, `product-notice`, `compliance`, `money-tips`, `lifestyle` | Default on create: `press-release`. |
 | `meeting_rooms.status` | `available`, `in-use`, `maintenance` | Set to `in-use` by POST /api/rooms/:id/book, back to `available` by /release; `maintenance` only via direct DB edit. |
 | `documents.category` | `policy`, `work-rules`, `form`, `handbook`, `governance` | Default on create: `form`. |
@@ -384,8 +384,10 @@ Upserts the admin by **username** (`ON CONFLICT (username) DO UPDATE` — resets
 | DCR-1 | HANDOVER §5 / export tooling prose describe the export shape as `{generatedAt, tables:{…}}`. | The actual field is **`exportTimestamp`** (server.ts, export endpoint); `migrate.js` reads `payload.tables` regardless. |
 | DCR-2 | HANDOVER §5 API table implies `PUT /api/documents` exists ("GET/POST/PUT/DELETE /api/banners, /api/contacts, /api/documents"). | **No PUT documents route exists** — documents support GET/POST/DELETE only. |
 | DCR-3 | HANDOVER §4 says the maker's create leaves `externalSyncStatus: 'draft'`. | True only when `syncToExternal` is false; `POST /api/news` with `syncToExternal=true` creates the item **directly as `synced`** and writes a sync log — a maker acting alone can bypass dual-control at creation time. Flagged for Lead/CTO: either the create path should force `draft`/`pending_approval`, or the exception must be formally accepted. |
-| DCR-4 | TS union `externalSyncStatus` includes `approved` and `pending`; no runtime path assigns them. | Documented as declared-but-unassigned; harmless but worth pruning or wiring. |
-| DCR-5 | Dev in-memory audit trail is capped at 5,000 entries. | Not stated anywhere in HANDOVER; noted in §9 above. |
+| DCR-4 | HANDOVER §5 presents the `{success:true, data}` envelope as the universal API convention. | As built, read endpoints return a bare `{data[, total]}` and several route-level 404/400 bodies omit the `success` field — clients must tolerate both shapes (detailed in doc 08 §1.3). |
+| DCR-5 | TS union `externalSyncStatus` (`src/types.ts:28`) declares `pending`; no runtime path assigns it. | Declared-but-unassigned dead member; harmless but worth pruning or wiring. (Correction per ratified register: `pending` is the **only** dead member — the union has no `approved` value at all.) |
+
+*Unnumbered operational note (not a DCR):* the dev-mode in-memory audit trail is hard-capped at 5,000 entries — a deliberate memory bound that PostgreSQL mode does not share, and one HANDOVER does not mention. See §9 (dev-mode mapping) and §10 (data lifecycle & retention) for where it applies.
 
 ---
 
@@ -394,3 +396,4 @@ Upserts the admin by **username** (`ON CONFLICT (username) DO UPDATE` — resets
 | Version | Date | Author | Change |
 |---|---|---|---|
 | 1.0.0 | 2026-09-10 | worker-4 | Initial as-built data dictionary from `scripts/schema.sql`, `server.ts`, `src/types.ts`, `scripts/migrate.js`, `scripts/seed-users.js`. |
+| 1.1.0 | 2026-09-10 | worker-4 | CTO-gate revision: DCR numbering aligned to the ratified register (dead-union → DCR-5, envelope inconsistency → DCR-4); 5,000-entry dev audit cap demoted to an unnumbered note; corrected `externalSyncStatus` union facts — `pending` is the only dead member, no `approved` value exists in the union. |

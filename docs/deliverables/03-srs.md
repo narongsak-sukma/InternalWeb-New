@@ -2,7 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
+
+> **Change log:** v1.1.0 (2026-09-10) — CTO gate REVISE applied: FR-NEWS-009 rewritten to the strict dual-control ruling (post-fix, no role — admin included — may reach `'synced'` outside the checker approve endpoint; state + submitter≠approver guards; server-controlled workflow fields; no admin carve-out; future override = separate break-glass requirement); NFR-COMP-001 aligned; DCR-3 disposition recorded in §2.6. v1.0.0 — initial draft.
 
 Style: IEEE 830. Documents the system **AS BUILT** from `server.ts`, `src/`, `scripts/schema.sql`, `README.md`, `HANDOVER.md`. Future work is explicitly marked `[PLANNED]`. Requirement IDs are binding and referenced by `04-rtm.md` (traceability), `12-test-plan.md` (test cases) and downstream deliverables.
 
@@ -193,8 +195,12 @@ users are rejected at login and their existing sessions stop resolving.
   (`server.ts:1346`) — **without checker approval**, bypassing maker-checker
   dual control. Documented as built in FR-NEWS-002/003 acceptance criteria;
   remediation requirement **FR-NEWS-009 `[PLANNED]`** added. HANDOVER §4
-  describes public-sync publishing as maker-checker; CTO decides the
-  disposition (enforce dual control, or accept the direct path as intentional).
+  describes public-sync publishing as maker-checker. **CTO ruling (Wave-1
+  gate, REVISE): strict dual control** — post-fix, no role (admin included)
+  may reach `'synced'` outside the checker approve endpoint, with state and
+  submitter ≠ approver guards; full guard set in FR-NEWS-009. Any future
+  admin override must be a separate, explicitly risk-accepted break-glass
+  requirement (out of scope).
 - **DCR-4 (API contract):** the response envelope is **mixed as built** —
   reads return bare `{data[, total]}` without a `success` field; mutations
   return `{success:true, data}`; auth/validation failures return
@@ -366,12 +372,16 @@ Actor: maker, admin (create/update). Inputs: `isImportantAlert: boolean` on crea
 Outputs: stored on the item; the SPA header surfaces an unread-alert indicator that opens the flagged article modal.
 Acceptance: (a) an item created with `isImportantAlert:true` shows the header alert affordance while it is the current flagged item; (b) flagging is per-item data, persisted and returned by the API.
 
-**FR-NEWS-009 — Enforce dual control on create/update `[PLANNED]`.**
-Direct publication at create/update time shall be restricted so that public-sync status `'synced'` can only be reached through the checker-approved flow (FR-NEWS-005/006/007).
-Actor: maker, checker, admin. Inputs: `POST /api/news` / `PUT /api/news/:id` carrying `syncToExternal:true`.
-Outputs (target): maker-originated create/update cannot set `'synced'` directly — the item enters the approval flow (`pending_approval` via explicit submission) unless the actor is checker/admin (per the CTO-ratified disposition of DCR-3); every enforced path remains audited.
-Acceptance (target): (a) a maker create/update with `syncToExternal:true` does not yield `'synced'` without checker approval; (b) checker/admin direct publish remains permitted and audited; (c) regression tests cover both paths.
-Status: **`[PLANNED]`** — not implemented as built (DCR-3); CTO ratifies the exact disposition at the Wave-1 gate before Wave 2 implementation.
+**FR-NEWS-009 — Enforce strict dual control on public publishing `[PLANNED]`.**
+Post-fix, the public-sync status `'synced'` shall be reachable **only** through the checker approve endpoint — by **no role, admin included** — and all workflow fields shall be server-controlled. Amends the target semantics of FR-NEWS-005/006/007 as follows.
+Actor: all roles (maker, checker, admin).
+Controls (target):
+- Create/update (`POST /api/news`, `PUT /api/news/:id`): the workflow fields `externalSyncStatus`, `approvedBy`, `approvedAt` and the `syncToExternal` flag are **server-controlled** — client-supplied values for these fields are stripped/ignored from create/update payloads, and a new or updated item is persisted as `'draft'` with `syncToExternal:false`.
+- Submit (FR-NEWS-005): accepted only when the item is in `'draft'`; any other state → 400.
+- Approve/reject (FR-NEWS-006/007): accepted only when the item is in `'pending_approval'`; any other state → 400. Additionally, the approver identity must differ from the submitter identity (**submitter ≠ approver guard**); a self-approval attempt → 403.
+Outputs (target): `'synced'` (with `approvedBy`/`approvedAt` stamps and `syncToExternal:true`) can only be produced by a valid checker approve of a `'pending_approval'` item that was submitted by a different identity; every path remains audited (FR-AUDIT-003).
+Acceptance (target): (a) no role — including admin — can produce `'synced'` via create/update or via any endpoint other than checker approve; (b) approve/reject on an item not in `'pending_approval'` → 400; (c) approve by the same identity that submitted the item → 403; (d) submit-approval on an item not in `'draft'` → 400; (e) client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` in create/update payloads have no effect on persisted state; (f) regression tests cover each guard (a)–(e).
+Status: **`[PLANNED]`** — not implemented as built (DCR-3; CTO strict ruling at the Wave-1 gate). *Note:* any future admin override capability must be introduced as a separate, explicitly risk-accepted **break-glass requirement** — it is explicitly out of scope for the current requirements.
 
 #### 3.1.5 Hero banners (BANNER)
 
@@ -638,7 +648,7 @@ as-built implementation.
 
 #### 3.2.4 Compliance — BOT & PDPA (COMP)
 
-**NFR-COMP-001 — Segregation of duties (BOT).** Public-sync approval authority (checker/admin) is separated from authoring authority (maker/admin) and enforced server-side (403); every approval decision is attributable (FR-NEWS-006/007). *Open item (DCR-3):* the direct-publish path on create/update weakens strict dual control as built — remediation FR-NEWS-009 `[PLANNED]`, disposition ratified by the CTO at the gate.
+**NFR-COMP-001 — Segregation of duties (BOT).** Public-sync approval authority is segregated from authoring and submission **for all roles**: under the CTO strict ruling (FR-NEWS-009 `[PLANNED]`), post-fix **no role — admin included — may reach `externalSyncStatus:'synced'` by any path other than the checker approve endpoint**, with server-enforced state guards (approve/reject only from `'pending_approval'`, else 400; submit only from `'draft'`, else 400) and a submitter ≠ approver identity guard (else 403); every approval decision is attributable (FR-NEWS-006/007). *As-built gap (DCR-3):* until FR-NEWS-009 lands in Wave 2, the direct-publish path on create/update (available to all authorized roles) weakens strict dual control — documented as built in FR-NEWS-002/003.
 *Acceptance:* (a) a maker cannot approve/reject (403 evidenced); (b) approved items carry checker identity + timestamp.
 
 **NFR-COMP-002 — PDPA accountability.** Sensitive operations are recorded in an append-only, actor-stamped trail with IP and outcome (FR-AUDIT-001/003/005); accounts are deactivated, never deleted, preserving linkage of historical actions (FR-USER-004); request logs (time, method, path, status, duration, IP) support investigation.

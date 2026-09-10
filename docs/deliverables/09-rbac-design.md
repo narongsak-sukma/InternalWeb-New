@@ -1,6 +1,14 @@
 # Deliverable 09 — Role-Based Access Control (RBAC) Design
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+
+> **Change log** — **1.1.0 (2026-09-10)**: CTO gate REVISE — §8.3 `[PLANNED]`
+> fix aligned to the CTO's strict dual-control ruling: no role (admin
+> included) may reach `synced` outside the approve path; approve/reject
+> require `pending_approval` (else 400) **and** approver ≠ submitter (else
+> 403); submit-approval restricted to `draft`; workflow fields and
+> `syncToExternal` server-controlled on create/update. **1.0.0 (2026-09-10)**:
+> initial as-built RBAC design.
 
 > This document describes the system **AS BUILT**. Sources of truth: `server.ts`
 > (route middleware, auth, bootstrap), `src/types.ts` (role model),
@@ -293,14 +301,31 @@ permits:
 3. **`PUT /api/news/:id` can overwrite workflow fields** (`externalSyncStatus`,
    `approvedBy`, `approvedAt`) arbitrarily.
 
-`[PLANNED]` enforcement fix (Wave 2): accept only legal transitions
-(`draft→pending_approval→synced|rejected`), strip workflow fields from
-client-supplied create/update payloads, require `pending_approval` on
-approve/reject, and make `syncToExternal` writable only by the approve path.
+`[PLANNED]` enforcement fix (Wave 2), per the CTO's **strict dual-control
+ruling**:
+
+1. **`'synced'` is reachable only via approve — for every role, admin
+   included.** Create/update never yields `'synced'` regardless of the
+   caller's role or the `syncToExternal` payload value.
+2. **Approve/reject require `'pending_approval'`** — any other state
+   (draft, synced, rejected, absent) → 400 illegal transition.
+3. **Approver ≠ submitter** — the account that called `submit-approval`
+   (recorded at submission) may not approve or reject that item, even if it
+   holds `checker`/`admin`; violation → 403. (Admin may still approve another
+   maker's submission; admin self-approval of admin's own submission is
+   barred by this same guard.)
+4. **`submit-approval` is legal from `'draft'` only** — re-submission of a
+   `rejected` item requires an intervening edit that resets the state, or an
+   explicit re-draft transition (Wave 2 UX decision).
+5. **Workflow fields are server-controlled** — `externalSyncStatus`,
+   `approvedBy`, `approvedAt`, and `syncToExternal` are stripped from
+   client-supplied create/update payloads; `syncToExternal` becomes true only
+   as a side effect of the approve path.
+
 The permission *matrix* itself (who may call which endpoint) is correct as
 built; the gap is workflow-state enforcement behind those endpoints. As-built
-behavior is pinned by TC-NEWS-011 and the post-fix expectation by TC-SEC-011
-(Doc 12).
+behavior is pinned by TC-NEWS-011; the post-fix expectations above are pinned
+by TC-SEC-011 and TC-COMP-001 (Doc 12).
 
 ## 9. Account lifecycle
 

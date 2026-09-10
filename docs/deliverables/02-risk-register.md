@@ -1,8 +1,8 @@
 # Risk Register — KB J Capital Intranet Rebuild
 
-**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval
 
-> **Change log:** 1.1.0 — added RISK-021 (maker-checker bypass on `/api/news`, verified at `server.ts:1306`), lead-triaged as DCR-3, pending CTO ratification at the Wave-1 gate. 1.0.0 — initial register (20 risks).
+> **Change log:** 1.2.0 — added RISK-022 (DCR-7, dual-control state-machine bypass) and RISK-023 (DCR-8, audit-trail fabrication) per CTO gate REVISE Blocker 3; register now 23 risks. 1.1.0 — added RISK-021 (maker-checker bypass on `/api/news`, verified at `server.ts:1306`), lead-triaged as DCR-3, pending CTO ratification at the Wave-1 gate. 1.0.0 — initial register (20 risks).
 
 > Companion to `docs/deliverables/01-project-plan.md`. Seeded from the
 > documented limitations (README §8, HANDOVER §10) plus delivery, security,
@@ -27,7 +27,9 @@
 | Risk ID | Description | Category | L | I | Score | Mitigation | Owner | Status |
 |---|---|---|---|---|---|---|---|---|
 | RISK-001 | Outbound public-web sync is modelled, not wired: sync statuses, logs, and `/api/sync/trigger` drive the state machine but no outbound HTTP call to the public website is performed (README §8, HANDOVER §10). The intranet UI optimistically shows "synced to www.kbjcapital.co.th" without a real transfer. | technical | H | H | **9** | Wave 2 objective O3: implement the real webhook/integration, add the required egress NetworkPolicy rule, and make UI state derive from server truth; auth/security lane → codex PASS required. | Lead (decomposition) + worker lane | Planned |
-| RISK-021 | Maker-checker bypass: `POST /api/news` (and `PUT /api/news/:id` via body spread) accepts `syncToExternal: true` from a maker and stamps `externalSyncStatus: 'synced'` directly (`server.ts:1306`), skipping the `submit-approval` → checker `approve` step — a BOT dual-control violation. *(Added via DCR-3, pending CTO ratification at gate.)* | compliance | H | H | **9** | Wave-2 **P0** enforcement fix: server forces `pending_approval` on any external-publish intent instead of trusting client-supplied sync flags (both POST and PUT paths); extend audit-log coverage to capture the forced transition; add TC-SEC regression tests proving a maker cannot reach `synced` without checker approval. Auth/security lane → codex PASS mandatory. | Lead (fix) / CTO gate (ratifies DCR-3) | Open — DCR-3 |
+| RISK-021 | Maker-checker bypass: `POST /api/news` (and `PUT /api/news/:id` via body spread) accepts `syncToExternal: true` from a maker and stamps `externalSyncStatus: 'synced'` directly (`server.ts:1306`), skipping the `submit-approval` → checker `approve` step — a BOT dual-control violation. *(Added via DCR-3, CTO-ratified at gate 1.)* | compliance | H | H | **9** | Wave-2 **P0** enforcement fix, bundled with DCR-7 (RISK-022) as ONE work item per CTO: server forces `pending_approval` on any external-publish intent instead of trusting client-supplied sync flags (both POST and PUT paths); extend audit-log coverage to capture the forced transition; add TC-SEC regression tests proving a maker cannot reach `synced` without checker approval. Auth/security lane → codex PASS mandatory. | Lead (fix) / CTO gate | Open — DCR-3 |
+| RISK-022 | Dual-control state-machine bypass: `submit-approval` accepts ANY current state — no draft-only guard (`server.ts:1384`); `approve`/`reject` have no `pending_approval` precondition (`server.ts:1407`/`1444`) so content can be approved from any state; and `PUT /api/news/:id` spreads `req.body` over the workflow fields, overwriting `approvedBy`/`approvedAt` (`server.ts:1338-1342`) — approval stamps are forgeable by a plain update. BOT dual-control violation. *(Added via DCR-7, CTO gate REVISE Blocker 3.)* | compliance | H | H | **9** | Wave-2 **P0** enforcement bundle WITH DCR-3 (one work item per CTO): allow only legal transitions (`draft`→`pending_approval`→`synced`\|`rejected`); guard `submit-approval` to `draft`; strip workflow fields (`externalSyncStatus`, `syncToExternal`, `approvedBy`, `approvedAt`) from PUT bodies; enforce approver ≠ submitter; codex PASS mandatory. | Lead (fix) / CTO gate | Open — DCR-7 |
+| RISK-023 | Audit-trail fabrication: `POST /api/audit-logs` (`server.ts:1670`, admin) appends rows with arbitrary client-supplied `action`/`details`/`status` into the audit store — directly under the section comment claiming "Immutable Enterprise Audit Logs" (`server.ts:1665`). The audit trail is therefore not append-only/trustworthy, undermining PDPA/BOT accountability evidence. *(Added via DCR-8, CTO gate REVISE Blocker 3.)* | compliance | H | H | **9** | CTO ruled **PREFER REMOVAL** of the endpoint over restriction in the Wave-2 P0 lane: audit entries must be generated only server-side by `recordAudit` on real actions; verify GET-only surface afterwards. Codex PASS mandatory. | Lead (fix) / CTO gate | Open — DCR-8 |
 | RISK-002 | Doc/code drift: deliverable docs (Wave 1) diverge from the codebase as Wave 2 proceeds, defeating the doc-first control. | project | M | H | 6 | DCR process is mandatory (PROJECT-STATE §7): doc problem → DCR to Lead → CTO decides → doc revised FIRST with version bump → coding resumes; Lead consistency review before every gate. | Lead | Mitigating |
 | RISK-003 | Kubernetes NetworkPolicies (default-deny, ingress/egress limits) are only as good as the CNI: on a non-enforcing CNI the namespace's network isolation silently does not exist. | security | M | H | 6 | Verify CNI enforcement (e.g., Calico/Cilium with NetworkPolicy support) as a deployment precondition; retest isolation during Wave 3 VA; document in deliverable 16/19. | Lead + IT admin | Open |
 | RISK-004 | Secrets handling: `SESSION_SECRET`, `ADMIN_PASSWORD`, DB credentials and `k8s/secret.yaml` (created from `secret.example.yaml`) could be committed, logged, or left weak; a leak enables session forgery or admin takeover. | security | M | H | 6 | Secrets only via environment/K8s Secret (never baked into the image; `.dockerignore` excludes env files); `SESSION_SECRET` mandatory in production (process exits without it); secrets scan is a standing merge gate; rotation runbook in deployment package. | Lead (gate) + IT admin (ops) | Mitigating |
@@ -54,17 +56,20 @@ Counts of register entries by likelihood × impact (L/I):
 
 | | **I = Low** | **I = Medium** | **I = High** |
 |---|---|---|---|
-| **L = High** | — | 2 (RISK-008, RISK-009) | 2 (RISK-001, RISK-021) |
+| **L = High** | — | 2 (RISK-008, RISK-009) | 4 (RISK-001, RISK-021, RISK-022, RISK-023) |
 | **L = Medium** | 1 (RISK-019) | 7 (RISK-010…016) | 6 (RISK-002…007) |
 | **L = Low** | — | 1 (RISK-020) | 2 (RISK-017, RISK-018) |
 
 Reading of the map:
 
-- **2 critical (score 9):** RISK-001 (sync not wired) is both certain as
+- **4 critical (score 9):** RISK-001 (sync not wired) is both certain as
   built and core to the product promise — it is the primary Wave-2 objective
-  (O3). RISK-021 (maker-checker bypass at `server.ts:1306`) is a BOT
-  dual-control violation present in the as-built API — the first-in-queue
-  Wave-2 **P0** enforcement fix (DCR-3, CTO ratifies at the gate).
+  (O3). RISK-021 (maker-checker bypass), RISK-022 (dual-control state-machine
+  bypass), and RISK-023 (audit-trail fabrication) are compliance violations
+  present in the as-built API. Per the CTO gate ruling, DCR-3 + DCR-7 ship as
+  ONE Wave-2 **P0** enforcement work item (legal transitions only, workflow
+  fields stripped, approver ≠ submitter), with DCR-8's audit-endpoint removal
+  in the same P0 lane; codex PASS is mandatory for all three.
 - **8 high (score 6):** dominated by security (secrets, bootstrap admin, CNI)
   and operational durability (uploads, DB backup) gaps that must be closed
   with runbooks or code before cutover; plus the two scheduling constraints
@@ -74,10 +79,11 @@ Reading of the map:
   safety) — all carry active or planned controls.
 - **4 low (score ≤3):** monitored; none currently justifies schedule impact.
 
-Top actions for the next wave boundary: schedule the RISK-021 P0 enforcement
-fix first (DCR-3), confirm RISK-003 CNI enforcement, close RISK-005/006/007
-in the deployment runbook, and decompose RISK-001 into Wave-2 tasks with
-codex-gated acceptance.
+Top actions for the next wave boundary: schedule the Wave-2 **P0 compliance
+bundle** first — RISK-021 + RISK-022 as one enforcement work item
+(DCR-3/DCR-7) plus RISK-023 audit-endpoint removal (DCR-8); then confirm
+RISK-003 CNI enforcement, close RISK-005/006/007 in the deployment runbook,
+and decompose RISK-001 into Wave-2 tasks with codex-gated acceptance.
 
 ## 4. References
 

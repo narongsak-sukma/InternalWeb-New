@@ -1,6 +1,6 @@
 # 08 — API Specification
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
 
 Complete as-built specification of the HTTP API served by the Express gateway in `server.ts` (bundled to `dist/server.cjs`). Every endpoint, status code, validation rule, default value, and side effect below was extracted from the code — nothing is aspirational. A machine-readable (partial) mirror is served at `GET /api/openapi.json`.
 
@@ -646,12 +646,13 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | Planned | Upload lifecycle management | No deletion/GC endpoint for uploaded files; volume grows until manually cleaned. |
 | DCR-1 | Export shape prose says `generatedAt` | Actual field: **`exportTimestamp`** (§13.1). This document and doc 07 use the code's name. |
 | DCR-2 | HANDOVER API table implies `PUT /api/documents` | **Route does not exist** (§10.3). |
-| DCR-3 | Create-path dual-control bypass | `POST /api/news` with `syncToExternal=true` lands directly in `synced` + writes a sync log — no checker involvement (§6.2). HANDOVER §4 describes creates as `draft`. Needs a decision: force `draft`/`pending_approval` on create, or formally accept the exception. |
+| DCR-3 | Create-path dual-control bypass | `POST /api/news` with `syncToExternal=true` lands directly in `synced` + writes a sync log — no checker involvement (§6.2). HANDOVER §4 describes creates as `draft`. **Decided — CTO strict ruling (Wave-1 gate):** no role (admin included) reaches `synced` outside checker approve; workflow fields server-controlled; enforcement lands Wave-2 P0 with DCR-7 as one work item (FR-NEWS-009 `[PLANNED]`). |
 | DCR-4 | Envelope inconsistency | Reads omit `success`; some 404/400 route errors omit it too (§1.3). Clients must tolerate both. |
-| DCR-5 | `approved`/`pending` external-sync states | Declared in the TS union, never assigned by any code path (doc 07 §3.2). |
+| DCR-5 | `pending` dead union member (external sync) | Declared in the TS union (`src/types.ts:28`), never assigned by any code path; it is the **only** dead member — the union contains no `approved` value at all (doc 07 §3.2). |
 
 ## 18. Change history
 
 | Version | Date | Author | Change |
 |---|---|---|---|
 | 1.0.0 | 2026-09-10 | worker-4 | Initial as-built specification: 38 indexed operations (37 API + static uploads), extracted from `server.ts`. |
+| 1.1.0 | 2026-09-10 | worker-4 + lead | CTO-gate revision (lead-applied): §17 DCR-5 row corrected to register facts (`pending` is the only dead union member; no `approved` value exists); DCR-3 row updated from "needs a decision" to the CTO strict ruling (Wave-2 P0, bundled with DCR-7). |
