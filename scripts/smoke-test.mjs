@@ -1376,9 +1376,12 @@ async function runPgSharedStoreSuite() {
 // ---------------------------------------------------------------------------
 // Section 16 (W2-3, default suite): audit-coverage flip-pins — TC-SYNC-004
 // (AUD-P05 SYNC_TRIGGER), TC-AUDIT-009 (AUD-P06 SYSTEM_EXPORT) and
-// TC-AUDIT-010 (AUD-P07 ACCESS_DENIED, lead-ruled trim). Runs AFTER section
-// 14 exhausted the FAILED-login limiter budget — fresh logins here are
-// successful ones, which never consume that budget (skipSuccessfulRequests).
+// TC-AUDIT-010 (AUD-P07 ACCESS_DENIED, lead-ruled trim). Runs BEFORE
+// section 14 saturates the FAILED-login rate-limit key (see the ordering
+// comment at the runSuite call site): a saturated key rejects EVERY login
+// attempt, successful ones included — skipSuccessfulRequests skips COUNTING
+// successful logins, not rejection. Fresh logins here are therefore safe,
+// and none of them consume budget.
 // ---------------------------------------------------------------------------
 
 async function runW23AuditSuite() {
