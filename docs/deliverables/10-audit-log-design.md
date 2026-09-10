@@ -1,8 +1,8 @@
 # Deliverable 10 — Audit Log Design
 
-**Version:** 1.4.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval (W2-3 analysis: worker-5)
+**Version:** 1.5.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval (W2-3 analysis: worker-5)
 
-> **Change log:** v1.4.0 (2026-09-10) — **register ruling round (lead; rides to CTO at the W2 code gate)**: §9.1 union-impact updated to the ruled **3-removed/3-added** form — prune `CREATE`/`DELETE`/`SYNC_PUBLIC` (all three lose their only audit writer at DCR-8 code), add `SYNC_TRIGGER`/`SYSTEM_EXPORT`/`ACCESS_DENIED`, **`UPDATE` stays** (live via W2-1's forced-transition audit, `server.ts:1397`); §9.1 implementation-reality note added (W2-1 guard/reset audits reuse existing values; `CONTENT_*` is the future P1/P2 vocabulary); §9 vocabulary plan recorded for AUD-P01..03 (atomic `CONTENT_*` unification incl. bare-`UPDATE` migration at that phase); §9.2 extended from SYNC_PUBLIC-only to all three pruned members, with code-verified ripple results (audit seed has no CREATE/DELETE rows; AdminCMS branches exist only for SYNC_PUBLIC). v1.3.0 — W2-3 rulings (AUD-P07 trim spec-of-record; SYNC_PUBLIC PRUNE). v1.2.0 — W2-3 analysis (§9.1 spec + §9.2 evidence). v1.1.0 — DCR-8 disposition. v1.0.0 — initial as-built draft.
+> **Change log:** v1.5.0 (2026-09-10) — **W2-3 as-built flip round (code landed at `4650335`; DCR-8 code landed earlier at `f6fa52d`)**: §9.1/§9.2 flipped from target state to AS-BUILT (AUD-P05 `SYNC_TRIGGER` / AUD-P06 `SYSTEM_EXPORT` / AUD-P07 `ACCESS_DENIED` call sites live; union pruned 3-out/3-in to the net 14-value live writer set); §9.1 Mechanics sentence trued up (Express 4 does **not** route rejected middleware promises to the error handler — the reason requireRole's 403 audit write is try/catch-wrapped, fail-open per the lead review fix folded into `4650335`); §9.1 implementation-reality note extended with that wrap; §5 catalog extended with AUD-12/13/14; §5 AUD-11 / §6 / §4 DCR-8 as-built pins flipped (manual append 404s for every role since `f6fa52d`); §5.1 marked superseded by W2-1 strict dual control; §2 union note and seed note flipped to landed state. v1.4.0 — register ruling round. v1.3.0 — W2-3 rulings (AUD-P07 trim spec-of-record; SYNC_PUBLIC PRUNE). v1.2.0 — W2-3 analysis (§9.1 spec + §9.2 evidence). v1.1.0 — DCR-8 disposition. v1.0.0 — initial as-built draft.
 
 > This document describes the audit trail **AS BUILT**. Sources of truth:
 > `server.ts` (`recordAudit()` and every call site; `audit_logs` DDL),
@@ -61,18 +61,21 @@ TypeScript shape (`src/types.ts`) → PostgreSQL columns
 Indexes: `idx_audit_actor (actor)`, `idx_audit_action (action)`,
 `idx_audit_timestamp (seq DESC)`.
 
-Accepted `action` values (TS union, as built): `CREATE`, `UPDATE`, `DELETE`,
-`SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `SYNC_PUBLIC`, `LOGIN`, `LOGIN_FAILED`,
-`LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`, `FILE_UPLOAD`.
-As built at Wave-1, `CREATE` / `UPDATE` / `DELETE` / `SYNC_PUBLIC` had no
-automatic call site — their only writer was the admin manual-append endpoint
-(§6). Two changes since: **W2-1 (in flight)** gives bare `UPDATE` a live
-server-side writer (forced-transition reset audit, `server.ts:1397`); and
-**DCR-8 + the §9.2 prune ruling** remove the manual append — and with it the
-only writer of `CREATE` / `DELETE` / `SYNC_PUBLIC`. Those three members are
-pruned from the union in the W2-3 code phase, so the union ends as exactly
-the live writer set. Pre-prune databases may still hold legacy rows carrying
-the removed values (free-text column — §9.2 legacy caveat).
+Accepted `action` values (TS union, as built — pruned/extended at
+`4650335`): `UPDATE`, `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `LOGIN`,
+`LOGIN_FAILED`, `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`,
+`FILE_UPLOAD`, `SYNC_TRIGGER`, `SYSTEM_EXPORT`, `ACCESS_DENIED` — net 14
+values, exactly the live writer set. At Wave-1, `CREATE` / `UPDATE` /
+`DELETE` / `SYNC_PUBLIC` had no automatic call site — their only writer was
+the admin manual-append endpoint (§6). Since then: **W2-1 (landed
+`22023eb`)** gave bare `UPDATE` a live server-side writer
+(forced-transition reset audit, §9.1 implementation-reality note);
+**DCR-8 (landed `f6fa52d`)** removed the manual append — and with it the
+only writer of `CREATE` / `DELETE` / `SYNC_PUBLIC` — and the **W2-3 prune
+(landed `4650335`, §9.2)** removed those three dead members while §9.1
+added `SYNC_TRIGGER` / `SYSTEM_EXPORT` / `ACCESS_DENIED`. Pre-prune
+databases may still hold legacy rows carrying the removed values
+(free-text column — §9.2 legacy caveat).
 
 Status semantics: `SUCCESS` = the action took effect; `REJECTED` = a checker
 denied publication (the rejection itself succeeded); `WARNING` = security
@@ -117,12 +120,12 @@ The actor can never be injected by a client:
   the investigation signal), and `details` embeds it verbatim.
 - Logout resolves the user from the destroyed session record; if the user row
   vanished it records `unknown-user:<userId>` / `Unknown`.
-- As built, the one client-influenced write path is the admin-only manual
-  append (§6), where `action`, `targetResource`, `resourceId`, `details`,
-  `status` come from the request body — but `actor`, `actorRole`, `ipAddress`
-  remain server-derived. **Post-DCR-8 target: this path is removed** (CTO
-  ruling, RISK-023) — every field of every audit row becomes exclusively
-  server-derived; the endpoint stays live until the W2-2 code phase lands.
+- Historically (until DCR-8's code landed at `f6fa52d`), the one
+  client-influenced write path was the admin-only manual append (§6), where
+  `action`, `targetResource`, `resourceId`, `details`, `status` came from the
+  request body. **That path is removed** (CTO ruling, RISK-023, landed
+  `f6fa52d`): every field of every audit row is now exclusively
+  server-derived.
 
 `scripts/smoke-test.mjs` §9 verifies this property end-to-end (creates a
 user, logs in, performs actions, asserts the stored actor/role match the
@@ -142,7 +145,10 @@ session, not any client-supplied echo).
 | AUD-08 | `USER_ACTIVATE` | PATCH `/api/users/:id` (`isActive: true`) | admin | `User Account` / user id | `Activated user "<username>".` | SUCCESS |
 | AUD-09 | `USER_DEACTIVATE` | PATCH `/api/users/:id` (`isActive: false`) | admin | `User Account` / user id | `Deactivated user "<username>".` | SUCCESS |
 | AUD-10 | `FILE_UPLOAD` | POST `/api/upload` (success, 201) | maker, checker, admin | `File Upload` / server filename `<uuid>.<ext>` | `Uploaded "<original name>" (<size> bytes).` (fire-and-forget write) | SUCCESS |
-| AUD-11 | *manual* (any allowed `action` string; default `UPDATE`) | POST `/api/audit-logs` — **REMOVED per DCR-8** (target: 404 every role incl. admin; as-built live until W2-2) | admin | from body (defaults `General Portal` / `PORTAL-GEN`) | from body (default `User initiated state change.`) | from body (default SUCCESS) |
+| AUD-11 | *manual* (any allowed `action` string; default `UPDATE`) | POST `/api/audit-logs` — **REMOVED per DCR-8, landed `f6fa52d`**: 404 for every role incl. admin (JSON `/api` catch-all) | ~~admin~~ | — | — | — |
+| AUD-12 | `SYNC_TRIGGER` | POST `/api/sync/trigger` | admin | `Public Edge Gateway` / `BULK-ALL` (correlates the sync-log `itemId`) | `Forced full public-web handshake; <n> item(s) verified.` | SUCCESS |
+| AUD-13 | `SYSTEM_EXPORT` | GET `/api/system/export` | admin | `System Export` / the export's `exportTimestamp` (correlates the audit row with that exact snapshot; the row appears in the *next* export) | `Exported full system snapshot (<n> news, <m> documents, <k> audit rows).` | SUCCESS |
+| AUD-14 | `ACCESS_DENIED` | 403 from `requireRole` (every authenticated role refusal) and 401 from `requireAuth` **only when a `kbj_session` cookie was presented but failed validation** — no-cookie 401s are request-log-only by design (lead-ruled trim) | any authed role (403) / `anonymous`+`Anonymous` (failed-cookie 401) | `API Access Control` / `<METHOD> <path>` | 403: `Denied <METHOD> <path> - role '<role>' not in [<allowed>].` · 401: `Denied <METHOD> <path> - presented session cookie failed validation.` | WARNING |
 
 Notes:
 - **Not audited:** rejected logins that fail input validation (non-string /
@@ -151,10 +157,10 @@ Notes:
 - **`LOGIN_FAILED` vs deactivated users:** a correct password on a deactivated
   account records AUD-02 with the user's real id — the same signal as a wrong
   password (no information leak).
-- Seed fixture entries (historical demo data) carry one legacy `SYNC_PUBLIC`
-  row in fresh databases as built (no runtime path emits it); the W2-3 code
-  phase rewrites that seed row per the §9.2 prune, so databases seeded after
-  the prune no longer carry it.
+- Seed fixture entries (historical demo data): the former legacy `SYNC_PUBLIC`
+  row was rewritten to `SYNC_TRIGGER` in the W2-3 prune (`4650335`) — fresh
+  databases no longer carry `SYNC_PUBLIC`; pre-prune databases may still hold
+  such rows (§9.2 legacy caveat).
 
 ### 5.1 Finding: sync-log-only paths — external publication with no audit entry (DCR-3 corollary)
 
@@ -174,13 +180,18 @@ pipeline leaves a trace only in `sync_logs`, which is readable **admin-only**
 (GET `/api/audit-logs`) sees nothing. The approval flow (AUD-04..06) is
 audited; the bypass is not. Remediation is folded into the DCR-3 fix and the
 AUD-P01/P02/P03 gap items below. Pinned as-built by TC-NEWS-011 (Doc 12).
+**Superseded by W2-1 strict dual control (landed `22023eb`): create/update can
+no longer reach `syncToExternal: true` — the only path to the live public set
+is checker approve (audited, AUD-05), and forced edit-resets now write an
+audit row (§9.1 implementation-reality note). The historical table above
+describes the pre-W2-1 behavior.**
 
 ## 6. Query API
 
 | Endpoint | Access | Behavior (as built) |
 |---|---|---|
 | GET `/api/audit-logs` | checker, admin (`requireRole('checker','admin')`) | Returns `{ data: [AuditLog…] }`, **all** entries, newest-first. **No filters, no pagination, no query parameters** — the entire trail is transferred in one response. |
-| POST `/api/audit-logs` | ~~admin only~~ | **REMOVED per DCR-8** (CTO ruling, RISK-023, decision #5/#6 — target: 404 for every role incl. admin; audit rows exclusively server-written by `recordAudit()`; GET surface unchanged; flip-pins TC-AUDIT-008 / TC-RBAC-026). *As built until the W2-2 code phase lands:* admin-only manual append — body may set `action`, `targetResource`, `resourceId`, `details`, `status`; actor fields and IP server-derived; returns 201. |
+| POST `/api/audit-logs` | ~~admin only~~ | **REMOVED per DCR-8 — landed `f6fa52d`**: 404 with the JSON `/api` catch-all body for **every** role incl. admin; audit rows exclusively server-written by `recordAudit()`; GET surface unchanged (flip-pins TC-AUDIT-008 / TC-RBAC-026 flipped and asserted in the default smoke suite). *(Historical as-built until `f6fa52d`: admin-only manual append — body could set `action`, `targetResource`, `resourceId`, `details`, `status`; actor fields and IP server-derived; returned 201.)* |
 
 UI: the CMS "BOT / PDPA Audit Trail" tab (checker+) renders the trail;
 `refreshAuditLogs()` is gated to checker+ client-side (Doc 09 §7).
@@ -190,7 +201,7 @@ UI: the CMS "BOT / PDPA Audit Trail" tab (checker+) renders the trail;
 search over `details`, CSV/PDF export for examiners. The formerly open
 "removal or re-scoping of the manual append endpoint" item (integrity risk
 noted in Doc 09 §10) is **decided — REMOVED** per DCR-8 (CTO ruling, Wave-2
-decision #5/#6; route removal lands with the W2-2 code phase).
+decision #5/#6; route removal landed at `f6fa52d`).
 
 ## 7. Retention
 
@@ -233,59 +244,65 @@ proposed action ids for the Wave 2 backlog:
 | AUD-P09 | `LOGIN_BAD_REQUEST` | POST `/api/auth/login` validation 401 (non-string/blank fields) | Complements AUD-02 |
 | AUD-P10 | `SESSION_REJECTED` | requests with invalid/tampered session signatures | Tamper-detection signal |
 
+**Resolved — P0 tail (landed `4650335`, §9.1):** AUD-P05 (`SYNC_TRIGGER`),
+AUD-P06 (`SYSTEM_EXPORT`), and AUD-P07 (`ACCESS_DENIED`, lead-ruled trimmed
+coverage) are implemented — they are no longer gaps; their rows above stay
+as the historical proposal of record. Still backlog: AUD-P01..03 (vocabulary
+plan below unchanged — future P1/P2), AUD-P04, AUD-P08/P09, and AUD-P10's
+residual (its tampered-cookie half is absorbed by AUD-P07's 401 coverage).
+
 **Vocabulary plan for AUD-P01..03 (recorded now; executes at P1/P2
 ratification):** they land as `CONTENT_CREATE` / `CONTENT_UPDATE` /
 `CONTENT_DELETE`, and bare `UPDATE` migrates to `CONTENT_UPDATE` in that
 **same phase** (atomic vocabulary unification — no half-migrated state).
 Until then `UPDATE` stays live in the union (W2-1 forced-transition audit,
-§9.1 implementation-reality note), while `CREATE`/`DELETE` are pruned as
-dead in W2-3 (§9.2). Note AUD-P07's trimmed 401 coverage absorbs the
-tampered-cookie half of AUD-P10's signal (`ACCESS_DENIED` on
+§9.1 implementation-reality note), while `CREATE`/`DELETE` were pruned as
+dead in W2-3 (`4650335`, §9.2). Note AUD-P07's trimmed 401 coverage absorbs
+the tampered-cookie half of AUD-P10's signal (`ACCESS_DENIED` on
 presented-but-failed cookies).
 
 Also recommended with the gaps: include `result` (HTTP status) uniformly and
 `userAgent` for the security-relevant events (PDPA proportionality applies —
 minimize retained personal data).
 
-### 9.1 Ratified P0 implementation spec (W2-3 — target state, doc-first)
+### 9.1 Ratified P0 implementation spec (W2-3 — **AS-BUILT, landed `4650335`**)
 
-Implementation-ready spec for the ratified P0 tail. **Sequencing: W2-3 code
-lands AFTER the W2-2 code phase** (route removal of `POST /api/audit-logs`)
-— both touch `server.ts`, which is a single work lane. Every handler anchor
-below is from the develop working tree at commit `eb4c9b5` **with the W2-1
-strict-dual-control change in flight** — anchors may shift by a few lines
-when W2-1 lands; implementers should locate handlers by route/symbol, not
-line number.
+Implementation-ready spec for the ratified P0 tail, **implemented in the W2-3
+code phase (commit `4650335`, stacking on W2-1 `22023eb` → W2-2 `f6fa52d`)**.
+The snippets below are the landed implementation (verified: strict `tsc`
+after the prune exits 0 — proof no straggler writer emits a removed value;
+default smoke suite 99/99 including the flipped TC-SYNC-004 / TC-AUDIT-009 /
+TC-AUDIT-010 assertions of Doc 12 §16).
 
-**Union impact (applies to all three gaps; lead-ruled 3-out/3-in form):**
-the new action values `SYNC_TRIGGER`, `SYSTEM_EXPORT`, `ACCESS_DENIED` are
-**not members of the `AuditLog['action']` union** (`src/types.ts:119`). The
-W2-3 code phase makes **one edit to the union line**: **remove the three
-dead members `CREATE`, `DELETE`, `SYNC_PUBLIC`** — each loses its only
-audit writer when DCR-8's code phase lands (the `CREATE`/`DELETE` literals
-in `server.ts` are `sync_logs` writes, a different namespace) — and **add
-`SYNC_TRIGGER` / `SYSTEM_EXPORT` / `ACCESS_DENIED`**. Net union = exactly
-the live writer set. **`UPDATE` stays**: it is live via W2-1's
-forced-transition audit (see the implementation-reality note below). No
-schema change: `audit_logs.action` is plain `text NOT NULL`
-(`scripts/schema.sql` §9 and the mirrored `PG_DDL`) — no enum/CHECK
-constraint exists, and the seed/migration paths are unaffected.
+**Union impact (applies to all three gaps; lead-ruled 3-out/3-in form —
+LANDED):** one edit to the `AuditLog['action']` union (`src/types.ts:119`)
+**removed the three dead members `CREATE`, `DELETE`, `SYNC_PUBLIC`** (each
+had lost its only audit writer when DCR-8's code landed; the `CREATE`/`DELETE`
+literals in `server.ts` are `sync_logs` writes, a different namespace) and
+**added `SYNC_TRIGGER` / `SYSTEM_EXPORT` / `ACCESS_DENIED`**. Net union (14
+values) = exactly the live writer set. **`UPDATE` stays**: live via W2-1's
+forced-transition audit. No schema change: `audit_logs.action` is plain
+`text NOT NULL` (`scripts/schema.sql` §9 and the mirrored `PG_DDL`) — no
+enum/CHECK constraint exists, and the seed/migration paths are unaffected.
 
-**Implementation reality vs the §9 proposals:** W2-1 (in flight) implements
-the edit-reset guard audit **reusing bare `'UPDATE'`** (`server.ts:1397`,
-commented "AUD-P01" — a `<state>`→draft forced transition), and the
+**Implementation reality vs the §9 proposals:** W2-1 (`22023eb`) implements
+the edit-reset guard audit **reusing bare `'UPDATE'`** (`server.ts`, commented
+"AUD-P01" — a `<state>`→draft forced transition), and the
 submit/approve/reject state guards reuse the existing workflow values
 (`SUBMIT_APPROVAL`/`APPROVE`/`REJECT`). The
 `CONTENT_CREATE`/`CONTENT_UPDATE`/`CONTENT_DELETE` ids in the §9 gap table
 are the **future P1/P2 vocabulary, not what W2-1 shipped** — recorded so
-the gate reads no divergence between implementation and proposal.
+the gate reads no divergence between implementation and proposal. W2-3
+additionally reuses **no** proposed ids — it shipped the ruled
+`SYNC_TRIGGER`/`SYSTEM_EXPORT`/`ACCESS_DENIED` vocabulary verbatim — and the
+lead review fix folded into `4650335` wrapped requireRole's 403 audit write
+in try/catch (see Mechanics below).
 
 **AUD-P05 — audit row for `POST /api/sync/trigger`.**
-As built: the handler (`server.ts:1769`, develop tree) writes only a
-`sync_logs` row (`FORCE_SYNC`, `BULK-ALL`) — the audit trail stays silent
-(Doc 12 TC-SYNC-004 pins this gap as built). Target: after
-`await repo.insertSyncLog(newLog);` (≈ `:1787`) and before `res.json(...)`,
-add:
+Pre-W2-3 the handler wrote only a `sync_logs` row (`FORCE_SYNC`, `BULK-ALL`)
+— the audit trail stayed silent (Doc 12 TC-SYNC-004 pinned that gap). Landed
+at `4650335`: immediately after `await repo.insertSyncLog(newLog);` and
+before `res.json(...)`:
 
 ```ts
 await recordAudit({
@@ -303,15 +320,15 @@ await recordAudit({
 Rationale: `resourceId: 'BULK-ALL'` matches the sync-log `itemId` (exact
 cross-table correlation); `targetResource: 'Public Edge Gateway'` matches the
 seed fixture's label for gateway operations. `await`-ed in-request, per the
-§3 write-path rule. Pin: **TC-SYNC-004 (Doc 12) — flips when W2-3 lands**
-(as-built pin today: no audit row).
+§3 write-path rule. Pin: **TC-SYNC-004 (Doc 12) — flipped and asserted**
+(SYNC_TRIGGER row correlates with the FORCE_SYNC sync log).
 
 **AUD-P06 — audit row for `GET /api/system/export`.**
-As built: the handler (`server.ts:2188`) streams the full snapshot
-(all content tables incl. the audit trail itself) with **no audit entry** —
-a bulk data-exfiltration event invisible to compliance. Target: hoist
-`const exportTimestamp = new Date().toISOString();` once (use it in both the
-audit entry and the response body — response field name stays
+Pre-W2-3 the handler streamed the full snapshot (all content tables incl.
+the audit trail itself) with **no audit entry** — a bulk data-exfiltration
+event invisible to compliance. Landed at `4650335`:
+`const exportTimestamp = new Date().toISOString();` hoisted once (used in
+both the audit entry and the response body — response field name stays
 `exportTimestamp`, DCR-1), then after the `Promise.all` resolves and before
 `res.json(...)`:
 
@@ -330,17 +347,15 @@ await recordAudit({
 
 Rationale: `resourceId` = the export timestamp correlates the audit row with
 the exact snapshot a `migrate.js` consumer would load. The export **response
-shape is unchanged** — TC-SYNC-006 does not flip; the new coverage is
-**TC-AUDIT-009 (Doc 12, added in v1.4.0)**. Note the export includes the
-audit table itself, so the row lands *after* the snapshot lists were read —
-the just-written `SYSTEM_EXPORT` row appears in the *next* export, not the
-current one (acceptable; state it in TC-AUDIT-009).
+shape is unchanged** — TC-SYNC-006 does not flip; the coverage is
+**TC-AUDIT-009 (Doc 12) — flipped and asserted** (row keyed by this export's
+`exportTimestamp`; asserted visible in the *next* export's snapshot, not its
+own — the row lands after the snapshot lists were read).
 
-**AUD-P07 — `ACCESS_DENIED` rows for denials (lead-ruled coverage).**
-As built: `requireAuth` (`server.ts:1120`, 401 at `:1124`) and
-`requireRole(...)` (`server.ts:1134`, 403 at `:1141`) reject silently —
-privilege-probing is invisible to compliance. Target coverage rule
-(**lead-ruled, spec of record; CTO can overrule at the gate**):
+**AUD-P07 — `ACCESS_DENIED` rows for denials (lead-ruled coverage — LANDED).**
+Pre-W2-3 `requireAuth` and `requireRole(...)` rejected silently —
+privilege-probing was invisible to compliance. Coverage rule as landed
+(**lead-ruled, spec of record**):
 
 - **ALL authenticated 403s** — audited unconditionally.
 - **401s where a `kbj_session` cookie WAS presented but failed validation**
@@ -386,9 +401,17 @@ if (token) {
 }
 ```
 
-Mechanics: `requireRole`'s returned handler must become `async` (Express
-accepts async handlers; errors flow to the final error handler);
-`requireAuth` already is. Actor for presented-cookie 401s is
+Mechanics (as landed, incl. the lead review fix folded into `4650335`):
+`requireRole`'s returned handler is `async`, and its 403 audit write is
+wrapped in **try/catch — fail-open**: Express 4 does **not** route rejected
+middleware promises to the error handler, so an unwrapped `await` whose
+write rejected (e.g. a PG blip) would have swallowed the 403 and hung the
+request until client timeout. With the wrap, the access decision stands
+regardless of audit-write outcome — a failed write logs
+`[Audit] Failed to record ACCESS_DENIED 403 audit:` and the 403 still
+sends (consistent with the W2-5 fail-open ruling). `requireAuth`'s audit
+sits inside its existing try/catch → `next(err)`. Actor for
+presented-cookie 401s is
 `anonymous`/`Anonymous` — the failed validation means the caller's identity
 is unresolvable (same convention as AUD-02; a deactivated user's cookie
 cannot be attributed without trusting unvalidated input). **Scope
@@ -397,7 +420,9 @@ exclusions:** the login endpoint's own 401s are excluded by construction —
 `LOGIN_FAILED` (AUD-02); adding AUD-P07 there would double-write. Status
 `WARNING` (security signal — matches `LOGIN_FAILED`). Response
 bodies/status codes are **unchanged** — no TC-RBAC-001..028 expectation
-flips; the new coverage is **TC-AUDIT-010 (Doc 12, aligned in v1.5.0)**.
+flips; the coverage is **TC-AUDIT-010 (Doc 12) — flipped and asserted**
+(staff 403 row; anon no-cookie 401 absent by design; tampered-cookie 401
+row as `anonymous`/WARNING; login-endpoint 401s carry `LOGIN_FAILED` only).
 
 **Considered and rejected — full coverage (every 401/403).** The original
 AUD-P07 wording would have written a row for every denial including
@@ -412,7 +437,7 @@ trimmed rule (documented): a cookie-forging flood still floods the trail —
 only traffic carrying a presented cookie can — so the §7 retention `[PLANNED]`
 work remains the structural fix.
 
-### 9.2 Dead audit-union members — PRUNE ruled for `CREATE`/`DELETE`/`SYNC_PUBLIC` (lead decision; CTO ratifies at the W2 code gate)
+### 9.2 Dead audit-union members — PRUNE ruled and EXECUTED for `CREATE`/`DELETE`/`SYNC_PUBLIC` (lead ruling; landed `4650335`)
 
 **Evidence — writer-set enumeration (code-verified):**
 
@@ -437,26 +462,27 @@ work remains the structural fix.
   webhook audit row would take a fresh descriptive value then.
 
 **Ruling (lead, under delegated authority): PRUNE exactly three dead
-audit-union members — `CREATE`, `DELETE`, `SYNC_PUBLIC`.** All three lose
-their only audit writer when DCR-8's code phase lands; keeping any of them
-recreates the DCR-5 dead-member pattern the register already flags as debt.
-Execution: the W2-3 code phase makes **one `types.ts:119` edit** — remove
-`CREATE`/`DELETE`/`SYNC_PUBLIC`, add `SYNC_TRIGGER`/`SYSTEM_EXPORT`/
-`ACCESS_DENIED` — so the net union equals exactly the live writer set
-(`UPDATE` retained per the evidence above). The P1/P2 vocabulary plan
-(CONTENT_* unification incl. bare-`UPDATE` migration) is recorded in §9 and
-executes only at that ratification. CTO ratifies at the W2 code gate.
-Ripple (implementation checklist, code-verified):
+audit-union members — `CREATE`, `DELETE`, `SYNC_PUBLIC`.** All three lost
+their only audit writer when DCR-8's code landed; keeping any of them
+would recreate the DCR-5 dead-member pattern the register already flags as
+debt. **Executed at `4650335`**: one `types.ts:119` edit removed
+`CREATE`/`DELETE`/`SYNC_PUBLIC` and added
+`SYNC_TRIGGER`/`SYSTEM_EXPORT`/`ACCESS_DENIED` — the net union (14 values)
+equals exactly the live writer set (`UPDATE` retained per the evidence
+above; strict `tsc` after the prune exits 0 — the no-straggler proof). The
+P1/P2 vocabulary plan (CONTENT_* unification incl. bare-`UPDATE` migration)
+is recorded in §9 and executes only at that ratification. Ripple (executed
+checklist):
 
-| Artifact | Change | Verified state |
+| Artifact | Change | Landed state (`4650335`) |
 |---|---|---|
-| `src/types.ts:119` | Remove `'CREATE'`, `'DELETE'`, `'SYNC_PUBLIC'`; add the three §9.1 values | One edit (§9.1 union impact) |
-| `src/data/initialData.ts:698` | The typed `SYNC_PUBLIC` seed row must be rewritten (e.g. `'UPDATE'`) or dropped — leaving it fails `tsc --noEmit` | **No audit seed rows use `CREATE`/`DELETE`** (checked; the `CREATE`/`UPDATE` literals at `:629`–`:649` sit in `INITIAL_SYNC_LOGS`, a different namespace, unaffected) |
-| `src/components/AdminCMS.tsx:2834, :3435` | Two dead `SYNC_PUBLIC` display branches — comparisons against a removed literal fail the type gate; delete both (rows fall to default styling) | **No AdminCMS branch switches on `CREATE`/`DELETE`** (checked; branches are APPROVE/REJECT/SUBMIT_APPROVAL/SYNC_PUBLIC only) |
-| Doc 07 `audit_logs.action` listing (+ action-column note) | Value list drops the three pruned values | `sync_logs.action` listing (Doc 07) **stays** — different namespace |
-| Doc 05 (SDS) audit-action listing | Same drop | Listing at its "Actions as built" bullet |
-| Doc 10 §2 (this doc) | Union narrative already updated (v1.4.0) | Done in this revision |
-| Doc 12 TC-SEC-013 | Dual flip-pin wording names the ruled prune | Aligned in Doc 12 v1.6.0 |
+| `src/types.ts:119` | Removed `'CREATE'`, `'DELETE'`, `'SYNC_PUBLIC'`; added the three §9.1 values | Done — net 14-value union |
+| `src/data/initialData.ts:698` | The typed `SYNC_PUBLIC` seed row | Rewritten to `'SYNC_TRIGGER'` (semantically matches the row's gateway-handshake narrative; pre-check confirmed **no audit seed rows used `CREATE`/`DELETE`** — those literals sit in `INITIAL_SYNC_LOGS`, a different namespace, unaffected) |
+| `src/components/AdminCMS.tsx` | Two dead `SYNC_PUBLIC` display branches | Both deleted (badge + timeline dot; rows fall to default styling; pre-check confirmed **no branch switched on `CREATE`/`DELETE`**) |
+| Doc 07 `audit_logs.action` listing (+ action-column note) | Value list drops the three pruned values | Doc-lane ripple (Doc 07 v1.2.0 `1bc0d6b` pass predates the prune — re-check at the next Doc 07 revision) |
+| Doc 05 (SDS) audit-action listing | Same drop | Doc-lane ripple (same re-check) |
+| Doc 10 §2 (this doc) | Union narrative flipped to landed state | Done (v1.5.0) |
+| Doc 12 TC-SEC-013 | Dual flip-pin wording names the ruled prune | Stated as landed in Doc 12 v1.8.0 (dual flip resolved: W2-2 `f6fa52d` + W2-3 `4650335`) |
 
 Legacy-data caveat: databases seeded before the prune may hold historical
 rows carrying `SYNC_PUBLIC` (and, in principle, `CREATE`/`DELETE` rows
@@ -474,8 +500,8 @@ as historical/seed data per §3.
 | Query access §6 | FR-AUDIT-*, FR-AUTH-* | TC-RBAC-013 (maker 403), TC-AUDIT-001 |
 | Append-only §3 | FR-AUDIT-* | TC-AUDIT-007 (no mutation routes) |
 | Coverage gaps §9 | FR-AUDIT-`[PLANNED]` | Wave 2 test additions |
-| W2-3 spec §9.1/§9.2 (ratified P0 tail; AUD-P07 trim + 3-member prune `CREATE`/`DELETE`/`SYNC_PUBLIC` ruled by lead; `UPDATE` retained) | FR-AUDIT-003 W2-3 extension (Doc 03/04 v1.3.0; `[PLANNED]` until the code phase lands) — AUD-P05/06/07 | TC-SYNC-004 (flip-pin), TC-AUDIT-009/010 (Doc 12 v1.6.0), TC-SEC-013 (dual flip-pin) |
-| DCR-8 removal (§5 AUD-11 / §6) | FR-AUDIT-004 `[REMOVED per DCR-8]` (Doc 03 v1.2.0) | TC-AUDIT-008 / TC-RBAC-026 (404 flip-pins, Doc 12) |
+| W2-3 spec §9.1/§9.2 (ratified P0 tail — **landed `4650335`**; AUD-P07 trim + 3-member prune `CREATE`/`DELETE`/`SYNC_PUBLIC` ruled and executed; `UPDATE` retained) | FR-AUDIT-003 W2-3 extension (Doc 03/04 v1.5.0 — AS-BUILT) — AUD-P05/06/07 | TC-SYNC-004, TC-AUDIT-009/010 (asserted, Doc 12 v1.8.0), TC-SEC-013 (dual flip resolved) |
+| DCR-8 removal (§5 AUD-11 / §6) | FR-AUDIT-004 `[REMOVED per DCR-8]` (Doc 03 v1.2.0) | TC-AUDIT-008 / TC-RBAC-026 (404 — asserted, Doc 12) |
 
 Exact FR identifiers are enumerated in Doc 03 (SRS); Doc 04 (RTM)
 reconciles — mismatches resolve to Doc 03 in the Lead pass.

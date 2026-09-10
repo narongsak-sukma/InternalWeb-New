@@ -2,7 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.4.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions: worker-5; W2-5 flip: worker-3)
+**Version:** 1.5.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions + W2-3 as-built flip: worker-5; W2-5 flip: worker-3)
+
+> **Change log (v1.5.0, W2-3 as-built flip):** FR-AUDIT-003's Wave-2 extension flipped from target state to **AS-BUILT (W2-3 code landed, commit `4650335`)** — the three call-site classes (sync trigger / system export / access denials) are live per Doc 10 §9.1; the audit-union prune is executed (net 14 values = the live writer set, Doc 10 §9.2); flip-pins TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 asserted in smoke §16 (Doc 12 v1.8.0; TC-SYNC-004 P2→P1). FR-AUDIT-004 and the §2.6 DCR-8 entry trued up in passing (stale "until the W2-2 code phase" clauses → removal **landed `f6fa52d`**). No new FR ids — the 94-REQ inventory is unchanged.
 
 > **Change log (v1.4.0, W2-5 lane):** FR-AUTH-002 acceptance (d) rewritten + (e) added, and the §2 per-pod rate-limit assumption flipped — the failed-login budget is **shared across pods in PostgreSQL** (`rate_limit_hits` atomic upsert) whenever `DATABASE_URL` is set; in-memory dev stays per-process; transient store errors fail open with a logged degradation `WARNING` (W2-5, RISK-010, commit `1b237cd`; no new REQ ids — 94-REQ inventory unchanged).
 
@@ -230,10 +232,12 @@ users are rejected at login and their existing sessions stop resolving.
   evidentiary value (RISK-023). **CTO ruling (Wave-2, decision #5/#6): PREFER
   REMOVAL.** Target state (FR-AUDIT-004): the endpoint answers 404 and audit
   rows are appended **exclusively** by server-side `recordAudit()`; the audit
-  action set enumerated in FR-AUDIT-003 remains the complete set. The current
-  as-built (endpoint live, FR-AUDIT-004 v1.1.0 behavior) remains in force
-  until the W2-2 code phase removes the route — doc-first per PROJECT-STATE
-  §7; flip-pinned by TC-AUDIT-008 / TC-RBAC-026.
+  action set enumerated in FR-AUDIT-003 remains the complete set. The
+  current as-built (endpoint live, FR-AUDIT-004 v1.1.0 behavior) was kept in
+  force doc-first per PROJECT-STATE §7 until the W2-2 code phase —
+  **executed at `f6fa52d`: the route is removed (404 every role; tombstone
+  in `server.ts`) and TC-AUDIT-008 / TC-RBAC-026 are flipped and asserted in
+  the default smoke suite.**
 
 ---
 
@@ -531,19 +535,18 @@ Acceptance: (a) checker and admin can list entries; (b) maker/staff cannot.
 **FR-AUDIT-003 — Audited action coverage.**
 Actor: system. Inputs: —. Outputs: at minimum these actions are audited: `LOGIN`, `LOGIN_FAILED`, `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`, `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `FILE_UPLOAD` — each with actor, role label, target resource, details, IP and status. *(W2-1, as built):* news-workflow guard rejections reuse the workflow values (`SUBMIT_APPROVAL`/`APPROVE`/`REJECT`, status `WARNING`) and the forced edit-reset audit reuses `UPDATE` — reuses, not new vocabulary (Doc 10 §9.1).
 Acceptance: exercising each source action produces the corresponding entry (status `SUCCESS` / `WARNING` for failed login / `REJECTED` for rejection).
-**Wave-2 extension (W2-3; doc-first per Doc 10 §9.1 — target state until the W2-3 code phase lands, which queues behind W2-2 in the single `server.ts` lane):** three further call-site classes are audited: (i) **sync trigger** — `POST /api/sync/trigger` writes a `SYNC_TRIGGER`/SUCCESS row (actor = admin, target `Public Edge Gateway`, `resourceId: BULK-ALL` correlating the sync-log item); (ii) **system export** — `GET /api/system/export` writes a `SYSTEM_EXPORT`/SUCCESS row (`resourceId` = the export's `exportTimestamp`, correlating the audit row with the exact snapshot; response shape unchanged); (iii) **access denials, lead-ruled trim** — every authenticated 403 and every 401 where a `kbj_session` cookie was presented but failed validation write an `ACCESS_DENIED`/`WARNING` row; no-cookie 401s are request-log-only by design (full coverage considered and rejected — Doc 10 §9.1).
-Acceptance (extension, post-W2-3): exercising each class produces its corresponding row while response codes/bodies stay unchanged (no RBAC expectation flips). Flip-pins: TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 (Doc 12).
+**Wave-2 extension (W2-3; per Doc 10 §9.1 — **AS-BUILT, landed `4650335`**):** three further call-site classes are audited: (i) **sync trigger** — `POST /api/sync/trigger` writes a `SYNC_TRIGGER`/SUCCESS row (actor = admin, target `Public Edge Gateway`, `resourceId: BULK-ALL` correlating the sync-log item); (ii) **system export** — `GET /api/system/export` writes a `SYSTEM_EXPORT`/SUCCESS row (`resourceId` = the export's `exportTimestamp`, correlating the audit row with the exact snapshot; response shape unchanged); (iii) **access denials, lead-ruled trim** — every authenticated 403 and every 401 where a `kbj_session` cookie was presented but failed validation write an `ACCESS_DENIED`/`WARNING` row; no-cookie 401s are request-log-only by design (full coverage considered and rejected — Doc 10 §9.1).
+Acceptance (extension, as built since `4650335`): exercising each class produces its corresponding row while response codes/bodies stay unchanged (no RBAC expectation flips). Verified by: TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 (Doc 12 v1.8.0 — asserted in `scripts/smoke-test.mjs` §16).
 
 **FR-AUDIT-004 — No manual audit fabrication `[REMOVED per DCR-8]`.**
-Target state (doc-first; the as-built endpoint remains live until the W2-2
-code phase lands — see DCR-8 in §2.6): the audit trail can never be written
-through the API by any actor, admin included; audit rows are appended
-**exclusively by server-side `recordAudit()`** as a side effect of the
-actions in FR-AUDIT-003.
+As built (W2-2 landed `f6fa52d`; DCR-8 — see §2.6): the audit trail can
+never be written through the API by any actor, admin included; audit rows
+are appended **exclusively by server-side `recordAudit()`** as a side
+effect of the actions in FR-AUDIT-003.
 Actor: — (constraint). Inputs: `POST /api/audit-logs` (any body).
 Outputs: HTTP 404 `{success:false, error:"No API endpoint for POST /api/audit-logs"}` (JSON `/api` catch-all) for every caller — anonymous, staff, maker, checker, admin.
 Acceptance (post-removal, Wave-2): (a) `POST /api/audit-logs` → 404 for **every** role including admin; (b) no API path appends `audit_logs` rows outside server-side `recordAudit()`; (c) the audit action set enumerated in FR-AUDIT-003 remains the complete set (no client-selectable `action` values enter the trail); (d) GET `/api/audit-logs` (FR-AUDIT-002) is unchanged.
-*[As-built today (until W2-2): admin → 201 with defaults; other roles → 403; actor server-stamped — documented in doc 08 §11.3 and doc 10 §5 AUD-11; flip-pins TC-AUDIT-008 / TC-RBAC-026.]*
+*[Historical as-built until `f6fa52d` (W2-2): admin → 201 with defaults; other roles → 403; actor server-stamped — documented in doc 08 §11.3 and doc 10 §5 AUD-11; TC-AUDIT-008 / TC-RBAC-026 now assert the 404.]*
 
 **FR-AUDIT-005 — Append-only integrity.**
 Actor: — (constraint). Inputs: —.
