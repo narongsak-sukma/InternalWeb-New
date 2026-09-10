@@ -5,7 +5,7 @@
 **Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
 
 Traces every requirement in `03-srs.md` to its design reference, implementation
-status, test case and UAT item. 93 requirements total (62 FR + 31 NFR).
+status, test case and UAT item. 94 requirements total (63 FR + 31 NFR; one FR is `[PLANNED]`).
 
 **Column legend**
 
@@ -62,13 +62,14 @@ status, test case and UAT item. 93 requirements total (62 FR + 31 NFR).
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
 | FR-NEWS-001 | §3.1.4 | `server.ts` `GET /api/news` (public; `category`/`search` filters); `news` table; `src/components/NewsSection.tsx` | AS-BUILT | TC-NEWS-001 | UAT-018 |
-| FR-NEWS-002 | §3.1.4 | `server.ts` `POST /api/news` (maker/admin, defaults, `'draft'`/`'synced'` init, sync log on `syncToExternal`) — **direct-publish path = DCR-001** | AS-BUILT | TC-NEWS-002 | UAT-019 |
-| FR-NEWS-003 | §3.1.4 | `server.ts` `PUT /api/news/:id` (maker/admin, merge, id protection, 404, sync log) — **direct-publish path = DCR-001** | AS-BUILT | TC-NEWS-003 | UAT-020 |
+| FR-NEWS-002 | §3.1.4 | `server.ts` `POST /api/news` (maker/admin, defaults, `'draft'`/`'synced'` init, sync log on `syncToExternal`) — **as built: direct publish to `'synced'` without checker approval = DCR-3 (`server.ts:1306,1315`)** | AS-BUILT (DCR-3 bypass documented) | TC-NEWS-002 | UAT-019 |
+| FR-NEWS-003 | §3.1.4 | `server.ts` `PUT /api/news/:id` (maker/admin, merge, id protection, 404, sync log) — **as built: update re-syncs to `'synced'` without checker approval = DCR-3 (`server.ts:1346`)** | AS-BUILT (DCR-3 bypass documented) | TC-NEWS-003 | UAT-020 |
 | FR-NEWS-004 | §3.1.4 | `server.ts` `DELETE /api/news/:id` (admin-only, `DELETE` sync log) | AS-BUILT | TC-NEWS-004 | UAT-021 |
 | FR-NEWS-005 | §3.1.4 | `server.ts` `POST /api/news/:id/submit-approval` (maker/admin → `pending_approval`, `SUBMIT_APPROVAL` audit) | AS-BUILT | TC-NEWS-005 | UAT-022 |
 | FR-NEWS-006 | §3.1.4 | `server.ts` `POST /api/news/:id/approve` (checker/admin → `synced`, `approvedBy`/`approvedAt`, `APPROVE` audit, sync log) | AS-BUILT | TC-NEWS-006 | UAT-023 |
 | FR-NEWS-007 | §3.1.4 | `server.ts` `POST /api/news/:id/reject` (checker/admin → `rejected`, reason persisted, `REJECT` audit `REJECTED`) | AS-BUILT | TC-NEWS-007 | UAT-024 |
 | FR-NEWS-008 | §3.1.4 | `news.is_important_alert` column; `src/components/Header.tsx` unread-alert affordance → `ArticleDetailModal.tsx` | AS-BUILT | TC-NEWS-008 | UAT-025 |
+| FR-NEWS-009 | §3.1.4 | No implementation yet — remediation of DCR-3: restrict create/update direct publish so `'synced'` requires checker approval (or CTO-ratified equivalent disposition) | **[PLANNED]** | TC-NEWS-009 (planned) | — (TC-only) |
 
 *Automated evidence:* smoke-test and `tests/e2e-walkthrough.mjs` drive the full maker-checker flow.
 
@@ -135,12 +136,12 @@ status, test case and UAT item. 93 requirements total (62 FR + 31 NFR).
 
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
-| FR-SYNC-001 | §3.1.11 | `news.external_sync_status` + `approved_by`/`approved_at` columns (`schema.sql` §3); submit/approve/reject handlers; `ExternalSyncStatus` type | AS-BUILT | TC-SYNC-001 | UAT-051 |
+| FR-SYNC-001 | §3.1.11 | `news.external_sync_status` + `approved_by`/`approved_at` columns (`schema.sql` §3); submit/approve/reject handlers; `ExternalSyncStatus` type — runtime values `draft`/`pending_approval`/`synced`/`rejected` only ('pending' = dead union member, no 'approved' — **DCR-5**); direct path per **DCR-3** | AS-BUILT (DCR-3/DCR-5 documented) | TC-SYNC-001 | UAT-051 |
 | FR-SYNC-002 | §3.1.11 | Sync-log insertions in news create/update/delete/approve handlers; `sync_logs` table | AS-BUILT | TC-SYNC-002 | UAT-052 |
 | FR-SYNC-003 | §3.1.11 | `server.ts` `GET /api/sync/logs` (admin); AdminCMS sync view | AS-BUILT | TC-SYNC-003 | UAT-053 |
 | FR-SYNC-004 | §3.1.11 | `server.ts` `POST /api/sync/trigger` (admin, `FORCE_SYNC` log, count). **Outbound HTTP call: `[PLANNED]`** | AS-BUILT (outbound `[PLANNED]`) | TC-SYNC-004 | UAT-054 |
 | FR-SYNC-005 | §3.1.11 | `src/components/ExternalPublicSyncView.tsx` (maker+ view) | AS-BUILT | TC-SYNC-005 | UAT-055 |
-| FR-SYNC-006 | §3.1.11 | `server.ts` `GET /api/system/export` (admin, `tables` payload); `scripts/migrate.js` consumer | AS-BUILT | TC-SYNC-006 | UAT-056 |
+| FR-SYNC-006 | §3.1.11 | `server.ts` `GET /api/system/export` (admin, `tables` payload; top-level timestamp field **`exportTimestamp`, not `generatedAt` — DCR-1**); `scripts/migrate.js` consumer | AS-BUILT | TC-SYNC-006 | UAT-056 |
 
 ### 1.12 File upload (UPL)
 
@@ -200,7 +201,7 @@ status, test case and UAT item. 93 requirements total (62 FR + 31 NFR).
 
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
-| NFR-COMP-001 | §3.2.4 | `requireRole('checker','admin')` on approve/reject; maker 403; approval stamps. **Direct-publish path = DCR-001 open item** | AS-BUILT (DCR-001 pending) | TC-COMP-001 | UAT-023 (dual control) |
+| NFR-COMP-001 | §3.2.4 | `requireRole('checker','admin')` on approve/reject; maker 403; approval stamps. **Direct-publish bypass = DCR-3 open item; remediation FR-NEWS-009 `[PLANNED]`** | AS-BUILT (DCR-3 disposition pending) | TC-COMP-001 | UAT-023 (dual control) |
 | NFR-COMP-002 | §3.2.4 | Append-only `audit_logs` + `recordAudit`; no-delete user lifecycle; JSON request logs with IP | AS-BUILT | TC-COMP-002 | UAT-047 |
 | NFR-COMP-003 | §3.2.4 | `toSafeUser` everywhere; cookie = signed sid only; UUID upload filenames | AS-BUILT | TC-COMP-003 | — (TC-only) |
 | NFR-COMP-004 | §3.2.4 | `resolveSession` isActive gate; login isActive rejection; session sweeper | AS-BUILT | TC-COMP-004 | UAT-015 |
@@ -217,12 +218,11 @@ status, test case and UAT item. 93 requirements total (62 FR + 31 NFR).
 
 | REQ ID | SRS | Design reference | Status | Test ref | UAT ref |
 |---|---|---|---|---|---|
-| NFR-MAINT-001 | §3.2.6 | TypeScript ~5.8 end-to-end; `npm run lint` (`tsc --noEmit`); esbuild `dist/server.cjs`. **DCR-002: `strict` not enabled in `tsconfig.json`** | AS-BUILT (DCR-002 pending) | TC-MAINT-001 | — (TC-only) |
-| NFR-MAINT-002 | §3.2.6 | `GET /api/openapi.json` handler (OpenAPI 3.0.3, cookieAuth scheme, full path list) | AS-BUILT | TC-MAINT-002 | — (TC-only) |
+| NFR-MAINT-001 | §3.2.6 | TypeScript ~5.8 end-to-end; `npm run lint` (`tsc --noEmit`); esbuild `dist/server.cjs`. **DCR-2: `strict` not enabled in `tsconfig.json`** | AS-BUILT (DCR-2 pending) | TC-MAINT-001 | — (TC-only) || NFR-MAINT-002 | §3.2.6 | `GET /api/openapi.json` handler (OpenAPI 3.0.3, cookieAuth scheme, full path list) | AS-BUILT | TC-MAINT-002 | — (TC-only) |
 | NFR-MAINT-003 | §3.2.6 | JSON request-logger middleware (time/method/path/status/durationMs/ip) | AS-BUILT | TC-MAINT-003 | — (TC-only) |
 | NFR-MAINT-004 | §3.2.6 | `PG_DDL` ≡ `scripts/schema.sql` (lockstep DDL, `IF NOT EXISTS` idempotency); `seedIfEmpty()` | AS-BUILT | TC-MAINT-004 | — (TC-only) |
 | NFR-MAINT-005 | §3.2.6 | Single multi-stage image for compose + k8s; all knobs env-driven (`README.md` §4) | AS-BUILT | TC-MAINT-005 | — (TC-only) |
-| NFR-MAINT-006 | §3.2.6 | Envelope convention across handlers; JSON `/api` 404; error status taxonomy | AS-BUILT | TC-MAINT-006 | — (TC-only) |
+| NFR-MAINT-006 | §3.2.6 | As-built **mixed envelope (DCR-4)**: reads bare `{data[,total]}` (no `success`), mutations `{success:true,…}`, auth/validation errors `{success:false,error}`, per-resource 404s/room errors bare `{error}`; JSON `/api` 404; consistent status taxonomy | AS-BUILT | TC-MAINT-006 | — (TC-only) |
 | NFR-MAINT-007 | §3.2.6 | `scripts/migrate.js`, `scripts/seed-users.js`, `scripts/smoke-test.mjs`, `tests/e2e-walkthrough.mjs` | AS-BUILT | TC-MAINT-007 | — (TC-only) |
 
 ---
@@ -236,7 +236,7 @@ status, test case and UAT item. 93 requirements total (62 FR + 31 NFR).
 | AUTH | FR | 6 | 6 | 0 | 6 |
 | SES | FR | 6 | 6 | 0 | 5 |
 | USER | FR | 5 | 5 | 0 | 5 |
-| NEWS | FR | 8 | 8 | 0 (DCR-001 affects 002/003) | 8 |
+| NEWS | FR | 9 | 8 | 1 `[PLANNED]` (FR-NEWS-009, DCR-3 remediation) | 8 |
 | BANNER | FR | 4 | 4 | 0 | 4 |
 | CONTACT | FR | 4 | 4 | 0 | 4 |
 | DOC | FR | 3 | 3 | 0 | 3 |
@@ -249,19 +249,24 @@ status, test case and UAT item. 93 requirements total (62 FR + 31 NFR).
 | SEC | NFR | 7 | 7 | 0 | 0 (TC-only) |
 | PERF | NFR | 4 | 2 | 2 PROPOSED (targets pending doc 17) | 0 |
 | AVAIL | NFR | 6 | 6 | 0 | 0 |
-| COMP | NFR | 4 | 4 | DCR-001 decision pending | 2 (shared) |
+| COMP | NFR | 4 | 4 | DCR-3 disposition pending (FR-NEWS-009) | 2 (shared) |
 | I18N | NFR | 3 | 3 | 0 | 3 |
-| MAINT | NFR | 7 | 7 | DCR-002 decision pending | 0 |
-| **Total** | | **93** | **89 full + 1 partial (FR-SYNC-004)** | 1 `[PLANNED]` element, 2 proposed targets, 2 DCRs | **63** |
+| MAINT | NFR | 7 | 7 | DCR-2 decision pending | 0 |
+| **Total** | | **94** | **90 full + 1 partial (FR-SYNC-004)** | 2 `[PLANNED]` items (FR-NEWS-009; FR-SYNC-004 outbound call), 2 proposed targets, 5 DCRs | **63** |
 
 ### 3.2 Requirements with no as-built implementation
 
-1. **FR-SYNC-004 (partial):** the outbound HTTP call/webhook to the public
+1. **FR-NEWS-009 `[PLANNED]`:** dual-control enforcement on news
+   create/update (maker cannot reach `'synced'` directly). Not implemented as
+   built — the direct-publish bypass exists today (DCR-3,
+   `server.ts:1306,1315,1346`) and is documented as-built in FR-NEWS-002/003.
+   Awaits the CTO-ratified DCR-3 disposition before Wave 2.
+2. **FR-SYNC-004 (partial):** the outbound HTTP call/webhook to the public
    website is **`[PLANNED]`** — `/api/sync/trigger` currently drives the state
    machine and logging only (matches `README.md` §8 and `HANDOVER.md` §10
    "modelled, not wired"). Integration requires the real webhook endpoint and
    an additional egress NetworkPolicy rule.
-2. **NFR-PERF-001 / NFR-PERF-002 (PROPOSED):** latency targets are defined in
+3. **NFR-PERF-001 / NFR-PERF-002 (PROPOSED):** latency targets are defined in
    this SRS but not yet measured; verification is deferred to system testing
    (`17-system-test-result.md`).
 
@@ -270,13 +275,27 @@ Everything else in the matrix is implemented in the current tree
 
 ### 3.3 Open items blocking full traceability sign-off
 
-- **DCR-001** (SRS §2.6): direct-publish path bypasses maker-checker on
-  news create/update — affects FR-NEWS-002/003, FR-SYNC-001, NFR-COMP-001.
-  Needs CTO decision before the RTM can be frozen for Wave 2.
-- **DCR-002** (SRS §2.6): `tsconfig.json` lacks `"strict": true` while
+- **DCR-1** (export field name): `GET /api/system/export` returns
+  `exportTimestamp`, not `generatedAt`. Documented as built in FR-SYNC-006
+  (this matrix already uses `exportTimestamp`); any other doc using
+  `generatedAt` is corrected against it. CTO ratifies at the gate.
+- **DCR-2** (tsconfig strict): `tsconfig.json` lacks `"strict": true` while
   conventions claim "TypeScript strict" — affects NFR-MAINT-001 and the SRS
   §2.5 constraint list. Needs CTO decision (enable strict in Wave 2 or amend
   the constraint).
+- **DCR-3** (maker-checker bypass): `POST/PUT /api/news` with
+  `syncToExternal:true` reaches `'synced'` without checker approval
+  (`server.ts:1306,1315,1346`) — affects FR-NEWS-002/003, FR-SYNC-001,
+  NFR-COMP-001; remediation requirement FR-NEWS-009 `[PLANNED]` added to
+  this matrix. Needs CTO decision before the RTM can be frozen for Wave 2.
+- **DCR-4** (mixed envelope): reads return bare `{data[,total]}` and some
+  404s/booking errors bare `{error}` — no `success` field. Documented as
+  built in NFR-MAINT-006 (SRS §3.2.6); docs claiming a uniform
+  `{success:…}` envelope are corrected against it. CTO ratifies at the gate.
+- **DCR-5** (state model): runtime `externalSyncStatus` values are
+  `draft`/`pending_approval`/`synced`/`rejected` only; the TS union member
+  `'pending'` (`src/types.ts:28`) is dead and no `'approved'` status exists.
+  Documented as built in FR-SYNC-001. CTO ratifies at the gate.
 - **05-sds (pending):** worker-3's SDS should add §-level design references
   to this matrix; today the concrete code anchors above serve as the design
   references.

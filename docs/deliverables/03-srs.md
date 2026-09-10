@@ -79,7 +79,7 @@ website itself, the legacy portal, and customer-facing systems.
 
 Section 2 gives the overall description (product perspective, user classes,
 environment, constraints, assumptions). Section 3 lists the specific
-requirements — 62 functional (§3.1, 13 domains) and 31 non-functional
+requirements — 63 functional (§3.1, 13 domains) and 31 non-functional
 (§3.2, 6 domains) — each with inputs, outputs and testable acceptance
 criteria. Section 4 summarizes requirement counts per domain.
 
@@ -143,7 +143,7 @@ users are rejected at login and their existing sessions stop resolving.
 1. **Language:** TypeScript ~5.8 (ES2022, `moduleResolution: bundler`) end to
    end; `npm run lint` (`tsc --noEmit`) is the type gate.
    *DCR note:* `tsconfig.json` does not currently enable `"strict": true` —
-   see DCR-002 in §2.6; as built the codebase is not compiled in strict mode.
+   see DCR-2 in §2.6; as built the codebase is not compiled in strict mode.
 2. **Backend:** Express 4 gateway in one file (`server.ts`); Express
    middleware chain only (no nested microservices); `express-rate-limit`,
    `multer`, `bcryptjs`, `pg` dependencies.
@@ -177,19 +177,34 @@ users are rejected at login and their existing sessions stop resolving.
 - `[PLANNED]` The public website exposes a webhook endpoint for outbound sync
   (not yet integrated).
 
-**DCRs raised by this document (for the Lead / CTO):**
+**DCR log (lead-numbered; CTO ratifies dispositions at the Wave-1 gate):**
 
-- **DCR-001 (compliance nuance):** `POST /api/news` with `syncToExternal: true`
-  (and `PUT /api/news/:id`, and the CMS toggle) sets `externalSyncStatus` to
-  `'synced'` and writes a sync log **without checker approval** — a
-  direct-publish path that bypasses the maker-checker flow
-  (see FR-NEWS-002/FR-NEWS-003). HANDOVER §4 describes public-sync publishing
-  as maker-checker. Decide: (a) restrict direct publish to checker/admin, or
-  (b) accept and document the direct path as intentional.
-- **DCR-002 (constraint mismatch):** "TypeScript strict" is claimed in project
+- **DCR-1 (field name):** the system-export timestamp field is
+  `exportTimestamp`, **not** `generatedAt`. Documented as built in
+  FR-SYNC-006; any doc claiming `generatedAt` is corrected against it.
+- **DCR-2 (constraint mismatch):** "TypeScript strict" is claimed in project
   conventions, but `tsconfig.json` lacks `"strict": true`. Decide whether to
   enable strict mode (may surface type errors to fix in Wave 2) or amend the
-  documented constraint.
+  documented constraint. Documented as built in §2.5 / NFR-MAINT-001.
+- **DCR-3 (compliance):** `POST /api/news` with `syncToExternal: true` creates
+  the item directly with `externalSyncStatus: 'synced'`
+  (`server.ts:1306,1315`), and `PUT /api/news/:id` re-syncs likewise
+  (`server.ts:1346`) — **without checker approval**, bypassing maker-checker
+  dual control. Documented as built in FR-NEWS-002/003 acceptance criteria;
+  remediation requirement **FR-NEWS-009 `[PLANNED]`** added. HANDOVER §4
+  describes public-sync publishing as maker-checker; CTO decides the
+  disposition (enforce dual control, or accept the direct path as intentional).
+- **DCR-4 (API contract):** the response envelope is **mixed as built** —
+  reads return bare `{data[, total]}` without a `success` field; mutations
+  return `{success:true, data}`; auth/validation failures return
+  `{success:false, error}`; but per-resource 404s and room booking errors
+  return bare `{error}` without `success`. Documented as built in
+  NFR-MAINT-006; consumers must not assume a `success` field on reads.
+- **DCR-5 (state model):** at runtime `externalSyncStatus` only ever holds
+  `draft`, `pending_approval`, `synced`, `rejected`. The TypeScript union
+  (`src/types.ts:28`) additionally declares `'pending'`, which is never
+  produced at runtime (dead union member); no `'approved'` status exists.
+  Documented as built in FR-SYNC-001.
 
 ---
 
@@ -316,13 +331,13 @@ Acceptance: (a) anonymous request succeeds; (b) category filter returns only tha
 
 **FR-NEWS-002 — Create news item.**
 Actor: maker, admin. Inputs: `POST /api/news` JSON with title/summary/content/category etc. (server applies defaults, e.g. title default "ประกาศใหม่", author default = caller's display name).
-Outputs: 201 with the created item; when `syncToExternal` is true at creation, `externalSyncStatus` is initialized to `'synced'` and a `CREATE` sync log is written (**direct-publish path — see DCR-001**); otherwise status is `'draft'`.
-Acceptance: (a) maker or admin → 201; staff/checker → 403; anonymous → 401; (b) created item is readable via FR-NEWS-001; (c) `syncToExternal:true` yields a sync-log entry attributed to the caller.
+Outputs: 201 with the created item; when `syncToExternal` is true at creation, `externalSyncStatus` is initialized to `'synced'` and a `CREATE` sync log is written; otherwise status is `'draft'`.
+Acceptance: (a) maker or admin → 201; staff/checker → 403; anonymous → 401; (b) created item is readable via FR-NEWS-001; (c) `syncToExternal:true` yields a sync-log entry attributed to the caller; (d) **as built (DCR-3)**: a maker creating an item with `syncToExternal:true` gets `externalSyncStatus:'synced'` immediately (`server.ts:1306,1315`) — **no checker approval is required on this direct-publish path**, bypassing the maker-checker flow; remediation is FR-NEWS-009 `[PLANNED]`.
 
 **FR-NEWS-003 — Update news item.**
 Actor: maker, admin. Inputs: `PUT /api/news/:id` with partial item JSON.
-Outputs: 200 with the merged item (the `id` in the URL is authoritative — body id cannot change it); 404 for unknown id; blank/whitespace id → 400 (`requireResourceId`); when the updated item has `syncToExternal`, an `UPDATE` sync log is written (**direct-publish path — see DCR-001**).
-Acceptance: (a) unknown id → 404; (b) `id` cannot be reassigned; (c) `PUT /api/news/%20` → 400; (d) staff/checker → 403.
+Outputs: 200 with the merged item (the `id` in the URL is authoritative — body id cannot change it); 404 for unknown id; blank/whitespace id → 400 (`requireResourceId`); when the updated item has `syncToExternal`, an `UPDATE` sync log is written.
+Acceptance: (a) unknown id → 404; (b) `id` cannot be reassigned; (c) `PUT /api/news/%20` → 400; (d) staff/checker → 403; (e) **as built (DCR-3)**: a maker setting `syncToExternal:true` via update re-syncs the item to `'synced'` without checker approval (`server.ts:1346`) — same direct-publish bypass as FR-NEWS-002; remediation is FR-NEWS-009 `[PLANNED]`.
 
 **FR-NEWS-004 — Delete news item.**
 Actor: admin. Inputs: `DELETE /api/news/:id`.
@@ -349,6 +364,13 @@ Urgent items can be flagged to surface portal-wide.
 Actor: maker, admin (create/update). Inputs: `isImportantAlert: boolean` on create/update.
 Outputs: stored on the item; the SPA header surfaces an unread-alert indicator that opens the flagged article modal.
 Acceptance: (a) an item created with `isImportantAlert:true` shows the header alert affordance while it is the current flagged item; (b) flagging is per-item data, persisted and returned by the API.
+
+**FR-NEWS-009 — Enforce dual control on create/update `[PLANNED]`.**
+Direct publication at create/update time shall be restricted so that public-sync status `'synced'` can only be reached through the checker-approved flow (FR-NEWS-005/006/007).
+Actor: maker, checker, admin. Inputs: `POST /api/news` / `PUT /api/news/:id` carrying `syncToExternal:true`.
+Outputs (target): maker-originated create/update cannot set `'synced'` directly — the item enters the approval flow (`pending_approval` via explicit submission) unless the actor is checker/admin (per the CTO-ratified disposition of DCR-3); every enforced path remains audited.
+Acceptance (target): (a) a maker create/update with `syncToExternal:true` does not yield `'synced'` without checker approval; (b) checker/admin direct publish remains permitted and audited; (c) regression tests cover both paths.
+Status: **`[PLANNED]`** — not implemented as built (DCR-3); CTO ratifies the exact disposition at the Wave-1 gate before Wave 2 implementation.
 
 #### 3.1.5 Hero banners (BANNER)
 
@@ -490,8 +512,8 @@ Acceptance: (a) no PUT/PATCH/DELETE route exists for audit logs; (b) schema.sql 
 
 **FR-SYNC-001 — Public-sync state machine.**
 Actor: makers/checkers. Inputs: lifecycle operations on a news item.
-Outputs: `externalSyncStatus` transitions `draft` → `pending_approval` (submit) → `synced` (approve, stamps `approvedBy`/`approvedAt`) or `rejected` (reject, records reason); approve/reject are restricted to checker+; the type-level state set is `'synced' | 'pending' | 'pending_approval' | 'draft' | 'rejected'`. Every transition writes an audit entry (FR-AUDIT-003).
-Acceptance: (a) the four-way flow completes draft→pending→synced with stamps; (b) draft→pending→rejected records the reason; (c) a maker cannot approve or reject (403); (d) direct create/update publish path exists as documented in DCR-001.
+Outputs: `externalSyncStatus` transitions `draft` → `pending_approval` (submit) → `synced` (approve, stamps `approvedBy`/`approvedAt`) or `rejected` (reject, records reason); approve/reject are restricted to checker+. **Runtime values are exactly `draft`, `pending_approval`, `synced`, `rejected` (DCR-5)** — the TypeScript union (`src/types.ts:28`) additionally declares `'pending'`, which is never produced at runtime (dead union member), and no `'approved'` status exists. Every transition writes an audit entry (FR-AUDIT-003).
+Acceptance: (a) the four-way flow completes draft→pending→synced with stamps; (b) draft→pending→rejected records the reason; (c) a maker cannot approve or reject (403); (d) direct create/update publish path exists as built (DCR-3, FR-NEWS-002/003 — remediation FR-NEWS-009 `[PLANNED]`); (e) no other status value is ever persisted or returned.
 
 **FR-SYNC-002 — Automatic sync logging.**
 Actor: system. Inputs: news create/update/delete with `syncToExternal`, and approve.
@@ -515,7 +537,7 @@ Acceptance: (a) maker and above can open the view; (b) staff cannot (gated with 
 
 **FR-SYNC-006 — System export.**
 Actor: admin. Inputs: `GET /api/system/export`.
-Outputs: 200 JSON `{exportTimestamp, version:"2.0.0", schemaTarget:"postgresql", storage:"memory"|"postgres", counts:{...}, tables:{news, banners, contacts, meeting_rooms, documents, audit_logs, sync_logs}}` — a complete, consistent snapshot consumed by `scripts/migrate.js` to load PostgreSQL; non-admin → 403.
+Outputs: 200 JSON `{exportTimestamp, version:"2.0.0", schemaTarget:"postgresql", storage:"memory"|"postgres", counts:{...}, tables:{news, banners, contacts, meeting_rooms, documents, audit_logs, sync_logs}}` — the top-level timestamp field is **`exportTimestamp`** (DCR-1: references to `generatedAt` elsewhere are corrected against this as-built name) — a complete, consistent snapshot consumed by `scripts/migrate.js` to load PostgreSQL; non-admin → 403.
 Acceptance: (a) admin export returns every table with counts matching the store; (b) `DATABASE_URL=… node scripts/migrate.js export.json` loads the payload (`payload.tables` shape); (c) non-admin → 403.
 
 #### 3.1.12 File upload (UPL)
@@ -615,7 +637,7 @@ as-built implementation.
 
 #### 3.2.4 Compliance — BOT & PDPA (COMP)
 
-**NFR-COMP-001 — Segregation of duties (BOT).** Public-sync approval authority (checker/admin) is separated from authoring authority (maker/admin) and enforced server-side (403); every approval decision is attributable (FR-NEWS-006/007). *Open item:* the direct-publish path (DCR-001) weakens strict dual control — resolve per CTO decision.
+**NFR-COMP-001 — Segregation of duties (BOT).** Public-sync approval authority (checker/admin) is separated from authoring authority (maker/admin) and enforced server-side (403); every approval decision is attributable (FR-NEWS-006/007). *Open item (DCR-3):* the direct-publish path on create/update weakens strict dual control as built — remediation FR-NEWS-009 `[PLANNED]`, disposition ratified by the CTO at the gate.
 *Acceptance:* (a) a maker cannot approve/reject (403 evidenced); (b) approved items carry checker identity + timestamp.
 
 **NFR-COMP-002 — PDPA accountability.** Sensitive operations are recorded in an append-only, actor-stamped trail with IP and outcome (FR-AUDIT-001/003/005); accounts are deactivated, never deleted, preserving linkage of historical actions (FR-USER-004); request logs (time, method, path, status, duration, IP) support investigation.
@@ -640,7 +662,7 @@ as-built implementation.
 
 #### 3.2.6 Maintainability (MAINT)
 
-**NFR-MAINT-001 — Single-language type-checked codebase.** Server and SPA are TypeScript ~5.8 (one language end to end); `npm run lint` (`tsc --noEmit`) is the merge gate; the production server ships as an esbuild CJS bundle (`dist/server.cjs`). *DCR-002: strict mode not currently enabled.*
+**NFR-MAINT-001 — Single-language type-checked codebase.** Server and SPA are TypeScript ~5.8 (one language end to end); `npm run lint` (`tsc --noEmit`) is the merge gate; the production server ships as an esbuild CJS bundle (`dist/server.cjs`). *DCR-2: strict mode not currently enabled.*
 *Acceptance:* `npm run lint` and `npm run build` pass on the merged tree.
 
 **NFR-MAINT-002 — Machine-readable API contract.** `GET /api/openapi.json` publishes an OpenAPI 3.0.3 document (cookie security scheme `kbj_session`, per-path summaries and response codes) kept in sync with the routes; consumers never rely on prose.
@@ -655,8 +677,8 @@ as-built implementation.
 **NFR-MAINT-005 — One image, environment-only configuration.** Identical container image for dev/compose/k8s; all environment selection (DB mode, production flags, uploads dir, listen address) via env vars; no rebuild needed to move environments.
 *Acceptance:* the same image tag runs in compose and k8s with only env/volume differences.
 
-**NFR-MAINT-006 — Uniform API envelope and error semantics.** Success `{success:true, data, [message]}`; failure `{success:false, error}` with consistent status codes (400 validation, 401 unauthenticated, 403 forbidden, 404 unknown resource, 409 duplicate, 413 oversize, 429 rate-limited, 500 internal); API 404s return JSON, never SPA HTML.
-*Acceptance:* spot-check across all domains matches the table above.
+**NFR-MAINT-006 — API envelope and error semantics (as built — mixed, DCR-4).** The envelope is **not uniform**: (a) read/list endpoints return bare `{data, [total], [counts]}` with **no `success` field** (e.g. `GET /api/news`, `/api/banners`, `/api/rooms`, `/api/audit-logs`); (b) mutations and auth endpoints return `{success:true, data, [message]}`; (c) auth/validation/rate-limit failures return `{success:false, error:"…"}`; (d) **per-resource 404s and room-booking errors return bare `{error:"…"}` without `success`** (e.g. `{"error":"News item not found"}`, `{"error":"Room is currently booked or under maintenance"}`). Status-code taxonomy is consistent: 400 validation, 401 unauthenticated, 403 forbidden, 404 unknown resource, 409 duplicate, 413 oversize, 429 rate-limited, 500 internal; unmatched `/api/*` paths return a JSON 404 `{success:false, error}` (never SPA HTML). Consumers must not assume a `success` field on reads. (HANDOVER §5 describes only the mutation convention `{success:true,data}` / `{success:false,error}` — DCR-4 records the divergence.)
+*Acceptance:* spot-checks across all domains match the four envelope shapes above, per endpoint class.
 
 **NFR-MAINT-007 — Data migration tooling.** `scripts/migrate.js` imports a system export (`payload.tables`) into PostgreSQL; `scripts/seed-users.js` provisions accounts; `scripts/smoke-test.mjs` and `tests/e2e-walkthrough.mjs` provide repeatable verification of the auth/RBAC/maker-checker/upload/rate-limit contracts.
 *Acceptance:* each script runs per its header instructions against a clean environment.
@@ -670,7 +692,7 @@ as-built implementation.
 | FR | AUTH | 6 | FR-AUTH-001…006 |
 | FR | SES | 6 | FR-SES-001…006 |
 | FR | USER | 5 | FR-USER-001…005 |
-| FR | NEWS | 8 | FR-NEWS-001…008 |
+| FR | NEWS | 9 | FR-NEWS-001…009 (009 `[PLANNED]`) |
 | FR | BANNER | 4 | FR-BANNER-001…004 |
 | FR | CONTACT | 4 | FR-CONTACT-001…004 |
 | FR | DOC | 3 | FR-DOC-001…003 |
@@ -686,7 +708,7 @@ as-built implementation.
 | NFR | COMP | 4 | NFR-COMP-001…004 |
 | NFR | I18N | 3 | NFR-I18N-001…003 |
 | NFR | MAINT | 7 | NFR-MAINT-001…007 |
-| **Total** | | **93** | 62 functional + 31 non-functional |
+| **Total** | | **94** | 63 functional (1 `[PLANNED]`) + 31 non-functional |
 
 Cross-references: each requirement above is traced to design artifacts, test
 cases (`TC-<DOMAIN>-<nnn>`) and UAT items (`UAT-<nnn>`) in
