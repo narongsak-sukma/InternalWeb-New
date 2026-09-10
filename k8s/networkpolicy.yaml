@@ -56,8 +56,9 @@ spec:
 # 3. App egress: cluster DNS (UDP+TCP 53) and PostgreSQL (TCP 5432).
 #    The database is external company infrastructure, so 5432 is open to any
 #    destination — tighten the `to:` block to the DB subnet when known.
-#    If real outbound public sync (HTTPS webhook) is enabled later, add a
-#    443 rule here.
+#    Outbound public sync (HTTPS webhook, FR-SYNC-004): a rule is PREPARED
+#    below but COMMENTED OUT until the public-site destination is known —
+#    see the block comment before it for the reasoning.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -90,3 +91,35 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+    # ------------------------------------------------------------------------
+    # OUTBOUND PUBLIC-SYNC WEBHOOK (FR-SYNC-004) — PREPARED, DISABLED.
+    #
+    # Activate ONLY when the real public-site destination is fixed and
+    # SYNC_WEBHOOK_URL / SYNC_WEBHOOK_HOST are configured in the app
+    # (design: .omc/research/sync-webhook-design.md).
+    #
+    # Why this ships commented out rather than as a live wildcard:
+    # the destination host/IP is not yet known. Enabling HTTPS egress with
+    # a wildcard destination (0.0.0.0/0 :443) would silently weaken the
+    # default-deny posture of this namespace to "any HTTPS anywhere" for
+    # every pod — a wider and less observable blast radius than having no
+    # rule at all. A missing rule FAILS CLOSED (webhook calls time out and
+    # are recorded as FAILED in sync_logs); a wildcard rule FAILS OPEN.
+    # Fail-closed is the correct default for a regulated deployment.
+    #
+    # The placeholder CIDR uses RFC 5737 TEST-NET-3 (documentation range)
+    # so it can never route to the real internet by accident. Replace with
+    # the public site's egress-facing IP(s) — confirmed from the public-web
+    # team — when activating.
+    #
+    # NOTE: vanilla NetworkPolicy matches IP/CIDR only, NOT hostnames. If
+    # the public site's IP is not stable, either pin the resolved IPs here
+    # and rotate them, or use CNI-native FQDN rules (e.g. Cilium) — confirm
+    # with the platform team which CNI capability applies.
+    # ------------------------------------------------------------------------
+    # - to:
+    #     - ipBlock:
+    #         cidr: 203.0.113.10/32   # <SYNC_WEBHOOK_IP> placeholder (TEST-NET-3)
+    #   ports:
+    #     - protocol: TCP
+    #       port: 443
