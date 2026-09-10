@@ -131,11 +131,12 @@ Representative endpoints (see the OpenAPI document for the full list):
 | PATCH | `/api/users/:id` | admin | Activate/deactivate an account (self-deactivation blocked server-side; deactivated users fail login) |
 | POST | `/api/upload` | maker+ | Multipart `file` → `{url:"/uploads/<uuid>.<ext>", fileName, size}` |
 | GET/POST/PUT/DELETE | `/api/news` … | per matrix | News CRUD + approval flow |
-| GET/POST/PUT/DELETE | `/api/banners`, `/api/contacts`, `/api/documents` | per matrix | CMS content |
+| GET/POST/PUT/DELETE | `/api/banners`, `/api/contacts` | per matrix | CMS content |
+| GET/POST/DELETE | `/api/documents` | per matrix | Policy documents (no update route as built) |
 | POST | `/api/rooms/:id/book`, `/release` | staff+ | Room booking |
 | GET | `/api/audit-logs` | checker+ | Compliance trail |
 | GET/POST | `/api/sync/logs`, `/api/sync/trigger` | admin | Public-sync operations |
-| GET | `/api/system/export` | admin | Full JSON export (`{generatedAt, tables:{…}}`) |
+| GET | `/api/system/export` | admin | Full JSON export (`{exportTimestamp, tables:{…}}`) |
 | GET | `/healthz`, `/readyz` | anon | Liveness / readiness probes |
 
 ## 6. Persistence & data migration
