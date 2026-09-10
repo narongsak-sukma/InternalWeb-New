@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kbj-intranet-ingress
+  namespace: kbj-intranet
+  labels:
+    app.kubernetes.io/name: kbj-intranet-portal
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+    - hosts:
+        - intranet.kbjcapital.co.th
+        - portal.kbjcapital.co.th
+      secretName: kbj-intranet-tls
+  rules:
+    - host: intranet.kbjcapital.co.th
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kbj-intranet-service
+                port:
+                  number: 80
+    - host: portal.kbjcapital.co.th
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kbj-intranet-service
+                port:
+                  number: 80

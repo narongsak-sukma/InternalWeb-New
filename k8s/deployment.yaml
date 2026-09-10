@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kbj-intranet-portal
+  namespace: kbj-intranet
+  labels:
+    app.kubernetes.io/name: kbj-intranet-portal
+    app.kubernetes.io/instance: production
+    app.kubernetes.io/version: "2.0.0"
+    app.kubernetes.io/component: fullstack-web
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kbj-intranet-portal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kbj-intranet-portal
+        app.kubernetes.io/instance: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/healthz"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      # Grace period covers: preStop drain sleep (5s) + in-flight requests +
+      # server graceful shutdown sequence. Set explicitly so it is not implied.
+      terminationGracePeriodSeconds: 35
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - kbj-intranet-portal
+                topologyKey: "kubernetes.io/hostname"
+      containers:
+        - name: intranet-app
+          # Base image name only — the registry and tag are injected by the
+          # `images:` transformer in kustomization.yaml (deploy-k8s.sh sets it).
+          image: kbj-intranet:2.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: kbj-intranet-config
+            - secretRef:
+                name: kbj-intranet-secret
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          # Kubernetes Liveness Probe: Restart container if unresponsive
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          # Kubernetes Readiness Probe: Remove from service endpoint if not ready
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+            successThreshold: 1
+          # Startup probe for slow initial container starts
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          # Immutable root filesystem: the app writes only to the uploads PVC
+          # (logs go to stdout). /tmp is scratch space via emptyDir.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+            - name: tmp
+              mountPath: /tmp
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: kbj-intranet-uploads
+        - name: tmp
+          emptyDir: {}

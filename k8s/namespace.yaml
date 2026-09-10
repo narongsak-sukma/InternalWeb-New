@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kbj-intranet
+  labels:
+    app.kubernetes.io/name: kbj-intranet-portal
+    app.kubernetes.io/part-of: kbj-enterprise-platform
+    environment: production

@@ -1,0 +1,6 @@
+{
+  "name": "KB J Capital Intranet Portal & Self-Service CMS",
+  "description": "Modern corporate intranet portal and real-time self-service CMS with external public web sync for KB J Capital.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,92 @@
+# ==============================================================================
+# Network isolation for the kbj-intranet namespace.
+#
+# Policy 1: default-deny — every pod in the namespace starts with no ingress
+#           and no egress allowed.
+# Policy 2: app ingress  — only the ingress controller (TLS termination) and
+#           same-namespace pods may reach the app on port 3000.
+# Policy 3: app egress   — DNS resolution + PostgreSQL 5432 only.
+#
+# NOTE: these policies require a CNI that enforces NetworkPolicy
+# (Calico / Cilium / Antrea / Weave). On clusters without enforcement the
+# files apply cleanly but have no effect — verify with your platform team.
+# ==============================================================================
+---
+# 1. Baseline: deny everything in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: kbj-intranet
+  labels:
+    app.kubernetes.io/name: kbj-intranet-portal
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 2. App ingress: ingress-controller pods (any namespace labelled
+#    ingress-nginx) and same-namespace pods, TCP/3000 only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-ingress
+  namespace: kbj-intranet
+  labels:
+    app.kubernetes.io/name: kbj-intranet-portal
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kbj-intranet-portal
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# 3. App egress: cluster DNS (UDP+TCP 53) and PostgreSQL (TCP 5432).
+#    The database is external company infrastructure, so 5432 is open to any
+#    destination — tighten the `to:` block to the DB subnet when known.
+#    If real outbound public sync (HTTPS webhook) is enabled later, add a
+#    443 rule here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-egress
+  namespace: kbj-intranet
+  labels:
+    app.kubernetes.io/name: kbj-intranet-portal
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kbj-intranet-portal
+  policyTypes:
+    - Egress
+  egress:
+    # DNS (kube-dns / CoreDNS in kube-system)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # PostgreSQL
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -1,0 +1,64 @@
+# ==============================================================================
+# KB J Capital Intranet — production stack (app + PostgreSQL 16)
+#
+# Usage (from the repo root):
+#   1. cp .env.production.example .env    # then replace EVERY placeholder
+#   2. docker compose up -d --build
+#   3. Open http://localhost:3000 and sign in with ADMIN_USERNAME/ADMIN_PASSWORD
+#
+# First boot: scripts/schema.sql is applied automatically to the empty database
+# by the postgres image entrypoint. It only runs on a fresh pgdata volume —
+# later schema changes must be applied deliberately (see README.md).
+#
+# To use an external PostgreSQL instead: set DATABASE_URL in .env, then
+# `docker compose up -d --no-deps app`.
+# ==============================================================================
+
+services:
+  app:
+    build:
+      context: .
+    image: kbj-intranet:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      # Defaults below target the compose postgres service. Set DATABASE_URL
+      # in .env to point the app at an external database instead.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-kbj}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-kbj_intranet}}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Container healthcheck (wget /healthz) is inherited from the Dockerfile.
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kbj}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-kbj_intranet}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Read-only DDL applied on FIRST init of an empty pgdata volume only.
+      - ./scripts/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kbj} -d ${POSTGRES_DB:-kbj_intranet}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    # 5432 is deliberately NOT published to the host — the database stays on
+    # the internal compose network. Add a temporary "ports:" entry only for
+    # ops/debug access, and remove it afterwards.
+
+volumes:
+  uploads:
+  pgdata:

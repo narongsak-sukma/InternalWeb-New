@@ -1,0 +1,27 @@
+# ==============================================================================
+# Persistent volume for uploaded files (multer UPLOAD_DIR → /app/uploads).
+#
+# SIZING / ACCESS MODE TRADEOFF — read before scaling:
+# - ReadWriteOnce means the volume can only be attached to ONE worker node.
+#   The Deployment runs 2 replicas with *preferred* anti-affinity, so the
+#   scheduler may co-locate pods on that node (HA is reduced, not broken).
+# - Before raising HPA maxReplicas or requiring strict anti-affinity, either
+#   switch accessModes to ReadWriteMany (needs an RWX storage class such as
+#   NFS / Azure Files / CephFS) or move uploads to object storage.
+# - Uncomment storageClassName if the cluster should not use the default one.
+# ==============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kbj-intranet-uploads
+  namespace: kbj-intranet
+  labels:
+    app.kubernetes.io/name: kbj-intranet-portal
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: <company-storage-class>

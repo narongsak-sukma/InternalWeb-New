@@ -1,0 +1,26 @@
+node_modules
+dist
+.git
+.gitignore
+# Never let any env file reach the build context (values come from
+# compose / k8s at runtime). Placeholders in *.example are not needed either.
+.env*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+*.md
+coverage
+# Runtime data / tooling that must not be baked into the image
+uploads
+scripts
+metadata.json
+# Ops artifacts owned by the devops layer
+k8s
+docker-compose.yml
+deploy-k8s.sh
+# Local agent state
+.omc
+.claude
+.vscode
+.idea

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kbj-intranet-config
+  namespace: kbj-intranet
+  labels:
+    app.kubernetes.io/name: kbj-intranet-portal
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  HOST: "0.0.0.0"
+  UPLOAD_DIR: "/app/uploads"
+  APP_NAME: "KB J Capital Internal Portal 2.0"
+  CORPORATE_WEB_URL: "https://www.kbjcapital.co.th"
+  PUBLIC_GATEWAY_URL: "https://gateway.kbjcapital.co.th/v1"
+  LOG_LEVEL: "info"

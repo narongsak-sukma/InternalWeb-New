@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: kbj-intranet
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  # secret.yaml is created from secret.example.yaml and holds real values:
+  #   cp k8s/secret.example.yaml k8s/secret.yaml   (never commit secret.yaml)
+  - secret.yaml
+  - pvc.yaml
+  - networkpolicy.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml
+
+# Registry/tag are overridden here so deployment.yaml stays registry-agnostic.
+# deploy-k8s.sh rewrites these two lines before `kubectl apply -k`.
+images:
+  - name: kbj-intranet
+    newName: registry.example.com/kbj/intranet
+    newTag: "2.0.0"
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/part-of: kbj-intranet-ecosystem
+    includeSelectors: true

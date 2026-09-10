@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+/*
+ * KB J Capital intranet — global utility additions.
+ * The component library was authored against tailwindcss-animate class names
+ * (animate-in / fade-in / zoom-in-95 / slide-in-from-bottom-5) but the plugin
+ * is not part of the build. These utilities restore that behavior in plain CSS
+ * so dropdowns, modals and toasts animate as designed.
+ */
+
+/* Hide scrollbars on horizontal scroll strips (mobile view switcher) */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Enter animations (tailwindcss-animate compatible subset) */
+@keyframes enter {
+  from {
+    opacity: var(--tw-enter-opacity, 1);
+    transform: translate3d(var(--tw-enter-translate-x, 0px), var(--tw-enter-translate-y, 0px), 0)
+      scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), var(--tw-enter-scale, 1))
+      rotate(var(--tw-enter-rotate, 0deg));
+  }
+}
+
+@utility animate-in {
+  animation: enter var(--tw-duration, 150ms) ease-out both;
+}
+
+@utility fade-in {
+  --tw-enter-opacity: 0;
+}
+
+@utility zoom-in-95 {
+  --tw-enter-scale: 0.95;
+}
+
+@utility slide-in-from-bottom-5 {
+  --tw-enter-translate-y: 1.25rem;
+}
+
+/* Respect reduced-motion preferences for decorative entrance animations */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in {
+    animation: none;
+  }
+}
