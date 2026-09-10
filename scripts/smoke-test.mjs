@@ -356,8 +356,8 @@ async function runSuite() {
 
   // ---- shared state produced during the run, consumed by later sections ----
   let news1 = null; // created by maker, submitted, approved by checker
-  let news2 = null; // created by maker, submitted, rejected by checker
-  let news3 = null; // created by maker, submitted, approved by checker, rejected by admin
+  let news2 = null; // created by maker, submitted, rejected by checker, then edited back to draft
+  let news3 = null; // created by maker, submitted, approved by admin
   let bannerId = null;
   let contactId = null;
   let docId = null;
@@ -694,6 +694,93 @@ async function runSuite() {
     return 'approved';
   });
 
+  // TC-NEWS-011 (FLIPPED, post DCR-3 fix): create-with-publish no longer
+  // bypasses dual control. As built pre-fix this returned externalSyncStatus
+  // 'synced' + an immediate sync-log CREATE row; the strict ruling (FR-NEWS-009)
+  // pins the opposite for every role, admin included.
+  await check('TC-NEWS-011 (flipped): POST /api/news with syncToExternal:true stays draft, no sync log', async () => {
+    const r = await req('POST', '/api/news', {
+      cookie: makerCookie,
+      json: {
+        title: `[SMOKE ${runId}] Direct publish attempt`,
+        summary: 'tries to publish without dual control',
+        content: 'body',
+        category: 'kbj-news',
+        syncToExternal: true,          // must be stripped/ignored
+        externalSyncStatus: 'synced',  // must be stripped/ignored
+        approvedBy: 'FORGED-APPROVER', // must be stripped/ignored
+        approvedAt: '2020-01-01 00:00:00',
+      },
+    });
+    expectStatus(r, 201, 'POST /api/news maker (direct-publish attempt)');
+    const item = r.json.data;
+    assert(item.externalSyncStatus === 'draft',
+      `expected externalSyncStatus="draft" (dual control enforced), got "${item.externalSyncStatus}"`);
+    assert(item.syncToExternal === false,
+      `expected syncToExternal=false at create, got "${item.syncToExternal}"`);
+    assert(!item.approvedBy && !item.approvedAt,
+      `workflow stamps must not be settable at create, got approvedBy="${item.approvedBy}" approvedAt="${item.approvedAt}"`);
+    // No sync log may exist for this item: nothing has left the building.
+    const logs = await req('GET', '/api/sync/logs', { cookie: adminCookie });
+    expectStatus(logs, 200, 'GET /api/sync/logs admin (direct-publish check)');
+    const rows = (logs.json && Array.isArray(logs.json.data)) ? logs.json.data : [];
+    const leaked = rows.filter((l) => String(l.itemId) === String(item.id));
+    assert(leaked.length === 0, `create must not write sync logs without checker approval, found ${leaked.length} row(s)`);
+    return `id=${item.id} stays draft; 0 sync-log rows`;
+  });
+
+  await check('TC-SEC-011: approve on a draft item returns 400 (state guard)', async () => {
+    const create = await req('POST', '/api/news', {
+      cookie: makerCookie,
+      json: { title: `[SMOKE ${runId}] Draft guard probe`, summary: 'never submitted', content: 'body', category: 'kbj-news' },
+    });
+    expectStatus(create, 201, 'POST /api/news maker (draft guard probe)');
+    const draftItem = create.json.data;
+    const approve = await req('POST', `/api/news/${draftItem.id}/approve`, { cookie: checkerCookie, json: {} });
+    expectStatus(approve, 400, 'approve on draft (checker)');
+    const bodyStr = bodySnippet(approve);
+    assert(/pending/i.test(bodyStr), `400 body should mention pending_approval requirement, got: ${bodyStr}`);
+    const reject = await req('POST', `/api/news/${draftItem.id}/reject`, { cookie: checkerCookie, json: { reason: 'x' } });
+    expectStatus(reject, 400, 'reject on draft (checker)');
+    return 'approve/reject on draft -> 400';
+  });
+
+  await check('TC-SEC-011: submit-approval on a non-draft item returns 400', async () => {
+    // news1 is 'synced' at this point (approved by checker earlier).
+    const r = await req('POST', `/api/news/${news1.id}/submit-approval`, { cookie: makerCookie, json: {} });
+    expectStatus(r, 400, 'submit-approval on synced item');
+    assert(r.json && r.json.success === false, `expected success:false envelope, got: ${bodySnippet(r)}`);
+    return 're-submit of a synced item -> 400';
+  });
+
+  await check('TC-SEC-011: PUT cannot forge workflow fields (approvedBy/externalSyncStatus/syncToExternal)', async () => {
+    // news1 is 'synced' with approvedBy=checker; a maker PUT tries to forge
+    // approval stamps and re-stamp the state. Every workflow field must be
+    // stripped server-side: the resulting state comes from the forced-reset
+    // rule (non-draft edit => draft), never from the body — forged values the
+    // rule would never produce ('rejected', syncToExternal:true, FORGED
+    // approvedBy) prove the strip.
+    const r = await req('PUT', `/api/news/${news1.id}`, {
+      cookie: makerCookie,
+      json: {
+        summary: 'Updated again by smoke suite (forge attempt)',
+        approvedBy: 'FORGED-BY-PUT',
+        approvedAt: '2020-01-01 00:00:00',
+        externalSyncStatus: 'rejected',
+        syncToExternal: true,
+      },
+    });
+    expectStatus(r, 200, 'PUT /api/news/:id maker (forge attempt)');
+    const item = r.json.data;
+    assert(item.externalSyncStatus === 'draft',
+      `workflow state must be server-controlled (edit of synced forces draft, body 'rejected' ignored), got "${item.externalSyncStatus}"`);
+    assert(!/FORGED/i.test(String(item.approvedBy)),
+      `approvedBy is forgeable via PUT, got "${item.approvedBy}"`);
+    assert(item.syncToExternal === false,
+      `syncToExternal must be stripped (body true ignored; live item drops from sync set on edit), got "${item.syncToExternal}"`);
+    return 'workflow fields stripped; forced reset applied (synced -> draft)';
+  });
+
   await check('Maker -> submit -> checker reject flow returns 200 and marks item rejected', async () => {
     const create = await req('POST', '/api/news', {
       cookie: makerCookie,
@@ -716,20 +803,123 @@ async function runSuite() {
     return 'rejected';
   });
 
-  await check('Admin can exercise approve + reject (matrix: checker OR admin)', async () => {
-    const create = await req('POST', '/api/news', {
+  await check('FR-NEWS-009: editing a rejected item resets it to draft (and only then can it be re-submitted)', async () => {
+    // news2 is 'rejected' with approvedBy='Rejected by ...'. A content edit
+    // must force the draft state and clear the prior cycle's stamps; a
+    // re-submit without the edit would 400 (draft-only guard).
+    const blockedResubmit = await req('POST', `/api/news/${news2.id}/submit-approval`, { cookie: makerCookie, json: {} });
+    expectStatus(blockedResubmit, 400, 'submit-approval on rejected item (pre-edit)');
+    const edit = await req('PUT', `/api/news/${news2.id}`, {
       cookie: makerCookie,
-      json: { title: `[SMOKE ${runId}] Admin checker flow`, summary: 'admin approve+reject', content: 'body', category: 'kbj-news' },
+      json: { summary: 'Revised after rejection (smoke)' },
     });
-    expectStatus(create, 201, 'POST /api/news maker (news3)');
-    news3 = create.json.data;
-    const submit = await req('POST', `/api/news/${news3.id}/submit-approval`, { cookie: makerCookie, json: {} });
-    expectStatus(submit, 200, 'submit-approval (news3)');
+    expectStatus(edit, 200, 'PUT rejected item (reset check)');
+    const item = edit.json.data;
+    assert(item.externalSyncStatus === 'draft',
+      `editing a rejected item must reset status to draft, got "${item.externalSyncStatus}"`);
+    assert(!item.approvedBy,
+      `rejected-cycle approval stamp must be cleared on edit, got approvedBy="${item.approvedBy}"`);
+    const resubmit = await req('POST', `/api/news/${news2.id}/submit-approval`, { cookie: makerCookie, json: {} });
+    expectStatus(resubmit, 200, 'submit-approval after edit (news2)');
+    return 'rejected -> (edit) -> draft -> pending_approval';
+  });
+
+  await check('Admin can exercise approve + reject (matrix: checker OR admin)', async () => {
+    // Admin acts as checker on ANOTHER maker's submissions (news3 approve,
+    // news4 reject) — legal per the role matrix. The former approve-then-
+    // reject on one item is now impossible: post-approval the item is
+    // 'synced' and reject requires 'pending_approval' (400).
+    const create3 = await req('POST', '/api/news', {
+      cookie: makerCookie,
+      json: { title: `[SMOKE ${runId}] Admin approve flow`, summary: 'admin approve', content: 'body', category: 'kbj-news' },
+    });
+    expectStatus(create3, 201, 'POST /api/news maker (news3)');
+    news3 = create3.json.data;
+    const submit3 = await req('POST', `/api/news/${news3.id}/submit-approval`, { cookie: makerCookie, json: {} });
+    expectStatus(submit3, 200, 'submit-approval (news3)');
     const approve = await req('POST', `/api/news/${news3.id}/approve`, { cookie: adminCookie, json: {} });
     expectStatus(approve, 200, 'approve admin (news3)');
-    const reject = await req('POST', `/api/news/${news3.id}/reject`, { cookie: adminCookie, json: { reason: 'admin smoke reject' } });
-    expectStatus(reject, 200, 'reject admin (news3)');
-    return 'admin approve + reject OK';
+    const rejectOnSynced = await req('POST', `/api/news/${news3.id}/reject`, { cookie: adminCookie, json: { reason: 'late reject must fail' } });
+    expectStatus(rejectOnSynced, 400, 'reject on synced item (admin)');
+
+    const create4 = await req('POST', '/api/news', {
+      cookie: makerCookie,
+      json: { title: `[SMOKE ${runId}] Admin reject flow`, summary: 'admin reject', content: 'body', category: 'kbj-news' },
+    });
+    expectStatus(create4, 201, 'POST /api/news maker (news4)');
+    const news4 = create4.json.data;
+    const submit4 = await req('POST', `/api/news/${news4.id}/submit-approval`, { cookie: makerCookie, json: {} });
+    expectStatus(submit4, 200, 'submit-approval (news4)');
+    const reject = await req('POST', `/api/news/${news4.id}/reject`, { cookie: adminCookie, json: { reason: 'admin smoke reject' } });
+    expectStatus(reject, 200, 'reject admin (news4)');
+    return 'admin approve (news3) + reject (news4) on maker submissions OK';
+  });
+
+  await check('TC-SEC-011: submitter cannot approve or reject their own submission (403, admin included)', async () => {
+    // Admin authors AND submits its own item, then attempts both decisions:
+    // role gates pass (admin may author/submit/approve/reject) — the block
+    // must come from the identity guard (submitter != approver), proving the
+    // guard is stronger than the RBAC matrix.
+    const create = await req('POST', '/api/news', {
+      cookie: adminCookie,
+      json: { title: `[SMOKE ${runId}] Admin self-approval probe`, summary: 'admin submits own item', content: 'body', category: 'kbj-news' },
+    });
+    expectStatus(create, 201, 'POST /api/news admin (self-approval probe)');
+    const ownItem = create.json.data;
+    const submit = await req('POST', `/api/news/${ownItem.id}/submit-approval`, { cookie: adminCookie, json: {} });
+    expectStatus(submit, 200, 'submit-approval admin (own item)');
+    assert(submit.json && submit.json.data && submit.json.data.submittedBy,
+      `submittedBy must be persisted for the self-approval guard, got: ${bodySnippet(submit)}`);
+    const selfApprove = await req('POST', `/api/news/${ownItem.id}/approve`, { cookie: adminCookie, json: {} });
+    expectStatus(selfApprove, 403, 'self-approve (admin on own submission)');
+    assert(/self/i.test(bodySnippet(selfApprove)), `403 body should name the self-approval rule, got: ${bodySnippet(selfApprove)}`);
+    const selfReject = await req('POST', `/api/news/${ownItem.id}/reject`, { cookie: adminCookie, json: { reason: 'own item' } });
+    expectStatus(selfReject, 403, 'self-reject (admin on own submission)');
+    // The item must be untouched by both blocked attempts.
+    const list = await req('GET', '/api/news', { cookie: adminCookie });
+    expectStatus(list, 200, 'GET /api/news after blocked attempts');
+    const after = (list.json.data || []).find((n) => String(n.id) === String(ownItem.id));
+    assert(after && after.externalSyncStatus === 'pending_approval',
+      `blocked attempts must not change the state, got: ${after ? after.externalSyncStatus : 'item not found'}`);
+    return 'self-approve -> 403, self-reject -> 403; item still pending_approval';
+  });
+
+  await check('FR-NEWS-009: editing a synced item resets it to draft and drops it from the live set', async () => {
+    // news3 is 'synced' (admin approved) with syncToExternal:true and
+    // approvedBy/approvedAt/submittedBy stamps. An edit must invalidate the
+    // approval: modified content may not stay public under a stale stamp.
+    const r = await req('PUT', `/api/news/${news3.id}`, {
+      cookie: makerCookie,
+      json: { summary: 'Edited after going live (smoke reset probe)' },
+    });
+    expectStatus(r, 200, 'PUT synced item (reset check)');
+    const item = r.json.data;
+    assert(item.externalSyncStatus === 'draft',
+      `editing a synced item must reset status to draft, got "${item.externalSyncStatus}"`);
+    assert(item.syncToExternal === false,
+      `edited-live item must drop out of the sync set (syncToExternal=false), got "${item.syncToExternal}"`);
+    assert(!item.approvedBy && !item.approvedAt,
+      `stale approval stamps must be cleared on edit, got approvedBy="${item.approvedBy}" approvedAt="${item.approvedAt}"`);
+    assert(!item.submittedBy && !item.submittedAt,
+      `submission stamps must be cleared on edit, got submittedBy="${item.submittedBy}" submittedAt="${item.submittedAt}"`);
+    return 'synced -> (edit) -> draft; dropped from live set';
+  });
+
+  await check('FR-NEWS-009: editing a pending_approval item resets it to draft (no TOCTOU mutation in review)', async () => {
+    // news2 is 'pending_approval' (re-submitted earlier). A submitter editing
+    // content mid-review must invalidate the submission — the checker may
+    // only approve content that cannot change underneath the review.
+    const r = await req('PUT', `/api/news/${news2.id}`, {
+      cookie: makerCookie,
+      json: { summary: 'Edited while pending review (smoke reset probe)' },
+    });
+    expectStatus(r, 200, 'PUT pending_approval item (reset check)');
+    const item = r.json.data;
+    assert(item.externalSyncStatus === 'draft',
+      `editing a pending_approval item must reset status to draft, got "${item.externalSyncStatus}"`);
+    assert(!item.submittedBy && !item.submittedAt,
+      `submission stamps must be cleared on edit, got submittedBy="${item.submittedBy}" submittedAt="${item.submittedAt}"`);
+    return 'pending_approval -> (edit) -> draft';
   });
 
   // =========================================================================

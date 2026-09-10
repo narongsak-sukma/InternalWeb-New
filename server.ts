@@ -397,11 +397,18 @@ CREATE TABLE IF NOT EXISTS news (
   attachment_name text,
   approved_by text,
   approved_at text,
+  submitted_by text,
+  submitted_at text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_news_category ON news (category);
 CREATE INDEX IF NOT EXISTS idx_news_sync_status ON news (external_sync_status);
+-- W2-1 (FR-NEWS-009): additive columns for existing deployments — CREATE TABLE
+-- IF NOT EXISTS does not touch tables that already exist, so the submitter
+-- identity columns are ensured here (idempotent, no data change).
+ALTER TABLE news ADD COLUMN IF NOT EXISTS submitted_by text;
+ALTER TABLE news ADD COLUMN IF NOT EXISTS submitted_at text;
 
 CREATE TABLE IF NOT EXISTS banners (
   seq bigserial UNIQUE,
@@ -572,6 +579,8 @@ function newsFromRow(row: PgRow): NewsItem {
     attachmentName: (row.attachment_name as string) ?? undefined,
     approvedBy: (row.approved_by as string) ?? undefined,
     approvedAt: (row.approved_at as string) ?? undefined,
+    submittedBy: (row.submitted_by as string) ?? undefined,
+    submittedAt: (row.submitted_at as string) ?? undefined,
   };
 }
 
@@ -814,8 +823,9 @@ class PostgresRepository implements Repository {
     await this.pool.query(
       `INSERT INTO news (id, title, title_en, summary, content, category, category_label, badge, badge_color,
         image_url, published_at, read_time, author, department, is_important_alert, views, sync_to_external,
-        external_sync_status, external_category, attachment_url, attachment_name, approved_by, approved_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+        external_sync_status, external_category, attachment_url, attachment_name, approved_by, approved_at,
+        submitted_by, submitted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        ON CONFLICT (id) DO NOTHING`,
       [
         item.id, item.title, item.titleEn ?? null, item.summary, item.content, item.category, item.categoryLabel,
@@ -823,6 +833,7 @@ class PostgresRepository implements Repository {
         item.author, item.department, item.isImportantAlert ?? false, item.views ?? 0, item.syncToExternal ?? false,
         item.externalSyncStatus ?? null, item.externalCategory ?? null, item.attachmentUrl ?? null,
         item.attachmentName ?? null, item.approvedBy ?? null, item.approvedAt ?? null,
+        item.submittedBy ?? null, item.submittedAt ?? null,
       ]
     );
   }
@@ -831,7 +842,8 @@ class PostgresRepository implements Repository {
       `UPDATE news SET title = $2, title_en = $3, summary = $4, content = $5, category = $6, category_label = $7,
         badge = $8, badge_color = $9, image_url = $10, published_at = $11, read_time = $12, author = $13,
         department = $14, is_important_alert = $15, views = $16, sync_to_external = $17, external_sync_status = $18,
-        external_category = $19, attachment_url = $20, attachment_name = $21, approved_by = $22, approved_at = $23
+        external_category = $19, attachment_url = $20, attachment_name = $21, approved_by = $22, approved_at = $23,
+        submitted_by = $24, submitted_at = $25
        WHERE id = $1`,
       [
         item.id, item.title, item.titleEn ?? null, item.summary, item.content, item.category, item.categoryLabel,
@@ -839,6 +851,7 @@ class PostgresRepository implements Repository {
         item.author, item.department, item.isImportantAlert ?? false, item.views ?? 0, item.syncToExternal ?? false,
         item.externalSyncStatus ?? null, item.externalCategory ?? null, item.attachmentUrl ?? null,
         item.attachmentName ?? null, item.approvedBy ?? null, item.approvedAt ?? null,
+        item.submittedBy ?? null, item.submittedAt ?? null,
       ]
     );
   }
@@ -1141,6 +1154,21 @@ const requireResourceId: express.RequestHandler = (req, res, next) => {
   next();
 };
 
+// Maker-checker workflow fields are SERVER-CONTROLLED (FR-NEWS-009, W2-1):
+// no client payload may set publication state or approval stamps — 'synced'
+// is reachable only through the checker approve endpoint, for every role
+// including admin. Stripping lives here at the validation layer (on the
+// request body itself) so every current and future news mutation endpoint
+// (create, update, bulk) inherits the rule without per-route repetition.
+const NEWS_WORKFLOW_FIELDS = ['externalSyncStatus', 'approvedBy', 'approvedAt', 'syncToExternal'] as const;
+
+function stripNewsWorkflowFields(body: Record<string, unknown> | undefined): void {
+  if (!body) return;
+  for (const field of NEWS_WORKFLOW_FIELDS) {
+    delete body[field];
+  }
+}
+
 // Login rate limiting: 5 attempts per minute per IP (D1)
 const loginLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -1285,6 +1313,9 @@ app.get('/api/news', async (req, res) => {
 });
 
 app.post('/api/news', requireAuth, requireRole('maker', 'admin'), async (req, res) => {
+  // FR-NEWS-009: workflow fields are server-controlled — a create can never
+  // yield 'synced' regardless of role or payload (strict dual-control ruling).
+  stripNewsWorkflowFields(req.body);
   const newItem: NewsItem = {
     id: req.body.id || `news-${Date.now()}`,
     title: req.body.title || 'ประกาศใหม่',
@@ -1302,8 +1333,8 @@ app.post('/api/news', requireAuth, requireRole('maker', 'admin'), async (req, re
     department: req.body.department || 'Corporate Communications',
     isImportantAlert: Boolean(req.body.isImportantAlert),
     views: req.body.views || 0,
-    syncToExternal: Boolean(req.body.syncToExternal),
-    externalSyncStatus: req.body.syncToExternal ? 'synced' : 'draft',
+    syncToExternal: false, // Live only after checker approve — never at create
+    externalSyncStatus: 'draft', // Every item enters the workflow as draft
     externalCategory: req.body.externalCategory || 'press-release',
     attachmentName: req.body.attachmentName,
     attachmentUrl: req.body.attachmentUrl,
@@ -1311,19 +1342,8 @@ app.post('/api/news', requireAuth, requireRole('maker', 'admin'), async (req, re
 
   await repo.insertNews(newItem);
 
-  // Auto-log sync if external sync was selected
-  if (newItem.syncToExternal) {
-    await repo.insertSyncLog({
-      id: `sync-${Date.now()}`,
-      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      itemId: newItem.id,
-      itemTitle: newItem.title,
-      action: 'CREATE',
-      status: 'SUCCESS',
-      targetEndpoint: 'api.kbjcapital.co.th/v1/public/news',
-      syncedBy: req.user!.username,
-    });
-  }
+  // No sync log on create: nothing has left the building. A sync_logs row is
+  // written only by the checker approve endpoint (the sole path to 'synced').
 
   res.status(201).json({ success: true, data: newItem });
 });
@@ -1335,26 +1355,56 @@ app.put('/api/news/:id', requireAuth, requireRole('maker', 'admin'), requireReso
     return res.status(404).json({ error: 'News item not found' });
   }
 
+  // FR-NEWS-009: workflow fields are server-controlled — externalSyncStatus,
+  // approvedBy/approvedAt and syncToExternal can never be set via the body.
+  stripNewsWorkflowFields(req.body);
+
+  const priorStatus = existing.externalSyncStatus;
+  // Content change ⇒ draft (FR-NEWS-009). Editing an item in ANY non-draft
+  // workflow state returns it to 'draft': a pending item must not be mutated
+  // while a checker reviews content they may never see again (TOCTOU), and a
+  // live item must not keep modified content public under a stale approval.
+  const invalidatesApproval =
+    priorStatus === 'pending_approval' || priorStatus === 'synced' || priorStatus === 'rejected';
   const updated: NewsItem = {
     ...existing,
     ...req.body,
     id, // protect ID
   };
 
+  // The forced reset clears the prior decision cycle's stamps and drops the
+  // item out of the live public set (syncToExternal) — the only legal path is
+  // draft -> pending_approval -> synced|rejected, and only checker approve
+  // makes content live again.
+  if (invalidatesApproval) {
+    updated.externalSyncStatus = 'draft';
+    updated.syncToExternal = false;
+    updated.approvedBy = undefined;
+    updated.approvedAt = undefined;
+    updated.submittedBy = undefined;
+    updated.submittedAt = undefined;
+  }
+
   await repo.saveNews(updated);
 
-  if (updated.syncToExternal) {
-    await repo.insertSyncLog({
-      id: `sync-${Date.now()}`,
-      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      itemId: updated.id,
-      itemTitle: updated.title,
+  // Forced transition audit (AUD-P01): a <state>->draft reset is a
+  // workflow-state change made outside the approval endpoints, so it is
+  // recorded with the reason in details.
+  if (invalidatesApproval) {
+    await recordAudit({
+      actor: req.user!.username,
+      actorRole: ROLE_LABELS[req.user!.role],
       action: 'UPDATE',
+      targetResource: 'News Announcement',
+      resourceId: updated.id,
+      details: `Edit of ${priorStatus} item "${updated.title.substring(0, 30)}..." reset externalSyncStatus to draft (forced transition; approval and submission stamps cleared, item dropped from the live sync set until re-approval).`,
+      ipAddress: req.ip,
       status: 'SUCCESS',
-      targetEndpoint: 'api.kbjcapital.co.th/v1/public/news',
-      syncedBy: req.user!.username,
     });
   }
+
+  // No sync log on update: PUT can no longer reach syncToExternal=true —
+  // the flag flips only via the checker approve endpoint.
 
   res.json({ success: true, data: updated });
 });
@@ -1386,8 +1436,28 @@ app.post('/api/news/:id/submit-approval', requireAuth, requireRole('maker', 'adm
   const item = await repo.findNews(id);
   if (!item) return res.status(404).json({ error: 'News item not found' });
 
+  // FR-NEWS-009: submit-approval is legal from 'draft' only. A rejected item
+  // must be edited first (the edit resets it to draft); a synced item is
+  // already live; a pending item is already in review.
+  if (item.externalSyncStatus !== 'draft') {
+    await recordAudit({
+      actor: req.user!.username,
+      actorRole: ROLE_LABELS[req.user!.role],
+      action: 'SUBMIT_APPROVAL',
+      targetResource: 'News Announcement',
+      resourceId: item.id,
+      details: `Blocked: submit-approval attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — only draft items can be submitted.`,
+      ipAddress: req.ip,
+      status: 'WARNING',
+    });
+    return res.status(400).json({ success: false, error: 'Only draft news items can be submitted for approval' });
+  }
+
   item.externalSyncStatus = 'pending_approval';
   item.syncToExternal = false; // Not live until approved by Checker
+  // Record WHO submitted so approve/reject can bar self-approval (FR-NEWS-009)
+  item.submittedBy = req.user!.id;
+  item.submittedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
   await repo.saveNews(item);
 
   const auditEntry = await recordAudit({
@@ -1396,7 +1466,7 @@ app.post('/api/news/:id/submit-approval', requireAuth, requireRole('maker', 'adm
     action: 'SUBMIT_APPROVAL',
     targetResource: 'News Announcement',
     resourceId: item.id,
-    details: `Submitted "${item.title.substring(0, 30)}..." for dual-control checker review before public publishing.`,
+    details: `Submitted by ${req.user!.username} (id: ${req.user!.id}): "${item.title.substring(0, 30)}..." for dual-control checker review before public publishing.`,
     ipAddress: req.ip,
     status: 'SUCCESS',
   });
@@ -1410,6 +1480,39 @@ app.post('/api/news/:id/approve', requireAuth, requireRole('checker', 'admin'), 
   if (!item) return res.status(404).json({ error: 'News item not found' });
 
   const checkerName = req.user!.username;
+
+  // FR-NEWS-009: approve is legal only from 'pending_approval' — a checker
+  // cannot approve a draft (or re-approve a synced/rejected item).
+  if (item.externalSyncStatus !== 'pending_approval') {
+    await recordAudit({
+      actor: checkerName,
+      actorRole: ROLE_LABELS[req.user!.role],
+      action: 'APPROVE',
+      targetResource: 'News Announcement',
+      resourceId: item.id,
+      details: `Blocked: approve attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — requires pending_approval.`,
+      ipAddress: req.ip,
+      status: 'WARNING',
+    });
+    return res.status(400).json({ success: false, error: 'Only news items pending approval can be approved' });
+  }
+
+  // FR-NEWS-009: the submitter may never approve their own submission — for
+  // every role, admin included (strict dual-control ruling).
+  if (item.submittedBy && item.submittedBy === req.user!.id) {
+    await recordAudit({
+      actor: checkerName,
+      actorRole: ROLE_LABELS[req.user!.role],
+      action: 'APPROVE',
+      targetResource: 'News Announcement',
+      resourceId: item.id,
+      details: `Blocked: self-approval attempt — ${checkerName} submitted this item and cannot approve it.`,
+      ipAddress: req.ip,
+      status: 'WARNING',
+    });
+    return res.status(403).json({ success: false, error: 'Self-approval is not allowed: the submitter cannot approve their own item' });
+  }
+
   item.externalSyncStatus = 'synced';
   item.syncToExternal = true;
   item.approvedBy = checkerName;
@@ -1422,7 +1525,7 @@ app.post('/api/news/:id/approve', requireAuth, requireRole('checker', 'admin'), 
     action: 'APPROVE',
     targetResource: 'News Announcement',
     resourceId: item.id,
-    details: `Approved public synchronization to www.kbjcapital.co.th for "${item.title.substring(0, 30)}...".`,
+    details: `Approved public synchronization to www.kbjcapital.co.th for "${item.title.substring(0, 30)}..." (submitted by id: ${item.submittedBy ?? 'unknown'}).`,
     ipAddress: req.ip,
     status: 'SUCCESS',
   });
@@ -1447,6 +1550,38 @@ app.post('/api/news/:id/reject', requireAuth, requireRole('checker', 'admin'), r
   if (!item) return res.status(404).json({ error: 'News item not found' });
 
   const checkerName = req.user!.username;
+
+  // FR-NEWS-009: reject is legal only from 'pending_approval'.
+  if (item.externalSyncStatus !== 'pending_approval') {
+    await recordAudit({
+      actor: checkerName,
+      actorRole: ROLE_LABELS[req.user!.role],
+      action: 'REJECT',
+      targetResource: 'News Announcement',
+      resourceId: item.id,
+      details: `Blocked: reject attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — requires pending_approval.`,
+      ipAddress: req.ip,
+      status: 'WARNING',
+    });
+    return res.status(400).json({ success: false, error: 'Only news items pending approval can be rejected' });
+  }
+
+  // FR-NEWS-009: the submitter may never decide their own submission — for
+  // every role, admin included (strict dual-control ruling).
+  if (item.submittedBy && item.submittedBy === req.user!.id) {
+    await recordAudit({
+      actor: checkerName,
+      actorRole: ROLE_LABELS[req.user!.role],
+      action: 'REJECT',
+      targetResource: 'News Announcement',
+      resourceId: item.id,
+      details: `Blocked: self-rejection attempt — ${checkerName} submitted this item and cannot reject it.`,
+      ipAddress: req.ip,
+      status: 'WARNING',
+    });
+    return res.status(403).json({ success: false, error: 'Self-decision is not allowed: the submitter cannot reject their own item' });
+  }
+
   const reason = req.body.reason || 'Content revised or missing mandatory regulatory wording.';
   item.externalSyncStatus = 'rejected';
   item.syncToExternal = false;

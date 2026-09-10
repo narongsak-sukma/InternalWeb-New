@@ -328,7 +328,10 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
   const [newsImageUrl, setNewsImageUrl] = useState('https://images.unsplash.com/photo-1542744094-3a31f272c490?auto=format&fit=crop&w=1000&q=80');
   const [newsIsImportantAlert, setNewsIsImportantAlert] = useState(false);
   const [newsSyncToExternal, setNewsSyncToExternal] = useState(false);
-  const [newsExternalCategory, setNewsExternalCategory] = useState<'press-release' | 'csr' | 'product-notice' | 'compliance'>('press-release');
+  // Canonical union from NewsItem['externalCategory'] — a narrower hand-rolled
+  // literal set broke strict typing at the setNewsExternalCategory call sites
+  // (values 'money-tips'/'lifestyle' are legal per src/types.ts).
+  const [newsExternalCategory, setNewsExternalCategory] = useState<NonNullable<NewsItem['externalCategory']>>('press-release');
 
   // Contact Form State
   const [isAddingContact, setIsAddingContact] = useState(false);

@@ -90,11 +90,17 @@ CREATE TABLE IF NOT EXISTS news (
   attachment_name text,
   approved_by text,
   approved_at text,
+  submitted_by text,   -- FR-NEWS-009: submitter user id (self-approval guard)
+  submitted_at text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_news_category ON news (category);
 CREATE INDEX IF NOT EXISTS idx_news_sync_status ON news (external_sync_status);
+-- W2-1 (FR-NEWS-009): ensure the submitter identity columns on pre-existing
+-- news tables (CREATE TABLE IF NOT EXISTS does not alter existing tables).
+ALTER TABLE news ADD COLUMN IF NOT EXISTS submitted_by text;
+ALTER TABLE news ADD COLUMN IF NOT EXISTS submitted_at text;
 
 -- 4. HERO CAROUSEL BANNERS
 CREATE TABLE IF NOT EXISTS banners (

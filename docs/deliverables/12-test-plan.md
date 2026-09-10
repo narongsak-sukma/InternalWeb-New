@@ -1,14 +1,38 @@
 # Deliverable 12 — Test Plan
 
-**Version:** 1.3.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval (W2-2 revision: worker-5)
+**Version:** 1.5.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval (W2-3 analysis: worker-5)
 
-> **Change log** — **1.3.0 (2026-09-10)**: W2-2 doc phase — DCR-8 (CTO
+> **Change log** — **1.5.0 (2026-09-10)**: W2-3 rulings applied (lead, under
+> delegated authority; CTO ratifies at the W2 code gate) — **TC-AUDIT-010
+> aligned to the ruled AUD-P07 coverage trim**: no-cookie 401 → **no row by
+> design** (request-log only); presented-cookie 401 (failed validation) →
+> row; authenticated 403 → row unconditional. Full-coverage variant
+> documented as considered-and-rejected in Doc 10 §9.1 (rationale: 5,000-cap
+> eviction, request-log duplication, actorless events). **SYNC_PUBLIC PRUNE —
+> YES (ruled)**, executed as one `types.ts:119` edit with the three new
+> action values (Doc 10 §9.2); TC-SEC-013's flip note already covers the
+> prune case. **1.4.0 (2026-09-10)**: W2-3 analysis phase (spec source:
+> Doc 10 v1.2.0 §9.1/§9.2) — **TC-AUDIT-009** (system export audited,
+> AUD-P06) and **TC-AUDIT-010** (access-denial auditing, AUD-P07) added as
+> target-state pins; **TC-SYNC-004** converted to an explicit flip-pin
+> (post-W2-3: `SYNC_TRIGGER` audit row); **TC-SEC-013** audit-action
+> live-set clause annotated as a dual flip-pin (W2-2 removal + W2-3 action
+> additions / SYNC_PUBLIC prune per Doc 10 §9.2); catalog inventory
+> 168 → **170** (AUDIT 8 → 10) and the stale "64 RTM acceptance references"
+> corrected to 65 refs / 62 distinct ids (aligns with §5.1 v1.3.0).
+> **1.3.0 (2026-09-10)**: W2-2 doc phase — DCR-8 (CTO
 > ruling, RISK-023, decision #5/#6: **PREFER REMOVAL** of
 > `POST /api/audit-logs`): TC-AUDIT-008 and TC-RBAC-026 EXPECTED updated to
 > the post-removal contract (404 for every role incl. admin; audit
 > fabrication via API impossible) and kept as explicit flip-pins that flip
 > when the W2-2 code lands (as-built today: admin 201 / other roles 403);
 > §5.1 UAT-049 retired to TC-only with RTM ref counts updated.
+> **W2-1 (same version):** dual-control enforcement landed — TC-NEWS-011
+> as-built pin FLIPPED to the strict expectation (create with
+> `syncToExternal:true` stays `draft`, no sync log); TC-CMS-007/008 flip-pins
+> resolved to post-fix expectations; TC-SEC-011 unblocked (implemented);
+> TC-COMP-001 DCR-3 open item closed. Automated evidence:
+> `scripts/smoke-test.mjs` section 8 (92/92).
 > **1.2.0 (2026-09-10)**: CTO gate REVISE — TC-SEC-011 and
 > TC-COMP-001 aligned to the strict dual-control ruling (no role carve-out:
 > create/update can never yield `synced`, approve/reject on
@@ -190,11 +214,11 @@ Conventions: ID `TC-<DOMAIN>-<nnn>`; priority **P0** (release gate), **P1**
 reconciled by Doc 04 (RTM) — as of v1.1.0 every TC id the RTM references is
 defined here.
 
-**Catalog inventory (v1.2.0):** AUTH 10 · SES 10 · NEWS 12 · BANNER 5 ·
-CONTACT 5 · DOC 5 · ROOM 6 · CMS 8 · USER 8 · AUDIT 8 · SYNC 6 · UPL 8 ·
+**Catalog inventory (v1.4.0):** AUTH 10 · SES 10 · NEWS 12 · BANNER 5 ·
+CONTACT 5 · DOC 5 · ROOM 6 · CMS 8 · USER 8 · AUDIT 10 · SYNC 6 · UPL 8 ·
 SRCH 4 · PERF 4 · RBAC 30 · SEC 13 · SYS 6 · AVAIL 6 · COMP 4 · MAINT 7 ·
-I18N 3 = **168 test cases**, plus 6 UAT scenarios (§5) tracing the 64 RTM
-acceptance references UAT-001..065 (§5.1). The ids TC-SES-007..009 are
+I18N 3 = **170 test cases**, plus 6 UAT scenarios (§5) tracing the 65 RTM
+acceptance references — 62 distinct ids — UAT-001..065 (§5.1). The ids TC-SES-007..009 are
 **intentionally absent** — the SES series numbering skips after 006 (probes
 continued at TC-SES-010..013); the catalog is self-consistent at 10 SES
 cases.
@@ -239,7 +263,7 @@ cases.
 | TC-NEWS-008 | Reject records reason | pending item; checker | POST /:id/reject {reason} | 200; status rejected; approvedBy embeds reason; audit REJECT/REJECTED | FR-CMS | P0 |
 | TC-NEWS-009 | Reject default reason applied | pending item | POST /:id/reject {} | Default regulatory wording used | FR-CMS | P2 |
 | TC-NEWS-010 | News list ordering | several items | GET /api/news | Newest first (memory: unshift; PG: seq DESC) | FR-NEWS | P2 |
-| TC-NEWS-011 | DCR-3 publish bypass — as-built pin | maker | POST /api/news with `syncToExternal:true` (no submit/approve) | **As built:** 201, `externalSyncStatus='synced'`, sync-log CREATE row with `syncedBy`=maker, and **no audit entry** (Doc 10 §5.1). Test pins current behavior; must FAIL (flip) when the DCR-3 enforcement fix lands — see TC-SEC-011 | FR-CMS | P0 |
+| TC-NEWS-011 | DCR-3 publish bypass — **FLIPPED (W2-1): dual control enforced** | maker | POST /api/news with `syncToExternal:true` (no submit/approve) | **Post-fix (as built since W2-1):** 201 with `externalSyncStatus='draft'`, `syncToExternal:false`, workflow fields (`externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal`) stripped from the payload, and **no sync-log row** (sync logs are written only by checker approve). Implemented in `scripts/smoke-test.mjs` §8 (flipped pin, automated) | FR-CMS | P0 |
 | TC-NEWS-012 | externalSyncStatus runtime enum (DCR-5) | maker+checker | Drive all transitions; GET /api/news | Only `draft`, `pending_approval`, `synced`, `rejected` ever appear; the `'pending'` member of the TS union (`src/types.ts:28`) is dead at runtime — no response contains it | FR-CMS | P1 |
 
 ### 6.4 Banners — BANNER
@@ -293,8 +317,8 @@ cases.
 | TC-CMS-004 | Checker cannot author | checker session in CMS | Attempt create controls | Authoring controls absent/`canWrite` false; API 403 (TC-RBAC-003) | FR-CMS | P0 |
 | TC-CMS-005 | User Management tab admin-only | maker session | Inspect CMS tabs | Tab absent; direct tab state cannot render (canAdmin gate) | FR-USER | P0 |
 | TC-CMS-006 | Audit tab checker+ | maker session | Inspect CMS tabs | "BOT / PDPA Audit Trail" tab absent for maker | FR-AUDIT | P1 |
-| TC-CMS-007 | Approve-by-API from draft (state guard gap) | draft item; checker | POST approve directly | **As built: succeeds** — DCR-3 known gap; expected result documents current behavior pending Wave 2 fix (then: 400 illegal transition) | FR-CMS | P1 |
-| TC-CMS-008 | Create-with-syncToExternal shortcut (UI path) | maker | CMS news form with sync checkbox checked; submit via UI | **As built: status synced + sync log, no checker** — DCR-3 documented (API-level pin: TC-NEWS-011; post-fix expectation: TC-SEC-011) | FR-CMS | P0 |
+| TC-CMS-007 | Approve-by-API from draft (state guard) | draft item; checker | POST approve directly | **Post-fix (as built since W2-1): 400 illegal transition** — approve requires `pending_approval` (guard rejection audited, AUD-P02). API-level automated pin in `scripts/smoke-test.mjs` §8 | FR-CMS | P1 |
+| TC-CMS-008 | Create-with-syncToExternal shortcut (UI path) | maker | CMS news form with sync checkbox checked; submit via UI | **Post-fix (as built since W2-1): item saves as `draft` with no sync log regardless of the checkbox** — the server strips `syncToExternal`/workflow fields (TC-SEC-011 semantics; API-level pin: TC-NEWS-011). *UI note (W2-1): the CMS form's "External Public Web Sync" toggle and the row-level sync toggle are now inert at the API layer — a W2 UX decision (remove the controls vs. re-route through submit-approval) is pending; the e2e walkthrough needs no change because its flows already use request-approval → approve* | FR-CMS | P0 |
 
 ### 6.9 User management — USER
 
@@ -321,6 +345,8 @@ cases.
 | TC-AUDIT-006 | Actor integrity (client spoof ignored) | staff session | Perform actions while sending spoofed `actor` fields in body; read trail | Stored actor = session username/role, never client values (smoke §9) | FR-AUDIT | P0 |
 | TC-AUDIT-007 | No mutation routes | admin | PUT/DELETE/PATCH /api/audit-logs(:id) | JSON 404 — append-only | FR-AUDIT | P0 |
 | TC-AUDIT-008 | Manual audit append REMOVED per DCR-8 — no API fabrication path (flip-pin) | admin/maker (and checker/anon spot-check) | POST /api/audit-logs (any body) | **Post-removal (flips when W2-2 code lands):** 404 `{success:false, error:"No API endpoint for POST /api/audit-logs"}` for **every** role incl. admin; no new trail row; GET trail unchanged. *As-built today (pin):* admin 201 (actor from session; defaults applied); maker 403 | FR-AUDIT-004 | P1 |
+| TC-AUDIT-009 | System export audited (AUD-P06, W2-3 target) | admin | GET /api/system/export; read trail | **Post-W2-3:** `SYSTEM_EXPORT`/SUCCESS row — actor = admin, resourceId = the export's `exportTimestamp` (correlation key), details quote table counts; export response shape **unchanged** (TC-SYNC-006 unaffected; the row appears in the *next* export, not the current snapshot). *As-built today (pin):* no audit row — gap AUD-P06 (Doc 10 §9.1) | Doc 10 §9.1 AUD-P06 | P1 |
+| TC-AUDIT-010 | Access denials audited — lead-ruled trim (AUD-P07, W2-3 target) | staff + anon + stale-cookie caller | (1) staff GET /api/users → 403; (2) anon, **no cookie**, GET /api/contacts → 401; (3) tampered/expired cookie GET /api/contacts → 401; then read trail | **Post-W2-3 (ruled):** (1) `ACCESS_DENIED`/WARNING row — session actor, refused role, `METHOD path`; (3) row — actor `anonymous`, "presented session cookie failed validation"; (2) **no row by design** — no-cookie 401s live in the JSON request log only (lead-ruled trim; full-coverage variant rejected with rationale, Doc 10 §9.1); login-endpoint 401s write `LOGIN_FAILED` only (no double-write); response codes/bodies unchanged (TC-RBAC-001..028 unaffected). *As-built today (pin):* no rows for any case — gap AUD-P07 (Doc 10 §9.1) | Doc 10 §9.1 AUD-P07 | P1 |
 
 ### 6.11 Public sync — SYNC
 
@@ -329,7 +355,7 @@ cases.
 | TC-SYNC-001 | Sync logs admin-only readable | admin | GET /api/sync/logs | 200 {data} | FR-SYNC | P0 |
 | TC-SYNC-002 | Trigger writes FORCE_SYNC log | admin | POST /api/sync/trigger | 200; log row BULK-ALL with counted items; syncedBy=admin | FR-SYNC | P0 |
 | TC-SYNC-003 | Approve writes CREATE sync log | checker approves | Inspect sync logs | Row with item id, endpoint api.kbjcapital.co.th/v1/public/news | FR-SYNC | P1 |
-| TC-SYNC-004 | Sync trigger audited? (gap) | admin | Trigger; check audit | **No audit row (sync_logs only)** — documented gap AUD-P05 | FR-AUDIT | P2 |
+| TC-SYNC-004 | Sync trigger audited (AUD-P05 — flip-pin) | admin | POST /api/sync/trigger; read trail | **Post-W2-3 (flips when W2-3 code lands):** `SYNC_TRIGGER`/SUCCESS audit row (actor = admin, resourceId `BULK-ALL` correlating the sync-log `itemId`, details quote the verified count) alongside the FORCE_SYNC sync-log row. *As-built today (pin):* **no audit row (sync_logs only)** — gap AUD-P05 (Doc 10 §9.1) | FR-AUDIT / Doc 10 §9.1 | P2 (→ P1 when flipped) |
 | TC-SYNC-005 | External Web Sync preview (FR-SYNC-005) | maker, staff sessions | Open "External Web Sync" view; staff attempts same | Maker+ sees preview of externally-synced content (`syncToExternal`/`synced` items) with CMS shortcut, reflecting current synced news; staff view absent (gated with the CMS view set) | FR-SYNC | P1 |
 | TC-SYNC-006 | System export shape + consumer (FR-SYNC-006) | admin, maker | GET /api/system/export; run `DATABASE_URL=… node scripts/migrate.js export.json` against fresh PG | Admin: 200 `{exportTimestamp, version:"2.0.0", schemaTarget, storage, counts, tables:{news,banners,contacts,meeting_rooms,documents,audit_logs,sync_logs}}` — timestamp field is **`exportTimestamp`** (DCR-1), counts match store; migrate.js loads `payload.tables`; maker → 403 | FR-SYNC | P0 |
 
@@ -431,9 +457,9 @@ middleware regression that 403s everything.
 | TC-SEC-008 | Uploads dir not listable | any | GET /uploads/ | No index (index:false) | FR-SEC | P2 |
 | TC-SEC-009 | Login timing uniformity | — | Compare unknown-user vs wrong-password latency | Same order of magnitude (dummy bcrypt hash) | FR-SEC | P2 |
 | TC-SEC-010 | Container hardening | image built | Inspect Dockerfile/runtime | Non-root uid 10001, read-only rootfs in k8s, HEALTHCHECK wired | FR-SEC | P1 |
-| TC-SEC-011 | Dual-control enforcement (post DCR-3 fix) | `[PLANNED]` blocked until Wave 2 fix | POST /api/news and PUT /api/news/:id with `syncToExternal:true` as maker AND as admin; approve/reject items in draft/synced/rejected states; submitter then attempts to approve own item (incl. admin submitter) | After fix, **for every role including admin**: create/update never yield `synced` (payload stripped/server-controlled → stays `draft`); approve/reject on any non-`pending_approval` state → 400; **approver == submitter → 403** (no self-approval, admin included); `approvedBy/approvedAt` server-set only | FR-CMS | P0 |
+| TC-SEC-011 | Dual-control enforcement (post DCR-3 fix) — **implemented (W2-1)** | maker, checker and admin sessions | POST /api/news and PUT /api/news/:id with `syncToExternal:true` as maker AND as admin; approve/reject items in draft/synced/rejected states; submitter then attempts to approve own item (incl. admin submitter) | **Post-fix (as built since W2-1), for every role including admin**: create/update never yield `synced` (payload stripped/server-controlled → stays `draft`); approve/reject on any non-`pending_approval` state → 400; **approver == submitter → 403** (no self-approval, admin included); `approvedBy/approvedAt` server-set only; submit-approval on non-draft → 400; rejected edit resets to draft. Automated in `scripts/smoke-test.mjs` §8 (guard matrix) | FR-CMS | P0 |
 | TC-SEC-012 | Response-envelope inconsistency (DCR-4, as-built pin) | any session | GET /api/news, /api/banners; GET /api/news/:bad-id (PUT) | **As built:** reads return `{data[,total]}` with **no** `success` field; some 404s return bare `{error}` without `success:false`; the id-guard 400s **do** include `success:false`. Test pins the mixed envelope so clients (and Doc 08) treat `success` as mutation-only until the contract is unified | FR-SEC | P1 |
-| TC-SEC-013 | Dead enum values never emitted (DCR-5) | — | Full workflow sweep; inspect all payloads + audit rows | `externalSyncStatus` ∈ {draft, pending_approval, synced, rejected} only (`'pending'` never emitted); audit `action` values limited to the live set of Doc 10 §5 (`SYNC_PUBLIC`/`CREATE`/`UPDATE`/`DELETE` only via manual append) | FR-AUDIT | P2 |
+| TC-SEC-013 | Dead enum values never emitted (DCR-5; dual flip-pin for W2-2/W2-3) | — | Full workflow sweep; inspect all payloads + audit rows | `externalSyncStatus` ∈ {draft, pending_approval, synced, rejected} only (`'pending'` never emitted). Audit `action` live set: **as-built today** = Doc 10 §5 AUD-01..10 + manual append (`SYNC_PUBLIC`/`CREATE`/`UPDATE`/`DELETE` only via §6); **flips with W2-2** (manual append removed → those four values never emitted) and **with W2-3** (adds `SYNC_TRIGGER`/`SYSTEM_EXPORT`/`ACCESS_DENIED`; if the SYNC_PUBLIC prune is ratified per Doc 10 §9.2, it is never emitted at all) | FR-AUDIT | P2 |
 
 ### 6.18 System-level — persistence & migration (L4)
 
@@ -464,7 +490,7 @@ than duplicated; each AVAIL id is the RTM-facing definition.
 
 | ID | Title | Pre | Steps | Expected | REQ | Pri |
 |---|---|---|---|---|---|---|
-| TC-COMP-001 | Segregation of duties (BOT dual control) | maker + checker sessions | Maker attempts approve/reject; checker attempts authoring; submitter attempts own-item approval (checker and admin variants); inspect approvedBy/audit on approvals | Maker → 403 on approve/reject (TC-RBAC-011/012); checker → 403 on authoring (TC-RBAC-004); approvals stamped + audited. **Post-fix (strict ruling, TC-SEC-011 semantics):** approver == submitter → 403 for every role incl. admin; create/update can never reach `synced`. **DCR-3 open item:** direct-publish path weakens strict dual control as built — post-fix enforcement verified by TC-SEC-011 (FR-NEWS-009 `[PLANNED]`) | NFR-COMP-001 | P0 |
+| TC-COMP-001 | Segregation of duties (BOT dual control) | maker + checker sessions | Maker attempts approve/reject; checker attempts authoring; submitter attempts own-item approval (checker and admin variants); inspect approvedBy/audit on approvals | Maker → 403 on approve/reject (TC-RBAC-011/012); checker → 403 on authoring (TC-RBAC-004); approvals stamped + audited. **Strict ruling enforced since W2-1 (TC-SEC-011 semantics):** approver == submitter → 403 for every role incl. admin; create/update can never reach `synced`. **DCR-3 open item CLOSED in W2-1** — enforcement verified by TC-SEC-011 (FR-NEWS-009 AS-BUILT) | NFR-COMP-001 | P0 |
 | TC-COMP-002 | PDPA accountability | admin + audit reader | Perform sensitive ops; read trail; inspect request logs | Append-only audit rows with actor/role/action/target/IP/outcome (TC-AUDIT-001..007); accounts deactivated, never deleted (TC-USER-008); request logs carry time/method/path/status/durationMs/ip | NFR-COMP-002 | P0 |
 | TC-COMP-003 | Data minimization | any session | Inspect /api/auth/me, /api/users, login data; decode cookie; list upload dir | No `passwordHash` in any response (SafeUser projection); cookie value = signed sid only (no PII); uploads stored under UUID names (no user filenames) | NFR-COMP-003 | P0 |
 | TC-COMP-004 | Timely access revocation | admin + victim session | Deactivate victim; victim retries request + relogin; advance/expire a session | Existing session 401 on next request; relogin 401; 7-day expiry ceiling enforced + hourly sweep removes expired rows | NFR-COMP-004 | P0 |

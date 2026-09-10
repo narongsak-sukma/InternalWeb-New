@@ -31,6 +31,9 @@ export interface NewsItem {
   attachmentName?: string;
   approvedBy?: string;
   approvedAt?: string;
+  /** User id of the maker/admin who submitted the item for approval (FR-NEWS-009 self-approval guard). */
+  submittedBy?: string;
+  submittedAt?: string;
 }
 
 export interface BannerSlide {
