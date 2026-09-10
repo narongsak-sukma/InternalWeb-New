@@ -159,6 +159,8 @@ Preconditions marked "(fresh)" mean a just-started server/stack per §3.
 | TC-NEWS-008 | Reject records reason | pending item; checker | POST /:id/reject {reason} | 200; status rejected; approvedBy embeds reason; audit REJECT/REJECTED | FR-CMS | P0 |
 | TC-NEWS-009 | Reject default reason applied | pending item | POST /:id/reject {} | Default regulatory wording used | FR-CMS | P2 |
 | TC-NEWS-010 | News list ordering | several items | GET /api/news | Newest first (memory: unshift; PG: seq DESC) | FR-NEWS | P2 |
+| TC-NEWS-011 | DCR-3 publish bypass — as-built pin | maker | POST /api/news with `syncToExternal:true` (no submit/approve) | **As built:** 201, `externalSyncStatus='synced'`, sync-log CREATE row with `syncedBy`=maker, and **no audit entry** (Doc 10 §5.1). Test pins current behavior; must FAIL (flip) when the DCR-3 enforcement fix lands — see TC-SEC-011 | FR-CMS | P0 |
+| TC-NEWS-012 | externalSyncStatus runtime enum (DCR-5) | maker+checker | Drive all transitions; GET /api/news | Only `draft`, `pending_approval`, `synced`, `rejected` ever appear; the `'pending'` member of the TS union (`src/types.ts:28`) is dead at runtime — no response contains it | FR-CMS | P1 |
 
 ### 6.4 Banners — BANNER
 
@@ -211,8 +213,8 @@ Preconditions marked "(fresh)" mean a just-started server/stack per §3.
 | TC-CMS-004 | Checker cannot author | checker session in CMS | Attempt create controls | Authoring controls absent/`canWrite` false; API 403 (TC-RBAC-003) | FR-CMS | P0 |
 | TC-CMS-005 | User Management tab admin-only | maker session | Inspect CMS tabs | Tab absent; direct tab state cannot render (canAdmin gate) | FR-USER | P0 |
 | TC-CMS-006 | Audit tab checker+ | maker session | Inspect CMS tabs | "BOT / PDPA Audit Trail" tab absent for maker | FR-AUDIT | P1 |
-| TC-CMS-007 | Approve-by-API from draft (state guard gap) | draft item; checker | POST approve directly | **As built: succeeds** — DCR-09-1 known gap; expected result documents current behavior pending Wave 2 fix (then: 400 illegal transition) | FR-CMS | P1 |
-| TC-CMS-008 | Create-with-syncToExternal shortcut | maker | POST /api/news syncToExternal=true | **As built: status synced + sync log, no checker** — DCR-09-1 documented; flips to "rejected as illegal" after fix | FR-CMS | P0 |
+| TC-CMS-007 | Approve-by-API from draft (state guard gap) | draft item; checker | POST approve directly | **As built: succeeds** — DCR-3 known gap; expected result documents current behavior pending Wave 2 fix (then: 400 illegal transition) | FR-CMS | P1 |
+| TC-CMS-008 | Create-with-syncToExternal shortcut (UI path) | maker | CMS news form with sync checkbox checked; submit via UI | **As built: status synced + sync log, no checker** — DCR-3 documented (API-level pin: TC-NEWS-011; post-fix expectation: TC-SEC-011) | FR-CMS | P0 |
 
 ### 6.9 User management — USER
 
@@ -347,6 +349,9 @@ middleware regression that 403s everything.
 | TC-SEC-008 | Uploads dir not listable | any | GET /uploads/ | No index (index:false) | FR-SEC | P2 |
 | TC-SEC-009 | Login timing uniformity | — | Compare unknown-user vs wrong-password latency | Same order of magnitude (dummy bcrypt hash) | FR-SEC | P2 |
 | TC-SEC-010 | Container hardening | image built | Inspect Dockerfile/runtime | Non-root uid 10001, read-only rootfs in k8s, HEALTHCHECK wired | FR-SEC | P1 |
+| TC-SEC-011 | Dual-control enforcement (post DCR-3 fix) | `[PLANNED]` blocked until Wave 2 fix | POST /api/news `syncToExternal:true`; approve a `draft`; PUT workflow fields | After fix: create/update cannot yield `synced` (strip/ignore → stays `draft`); approve/reject require `pending_approval` (else 400); `approvedBy/approvedAt` server-set only | FR-CMS | P0 |
+| TC-SEC-012 | Response-envelope inconsistency (DCR-4, as-built pin) | any session | GET /api/news, /api/banners; GET /api/news/:bad-id (PUT) | **As built:** reads return `{data[,total]}` with **no** `success` field; some 404s return bare `{error}` without `success:false`; the id-guard 400s **do** include `success:false`. Test pins the mixed envelope so clients (and Doc 08) treat `success` as mutation-only until the contract is unified | FR-SEC | P1 |
+| TC-SEC-013 | Dead enum values never emitted (DCR-5) | — | Full workflow sweep; inspect all payloads + audit rows | `externalSyncStatus` ∈ {draft, pending_approval, synced, rejected} only (`'pending'` never emitted); audit `action` values limited to the live set of Doc 10 §5 (`SYNC_PUBLIC`/`CREATE`/`UPDATE`/`DELETE` only via manual append) | FR-AUDIT | P2 |
 
 ### 6.18 System-level — persistence & migration (L4)
 

@@ -144,6 +144,25 @@ Notes:
 - Seed fixture entries (historical demo data) may also carry the legacy
   `SYNC_PUBLIC` action in fresh databases; no runtime path emits it today.
 
+### 5.1 Finding: sync-log-only paths — external publication with no audit entry (DCR-3 corollary)
+
+Verified in code (`server.ts:1315-1326`, `:1346-1357`, `:1367-1378`): when a
+news item carries `syncToExternal: true`, three content endpoints write a
+`sync_logs` row but **no audit entry whatsoever**:
+
+| Path | Sync-log row written | Audit entry |
+|---|---|---|
+| POST `/api/news` (create with `syncToExternal: true`, incl. the DCR-3 publish bypass) | `action: CREATE`, `syncedBy` = maker username | **none** |
+| PUT `/api/news/:id` (update, merged `syncToExternal: true`) | `action: UPDATE` | **none** |
+| DELETE `/api/news/:id` (externally-synced item, admin) | `action: DELETE` | **none** |
+
+Consequence for compliance: a maker publishing straight to the external sync
+pipeline leaves a trace only in `sync_logs`, which is readable **admin-only**
+(`GET /api/sync/logs`, Doc 09 §6.6) — a checker reviewing the audit trail
+(GET `/api/audit-logs`) sees nothing. The approval flow (AUD-04..06) is
+audited; the bypass is not. Remediation is folded into the DCR-3 fix and the
+AUD-P01/P02/P03 gap items below. Pinned as-built by TC-NEWS-011 (Doc 12).
+
 ## 6. Query API
 
 | Endpoint | Access | Behavior (as built) |

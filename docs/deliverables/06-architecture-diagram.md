@@ -184,17 +184,28 @@ API 404s as JSON, normalizes all errors into one envelope, and finally
 serves `/uploads` and the SPA (or Vite in dev).
 
 **Maker-checker status state machine** (routes `h2` + services `s2`, `s3`;
-full prose in `05-sds.md` §3.3):
+full prose in `05-sds.md` §3.3). As built there are **two paths to
+`synced`**: the BOT-compliant dual-control path, and a direct-publish path
+that bypasses the checker (**DCR-3**; `[PLANNED]` Wave-2 P0 enforcement fix):
 
 ```mermaid
 stateDiagram-v2
     [*] --> draft : POST /api/news, syncToExternal false
+    [*] --> synced : PATH A DCR-3 bypass, POST or PUT with syncToExternal true, maker or admin only
     draft --> pending_approval : submit-approval, maker or admin, syncToExternal forced false
-    pending_approval --> synced : approve, checker or admin, stamps approvedBy and approvedAt, sync log CREATE
-    pending_approval --> rejected : reject, checker or admin, reason recorded
+    draft --> synced : PATH A DCR-3 bypass, PUT with syncToExternal true
+    pending_approval --> synced : PATH B approve, checker or admin, stamps approvedBy and approvedAt, sync log CREATE
+    pending_approval --> rejected : PATH B reject, checker or admin, reason recorded
     rejected --> pending_approval : edited and resubmitted
     synced --> [*] : removed by admin DELETE
 ```
+
+Path A is drawn because the diagram set documents the system as built: a
+maker (or admin) setting `syncToExternal=true` at create/update reaches
+`synced` with **no checker involved and no audit entry** — a bypass of the
+dual-control intent that the lead has logged as DCR-3. The planned Wave-2 P0
+fix restricts or forces that transition through `pending_approval`
+(`05-sds.md` §7 row 9, §8.0).
 
 ---
 
@@ -341,7 +352,7 @@ the browser only an HMAC-signed, `httpOnly` cookie — every later request
 re-resolves the session server-side, which is what makes deactivation
 instant (`05-sds.md` §3.1). Both outcomes produce audit entries.
 
-### 5.2 Maker-checker publish (submit → approve/reject → synced + audit)
+### 5.2 Maker-checker publish — both as-built paths (submit → approve/reject → synced + audit)
 
 ```mermaid
 sequenceDiagram
@@ -353,36 +364,48 @@ sequenceDiagram
     participant A as audit_logs
     participant S as sync_logs
 
-    M->>G: POST /api/news, draft, syncToExternal false
-    G->>N: insertNews
-    M->>G: POST /api/news/id/submit-approval
-    G->>G: requireRole maker or admin
-    G->>N: saveNews, status pending_approval, syncToExternal forced false
-    G->>A: SUBMIT_APPROVAL, actor maker, IP, status SUCCESS
-    alt checker approves
-        C->>G: POST /api/news/id/approve
-        G->>G: requireRole checker or admin
-        G->>N: saveNews, status synced, syncToExternal true, approvedBy, approvedAt
-        G->>A: APPROVE, actor checker, IP, status SUCCESS
-        G->>S: CREATE, item, target api.kbjcapital.co.th/v1/public/news
-        G-->>C: 200 item plus audit entry
-    else checker rejects
-        C->>G: POST /api/news/id/reject, reason
-        G->>G: requireRole checker or admin
-        G->>N: saveNews, status rejected, syncToExternal false, approvedBy records rejection
-        G->>A: REJECT, actor checker, IP, status REJECTED
-        G-->>C: 200 item plus audit entry
+    alt PATH A, direct publish, DCR-3 bypass
+        M->>G: POST or PUT /api/news with syncToExternal true
+        G->>G: requireRole maker or admin, no checker involved
+        G->>N: saveNews, externalSyncStatus set synced immediately
+        G->>S: CREATE or UPDATE sync log, auto-written
+        G-->>M: 201 or 200, item is live without review, no audit entry
+    else PATH B, dual control, BOT compliant
+        M->>G: POST /api/news, draft, syncToExternal false
+        G->>N: insertNews
+        M->>G: POST /api/news/id/submit-approval
+        G->>G: requireRole maker or admin
+        G->>N: saveNews, status pending_approval, syncToExternal forced false
+        G->>A: SUBMIT_APPROVAL, actor maker, IP, status SUCCESS
+        alt checker approves
+            C->>G: POST /api/news/id/approve
+            G->>G: requireRole checker or admin
+            G->>N: saveNews, status synced, syncToExternal true, approvedBy, approvedAt
+            G->>A: APPROVE, actor checker, IP, status SUCCESS
+            G->>S: CREATE, item, target api.kbjcapital.co.th/v1/public/news
+            G-->>C: 200 item plus audit entry
+        else checker rejects
+            C->>G: POST /api/news/id/reject, reason
+            G->>G: requireRole checker or admin
+            G->>N: saveNews, status rejected, syncToExternal false, approvedBy records rejection
+            G->>A: REJECT, actor checker, IP, status REJECTED
+            G-->>C: 200 item plus audit entry
+        end
     end
-    Note over G,S: as built, synced means status plus sync_logs entry only,<br/>no outbound HTTP call to the public site yet, PLANNED
+    Note over G,S: as built, synced means status plus sync_logs entry only,<br/>no outbound HTTP call to the public site yet, PLANNED.<br/>Closing the PATH A bypass is a PLANNED Wave-2 P0 fix, DCR-3
 ```
 
-This is the BOT dual-control workflow: the maker can never approve their own
-submission (`approve`/`reject` require the `checker` or `admin` role), the
-item is forced non-live while awaiting review, and the checker's identity is
-stamped onto the item (`approvedBy`/`approvedAt`) and into the audit trail on
-every transition. The sync-log row models the handoff to the public site;
-the actual outbound webhook is `[PLANNED]` and will require a new egress rule
-in the NetworkPolicy (`05-sds.md` §3.3, §8.1).
+Both paths are drawn because both are live code. **Path B** is the BOT
+dual-control workflow: the maker can never approve their own submission
+(`approve`/`reject` require the `checker` or `admin` role), the item is
+forced non-live while awaiting review, and the checker's identity is stamped
+onto the item (`approvedBy`/`approvedAt`) and into the audit trail on every
+transition. **Path A** (DCR-3) lets a maker reach `synced` directly by
+creating/updating with `syncToExternal=true` — no checker and no audit entry
+— which is why the lead has scheduled the enforcement fix as Wave-2 P0
+(`05-sds.md` §3.3, §7 row 9, §8.0). The sync-log row models the handoff to
+the public site; the actual outbound webhook is `[PLANNED]` and will require
+a new egress rule in the NetworkPolicy (`05-sds.md` §8.1).
 
 ### 5.3 Room booking
 
@@ -561,7 +584,7 @@ directory or document data.
 | §1 System context | `HANDOVER.md` §1–§2; `README.md` §6; roles in `server.ts` L1180–1185 |
 | §2 Container | `server.ts` L37–46, L2200–2236; `src/api.ts`; `Dockerfile` |
 | §3 Component | `server.ts` middleware L44–113, auth L971–1156, routes L1264–2102, repos L120–969 (`05-sds.md` §2.2–2.3) |
-| §3 State machine | `server.ts` L1383–1468; `src/types.ts` `externalSyncStatus` |
+| §3 State machine | `server.ts` L1306, L1315–1359 (path A, DCR-3), L1383–1468 (path B); `src/types.ts` `externalSyncStatus` |
 | §4.1 Kubernetes | `k8s/deployment.yaml`, `hpa.yaml`, `ingress.yaml`, `networkpolicy.yaml`, `pvc.yaml`, `service.yaml`, `configmap.yaml` |
 | §4.2 Compose | `docker-compose.yml`; `README.md` §2 |
 | §5.1 Login | `server.ts` L1096, L1145–1156, L1691–1734 |

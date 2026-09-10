@@ -271,29 +271,36 @@ Every transition writes an audit entry (Doc 10 §5); approval additionally
 writes a `sync_logs` row. The CMS exposes the same flow with a mandatory
 reject-reason input ("ปฏิเสธ / Reject") for checkers.
 
-### 8.3 As-built caveats (DCR-09-1 — hardening required, Wave 2)
+### 8.3 Finding: dual-control gap (DCR-3, confirmed by Lead) — hardening required, Wave 2
 
 Code inspection found **no server-side guard on transition preconditions**;
 the state machine above is the *intended* path, but the API as built also
 permits:
 
-1. **Create-with-publish shortcut:** `POST /api/news` with
-   `syncToExternal: true` sets `externalSyncStatus = 'synced'` and writes a
-   sync log **immediately — no checker involved** (the CMS news form exposes
-   this checkbox). A maker can therefore publish to the external sync pipeline
-   without dual control.
+1. **Create-with-publish shortcut (the confirmed DCR-3 bypass):**
+   `POST /api/news` with `syncToExternal: true` sets
+   `externalSyncStatus = 'synced'` and writes a `sync_logs` CREATE row
+   **immediately — no checker involved** (`server.ts:1306` status assignment,
+   `:1315-1326` sync-log write). `PUT /api/news/:id` behaves the same when the
+   merged item has `syncToExternal: true` (`server.ts:1346-1357`). The CMS
+   news form exposes this checkbox, so a maker can publish to the external
+   sync pipeline without dual control, and — because this path writes **no
+   audit entry** (Doc 10 §5.1) while sync logs are admin-only — the act is
+   invisible to checkers reading the audit trail.
 2. **Approve/reject from any state:** `approve`/`reject` do not require the
    item to be `pending_approval`; a checker can approve a `draft` directly, and
    `submit-approval` can be called on any status.
 3. **`PUT /api/news/:id` can overwrite workflow fields** (`externalSyncStatus`,
    `approvedBy`, `approvedAt`) arbitrarily.
 
-Filed as DCR to the Lead; `[PLANNED]` fix: enforce legal transitions
+`[PLANNED]` enforcement fix (Wave 2): accept only legal transitions
 (`draft→pending_approval→synced|rejected`), strip workflow fields from
-client-supplied create/update payloads, and require `pending_approval` on
-approve/reject. The permission *matrix* itself (who may call which endpoint)
-is correct as built; the gap is workflow-state enforcement behind those
-endpoints.
+client-supplied create/update payloads, require `pending_approval` on
+approve/reject, and make `syncToExternal` writable only by the approve path.
+The permission *matrix* itself (who may call which endpoint) is correct as
+built; the gap is workflow-state enforcement behind those endpoints. As-built
+behavior is pinned by TC-NEWS-011 and the post-fix expectation by TC-SEC-011
+(Doc 12).
 
 ## 9. Account lifecycle
 
@@ -376,7 +383,7 @@ Not yet implemented (Wave 2 candidates, in priority order):
 
 | # | Item | Rationale |
 |---|---|---|
-| H1 | Maker-checker state-machine enforcement (DCR-09-1) | Close the publish/approve shortcuts (§8.3) |
+| H1 | Maker-checker state-machine enforcement (DCR-3) | Close the publish/approve shortcuts (§8.3) |
 | H2 | Password change + admin-initiated reset endpoints; complexity/age policy beyond "≥ 8 chars" | Bootstrap admin password currently has no in-app rotation path |
 | H3 | Account lockout after repeated failures (per-account; today only per-IP rate limit, per-process) | BOT-aligned brute-force defense; needs shared store across replicas |
 | H4 | CSRF defense for cookie-authenticated mutations (token or `SameSite=Strict` + origin check) | `SameSite=Lax` blocks cross-site POSTs from form/fetch in modern browsers but is not a complete CSRF control |

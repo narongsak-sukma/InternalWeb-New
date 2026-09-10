@@ -104,7 +104,7 @@ to the routes that declare it.
 | 8 | RBAC — `requireRole(...)` | L1121–1131 | Per-route role allowlist against `req.user.role` (`admin > checker > maker > staff`). Failure → `403 "Insufficient permissions"` (matrix: R5) |
 | 9 | `requireResourceId` (:id routes) | L1133–1142 | Rejects blank/whitespace ids with 400 — second layer behind the step-4 guard |
 | 10 | Handler → repository | route bodies | Handlers contain no SQL/storage logic; they call the shared `Repository` interface (`repo.*`), which is either the PostgreSQL or the in-memory implementation |
-| 11 | JSON envelope | route bodies | Success: `{success:true, data:…}` (creations add HTTP 201). Failure: `{success:false, error:"…"}`. List endpoints additionally return `{data:[…], total:n}` (news, contacts) or bare `{data:[…]}` — see §7.8 |
+| 11 | JSON envelope | route bodies | Success: `{success:true, data:…}` (creations add HTTP 201). Failure: `{success:false, error:"…"}`. **Not uniform (DCR-4):** several list endpoints return bare `{data:[…]}` / `{data:[…], total:n}` without the `success` flag, and some 404s return `{error:"…"}` without `success:false`; the SPA client normalizes by unwrapping `json.data ?? json` (`src/api.ts`). Exact shape per endpoint: `08-api-specification.md`; see also §7.8 |
 | 12 | `/api` 404 JSON fallback | L2100–2102 | Unmatched `/api/*` (e.g. the retired `/api/k8s/diagnostics`) answers JSON 404 so API clients never receive the SPA's `index.html` |
 | 13 | Final error handler | L2112–2134 | Registered last: converts body-parser failures to 400 `Invalid JSON body`, oversized bodies to 413, everything else to 500 `Internal server error` — exactly one log line, no stack spew. `process.on('unhandledRejection')` (L2136–2138) logs and suppresses so a single bad request can never kill the pod |
 | 14 | Static mounts | L1903, L2222–2236 | `/uploads` → `express.static(UPLOAD_DIR)` (maxAge 1d, no index, no redirect). Then, in production, `dist/` static assets + `GET *` → `index.html` (SPA fallback); in dev, the Vite middleware is mounted instead |
@@ -275,11 +275,21 @@ a supported path to move in-memory/legacy data into PostgreSQL.
 
 ### 3.3 Maker-checker state machine (BOT dual control)
 
-Public-website publishing of news is a two-person workflow modeled on the
-`externalSyncStatus` field of `NewsItem` (`draft → pending_approval → synced
-| rejected`; `pending` also exists in the type for display purposes):
+Publishing state is modeled on `NewsItem.externalSyncStatus`
+(`draft | pending_approval | synced | rejected`; the type also carries
+`pending` for display purposes). **Two as-built paths reach `synced`** — the
+dual-control path required by BOT governance, and a direct path that
+bypasses the checker entirely (flagged to the lead as **DCR-3**; enforcement
+fix is `[PLANNED]`, Wave-2 P0 — see §7, §8):
 
 ```
+  PATH A — DIRECT PUBLISH (bypasses checker; DCR-3)
+  POST /api/news  (server.ts L1306)          PUT /api/news/:id (L1315–1359)
+  syncToExternal=true ──────────────────────────────► synced
+        role gate: maker/admin only — no checker involved,
+        auto sync_log CREATE/UPDATE written
+
+  PATH B — DUAL CONTROL (BOT compliant, server.ts L1383–1468)
                  POST /api/news (maker/admin)
                  syncToExternal=false ──────────────► draft
                                                       │
@@ -296,23 +306,28 @@ Public-website publishing of news is a two-person workflow modeled on the
                                     + sync_log CREATE        syncToExternal=false
 ```
 
-As-built properties (server.ts L1383–1468):
+As-built properties:
 
-- `submit-approval` requires `maker` or `admin`; it forces
+- **Path A** (`POST`/`PUT /api/news` with `syncToExternal=true`): the item is
+  marked `synced` immediately with only a maker/admin role check; a sync log
+  (`CREATE`/`UPDATE`) is auto-written. This bypasses dual control and is
+  recorded here because the SDS documents the system **as built**. Closing
+  it (restrict `syncToExternal=true` at create/update to checker/admin, or
+  force `pending_approval`) is the `[PLANNED]` Wave-2 P0 fix (§8.0).
+- Path B, `submit-approval` requires `maker` or `admin`; it forces
   `syncToExternal=false` so the item is **not live** while awaiting review.
-- `approve`/`reject` require `checker` or `admin` — the maker cannot
-  self-approve.
+- Path B, `approve`/`reject` require `checker` or `admin` — within the
+  dual-control path the maker cannot self-approve.
 - `approve` stamps `approvedBy`/`approvedAt` (UTC `YYYY-MM-DD HH:MM:SS`),
   flips `syncToExternal=true`, and appends a `sync_logs` row
   (action `CREATE`, target `api.kbjcapital.co.th/v1/public/news`).
-- **Every transition writes an audit entry** (`SUBMIT_APPROVAL` / `APPROVE`
-  status `SUCCESS` / `REJECT` status `REJECTED`) stamped with the
-  authenticated actor and IP (R6).
-- A direct path exists as built: `POST/PUT /api/news` with
-  `syncToExternal=true` marks the item `synced` immediately (role-gated to
-  maker/admin) and logs a sync entry; the dual-control path above is the
-  BOT-compliant route for content requiring compliance clearance. Deletion is
-  admin-only and also writes a sync log when the item was public.
+- `reject` records the checker's reason in `approvedBy`
+  (`"Rejected by <checker>: <reason>"`) and keeps `syncToExternal=false`.
+- **Every Path-B transition writes an audit entry** (`SUBMIT_APPROVAL` /
+  `APPROVE` status `SUCCESS` / `REJECT` status `REJECTED`) stamped with the
+  authenticated actor and IP (R6). Path A writes a sync log but no audit
+  entry — another consequence tracked under DCR-3.
+- Deletion of a synced item is admin-only and also writes a sync log.
 - "Synced" currently means **state + log only** — no outbound HTTP call to the
   public site is performed; wiring the real webhook is `[PLANNED]` (§8).
 
@@ -574,7 +589,8 @@ added to (§8).
 | 5 | **Schema owned by the app** (`PG_DDL` applied at boot) + mirrored `schema.sql` | Fresh environments converge automatically; DBAs still have the canonical script for review/CI | Two copies must be kept in lockstep by convention; no versioned migration tooling yet (§8) |
 | 6 | **Uploads on a filesystem volume** (not the DB, not object storage) | Simple, fast, works identically in compose and k8s today | RWO PVC constrains multi-node scaling (§5.4); no dedup; backups must cover the volume |
 | 7 | **OpenAPI served by the app** (`GET /api/openapi.json`) | Contract is always reachable and versioned with the running build | Maintained by hand next to the routes — drift is possible and must be caught in review |
-| 8 | **Envelope pragmatism**: mutations return `{success,data}`; several list endpoints return bare `{data[,total]}` (as built) and the SPA client normalizes (`api.ts` unwraps `json.data ?? json`) | Backward-compatible evolution of a legacy-shaped API without breaking the SPA | The envelope is not perfectly uniform; `08-api-specification.md` documents the exact shapes per endpoint |
+| 8 | **Envelope pragmatism** (DCR-4): mutations return `{success,data}`; several list endpoints return bare `{data[,total]}` without the `success` flag, and some 404s return `{error}` without `success:false` (as built); the SPA client normalizes (`api.ts` unwraps `json.data ?? json`) | Backward-compatible evolution of a legacy-shaped API without breaking the SPA | The envelope is not uniform across reads/404s (DCR-4); `08-api-specification.md` documents the exact shape per endpoint; uniformity is a Wave-2 cleanup candidate |
+| 9 | **Direct-publish path retained as built** (DCR-3): `POST/PUT /api/news` with `syncToExternal=true` reaches `synced` with only a maker/admin check — no checker | Documented honestly because the SDS describes the system as built; the shape predates the dual-control endpoints | **Bypasses BOT dual control** (and writes no audit entry); `[PLANNED]` Wave-2 P0 enforcement fix gates it behind checker/admin or forces `pending_approval` (§8.0) |
 
 ---
 
@@ -585,10 +601,12 @@ not be assumed by readers of the code.
 
 | # | Change | Current state | Planned design |
 |---|---|---|---|
+| 0 | **Close the direct-publish bypass (DCR-3) — Wave-2 P0** | `POST/PUT /api/news` with `syncToExternal=true` sets `externalSyncStatus='synced'` immediately under a maker/admin check only (server.ts L1306, L1315–1359); no checker, no audit entry | Enforce dual control at create/update: either reject/ignore `syncToExternal=true` from makers (forcing `pending_approval` for external publication) or require checker/admin for the direct path; add the missing audit entry for whichever path remains |
 | 1 | **Outbound public-sync webhook** | Sync statuses, `sync_logs`, and `/api/sync/trigger` drive the state machine only; no HTTP call to the public website | Wire a real webhook (e.g. `POST api.kbjcapital.co.th/v1/public/news`) invoked on `approve`/`FORCE_SYNC`, with retries and failure status in `sync_logs`; add the matching **egress 443 rule** to `k8s/networkpolicy.yaml` (already anticipated in its comments) |
 | 2 | **Schema migration tooling** | Schema changes apply only to empty volumes (compose init-once) or by hand via `psql -f scripts/schema.sql` | Adopt versioned migrations (e.g. a `migrations/` table + ordered scripts, or a tool such as node-pg-migrate) so upgrades on existing databases are first-class |
 | 3 | **Shared rate-limit / failed-login store** | Rate limiting is per-process (in-memory) — with many replicas behind the ingress, limits are per-pod | Introduce a shared store (Redis) or ingress-level consistent hashing when stricter multi-replica enforcement is required |
 | 4 | **RWX or object storage for uploads** | 5 Gi RWO PVC — single-writer constraint limits multi-node HA/scaling | Switch the PVC to ReadWriteMany (NFS/Azure Files/CephFS) or move uploads to S3-compatible object storage with the same `Repository`-style abstraction |
+| 5 | **Response-envelope uniformity (DCR-4)** | Reads and some 404s return bare `{data[,total]}` / `{error}` without the `success` flag; the SPA normalizes client-side | Decide one canonical envelope (`{success,data,error}` everywhere) and migrate read endpoints in a Wave-2 pass, updating `src/api.ts` and `08-api-specification.md` together |
 
 ---
 

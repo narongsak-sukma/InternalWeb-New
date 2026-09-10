@@ -58,7 +58,7 @@ CTO (codex) solves directly.
 | 0 | Governance: branches, PROJECT-STATE, board | lead | done 2026-09-10 |
 | 1 | Docs 01+02+11 (PM/UI lane) | worker-1 | done 2026-09-10 (+follow-up RISK-021) |
 | 1 | Docs 03+04 (requirements lane) | worker-2 | done 2026-09-10 |
-| 1 | Docs 05+06 (architecture lane) | worker-3 | in progress |
+| 1 | Docs 05+06 (architecture lane) | worker-3 | done 2026-09-10 |
 | 1 | Docs 07+08 (data/API lane) | worker-4 | done 2026-09-10 |
 | 1 | Docs 09+10+12 (security/QA lane) | worker-5 | done 2026-09-10 |
 | 1 | Lead review of doc set (consistency, cross-refs, no divergence) | lead | pending |
@@ -79,7 +79,7 @@ CTO (codex) solves directly.
 |---|---|---|---|
 | DCR-1 | worker-4 | Export field is `exportTimestamp` (server.ts:2072), not `generatedAt` (HANDOVER §5 wrong) | ACCEPT — fix HANDOVER §5 in W1 review pass |
 | DCR-2 | worker-4 | No `PUT /api/documents` route exists; HANDOVER §5 implies it | ACCEPT — fix HANDOVER §5 |
-| DCR-3 | worker-4, confirmed by lead | `POST /api/news` (and update) with `syncToExternal=true` creates directly as `externalSyncStatus:'synced'` (server.ts:1306,1315,1346) — maker bypasses checker dual control (BOT governance violation) | ACCEPT as finding — document as-built + [PLANNED] enforcement fix; Wave-2 P0 backlog; RISK-021; CTO ratifies |
+| DCR-3 | worker-4, confirmed by lead | `POST /api/news` (and update) with `syncToExternal=true` creates directly as `externalSyncStatus:'synced'` (server.ts:1306,1315,1346) — maker bypasses checker dual control (BOT governance violation). **Corollary (worker-5, verified):** bypass path writes ONLY sync_logs (admin-only visibility) and NO audit entry — invisible to checkers | ACCEPT as finding — document as-built + [PLANNED] enforcement fix; Wave-2 P0 backlog; RISK-021; CTO ratifies |
 | DCR-4 | worker-4 | Response envelope inconsistent — reads & some 404s return bare data, no `success` field | ACCEPT — doc 08 as-built; [PLANNED] normalization Wave-2 P2 |
 | DCR-5 | worker-4 | TS union declares `externalSyncStatus` values 'approved'/'pending' never assigned at runtime (real: draft/pending_approval/synced/rejected) | ACCEPT — doc 07 as-built; dead-union cleanup Wave-2 P3 |
 | DCR-6 | worker-2, confirmed by lead | `tsconfig.json` has NO `"strict": true` (nor strictNullChecks) — "TypeScript strict" is convention only; code passes tsc in non-strict mode | ACCEPT — enable strict + fix fallout in Wave-2 P1 (MAINT quality gate); SRS states as-built + [PLANNED] |
