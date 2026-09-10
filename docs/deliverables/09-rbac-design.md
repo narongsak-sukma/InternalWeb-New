@@ -1,6 +1,6 @@
 # Deliverable 09 — Role-Based Access Control (RBAC) Design
 
-**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
 
 > **Change log** — **1.1.0 (2026-09-10)**: CTO gate REVISE — §8.3 `[PLANNED]`
 > fix aligned to the CTO's strict dual-control ruling: no role (admin

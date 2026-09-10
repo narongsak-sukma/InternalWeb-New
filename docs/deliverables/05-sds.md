@@ -2,7 +2,7 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public Sync Portal**
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-3 → Lead review → CTO approval
+**Version:** 1.0.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-3 → Lead review → CTO approval
 
 ---
 

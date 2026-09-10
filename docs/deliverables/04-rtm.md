@@ -2,7 +2,7 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval
 
 > **Change log:** v1.1.0 (2026-09-10) — CTO gate REVISE applied: FR-NEWS-009 row updated to strict dual-control semantics (no role, admin included, may reach `'synced'` outside the checker approve endpoint; state + submitter≠approver guards; server-controlled workflow fields); NFR-COMP-001 row aligned; DCR-3 strict ruling recorded in §3.2/§3.3. v1.0.0 — initial draft.
 

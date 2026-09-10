@@ -1,6 +1,6 @@
 # Project Plan — KB J Capital Intranet Rebuild
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 1.0.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval
 
 > This plan governs the rebuild of the KB J Capital corporate intranet portal
 > that replaces the outdated legacy intranet web. The project runs doc-first:

@@ -29,18 +29,18 @@ CTO (codex) solves directly.
 
 | # | Deliverable | File / artifact | Status |
 |---|---|---|---|
-| 1 | Project Plan | `docs/deliverables/01-project-plan.md` | Wave 1 |
-| 2 | Risk Register | `docs/deliverables/02-risk-register.md` | Wave 1 |
-| 3 | SRS | `docs/deliverables/03-srs.md` | Wave 1 |
-| 4 | Requirement Traceability Matrix | `docs/deliverables/04-rtm.md` | Wave 1 |
-| 5 | SDS | `docs/deliverables/05-sds.md` | Wave 1 |
-| 6 | Architecture Diagram | `docs/deliverables/06-architecture-diagram.md` | Wave 1 |
-| 7 | Data Dictionary | `docs/deliverables/07-data-dictionary.md` | Wave 1 |
-| 8 | API Specification | `docs/deliverables/08-api-specification.md` | Wave 1 |
-| 9 | RBAC Design | `docs/deliverables/09-rbac-design.md` | Wave 1 |
-| 10 | Audit Log Design | `docs/deliverables/10-audit-log-design.md` | Wave 1 |
-| 11 | UI Prototype | `docs/deliverables/11-ui-prototype.md` | Wave 1 |
-| 12 | Test Plan | `docs/deliverables/12-test-plan.md` | Wave 1 |
+| 1 | Project Plan | `docs/deliverables/01-project-plan.md` | Approved (W1 gate 2026-09-10) |
+| 2 | Risk Register | `docs/deliverables/02-risk-register.md` | Approved (W1 gate 2026-09-10) |
+| 3 | SRS | `docs/deliverables/03-srs.md` | Approved (W1 gate 2026-09-10) |
+| 4 | Requirement Traceability Matrix | `docs/deliverables/04-rtm.md` | Approved (W1 gate 2026-09-10) |
+| 5 | SDS | `docs/deliverables/05-sds.md` | Approved (W1 gate 2026-09-10) |
+| 6 | Architecture Diagram | `docs/deliverables/06-architecture-diagram.md` | Approved (W1 gate 2026-09-10) |
+| 7 | Data Dictionary | `docs/deliverables/07-data-dictionary.md` | Approved (W1 gate 2026-09-10) |
+| 8 | API Specification | `docs/deliverables/08-api-specification.md` | Approved (W1 gate 2026-09-10) |
+| 9 | RBAC Design | `docs/deliverables/09-rbac-design.md` | Approved (W1 gate 2026-09-10) |
+| 10 | Audit Log Design | `docs/deliverables/10-audit-log-design.md` | Approved (W1 gate 2026-09-10) |
+| 11 | UI Prototype | `docs/deliverables/11-ui-prototype.md` | Approved (W1 gate 2026-09-10) |
+| 12 | Test Plan | `docs/deliverables/12-test-plan.md` | Approved (W1 gate 2026-09-10) |
 | 13 | Developed System | working system on `develop` | Wave 2+ |
 | 14 | Source Code | repo (`develop`) | ongoing |
 | 15 | Database Script | `scripts/schema.sql` + migrations | exists / extend |
@@ -62,8 +62,8 @@ CTO (codex) solves directly.
 | 1 | Docs 07+08 (data/API lane) | worker-4 | done 2026-09-10 |
 | 1 | Docs 09+10+12 (security/QA lane) | worker-5 | done 2026-09-10 |
 | 1 | Lead review of doc set (consistency, cross-refs, no divergence) | lead | done 2026-09-10 |
-| 1 | CTO gate: deliverable docs (substitute opus critic, per decision #4) | CTO | REVISE → fix round 1 in progress (workers 1/2/4/5) |
-| 2 | Implementation waves (decomposed from approved docs) | workers | blocked by Wave-1 gate |
+| 1 | CTO gate: deliverable docs (substitute opus critic, per decision #4) | CTO | APPROVED 2026-09-10 (decision #6) — merged to develop |
+| 2 | Implementation waves (decomposed from approved docs) | workers | unblocked — see .omc/handoffs/wave2-plan-draft.md |
 | 3 | Test/UAT/pentest/manual deliverables 17–21 | workers | blocked by Wave 2 |
 
 ## 4. CTO decision log (append-only)
@@ -75,6 +75,7 @@ CTO (codex) solves directly.
 | 3 | 2026-09-10 | Lead review of 12-doc set PASSED: REQ SRS↔RTM 1:1 (94); all RTM TC refs resolve in doc 12 (168 TC defs, 21 series); UAT-001..065 mapped; DCR numbering unified to §8 register (strict-mode=DCR-6); RTM FR-NEWS-009 TC ref fixed to TC-SEC-011; role matrices 08↔09 agree; 9 tables + 13 components covered; HANDOVER fixed per DCR-1/2 | REVIEW PASSED (lead) → to CTO gate |
 | 4 | 2026-09-10 | codex CTO gate ABORTED — account usage limit hit (resets 2026-09-15 09:01 or on credit top-up); no verdict produced (.omc/artifacts/cto-gate-wave1.md). SUBSTITUTE: Wave-1 docs gate runs via independent opus critic agent (read-only, fresh context, same verdict contract — not lead self-approval). codex remains BINDING for auth/security/data-lane CODE merges in Wave 2; if still rate-limited at that point, merges hold until codex returns or user tops up credits (surfaced to user) | OUTAGE PROTOCOL (lead, per full-authority grant) |
 | 5 | 2026-09-10 | Substitute CTO gate verdict = **REVISE** (full verdict: .omc/artifacts/cto-gate-wave1-substitute.md). All 8 DCRs RATIFIED. STRICT dual-control ruling adopted (no role incl. admin reaches 'synced' outside checker approve; state+identity guards; workflow fields server-controlled; break-glass = separate future requirement). Wave-2 priorities ratified: P0 dual-control bundle (DCR-3+7 + AUD-P01/02/03) → DCR-8 (prefer REMOVAL of POST /api/audit-logs) → AUD-P06/05/07; P1 strict mode + shared rate-limit store + sync webhook; P2 envelope + RWX + migration tooling; P3 dead-enum + audit hardening + DB immutability. 3 blockers (SRS FR-NEWS-009 carve-out; doc 12 TC-SEC-011 carve-out; doc 07 §12 DCR numbering) → fix round dispatched to workers 2/5/4 + RISK-022/023 to worker-1; critic re-review limited to the three fixes → APPROVE flip | REVISE — fix round 1 of 3 (lead executed, per decision #4 authority) |
+| 6 | 2026-09-10 | Substitute CTO gate re-verification of fix round (commit 43d8591): **APPROVE** — all 3 blockers closed exactly as ruled, no new defects; regression integrity held (94 REQ, 168 TCs, as-built pins intact). Merge to develop AUTHORIZED; Wave-2 decomposition authorized per ratified priorities. **Conditions riding the approval:** (1) Wave-2 auth/security/data merges still require codex PASS — DCR-3+7 and DCR-8 sit in that lane (hold if codex limited, per #4); (2) flip-test discipline — when TC-NEWS-011/CMS-008/SEC-012/013 pins flip due to fixes, linked DCR/REQ/TC statuses in docs 03/04/12 flip in the SAME PR; (3) resolve rejected-item re-submission UX during P0 decomposition (doc 09 §8.3 rule 4), not after implementation; (4) P0 order as ratified. Watch items: strip workflow fields at payload-validation layer (governs future bulk endpoints too); tighten ~74 non-RTM TC→REQ mappings to specific IDs before Doc 17 | APPROVE (substitute critic; codex binding for W2 code merges unchanged) |
 
 ## 8. DCR register (doc change requests)
 

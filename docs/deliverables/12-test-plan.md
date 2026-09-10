@@ -1,6 +1,6 @@
 # Deliverable 12 — Test Plan
 
-**Version:** 1.2.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
 
 > **Change log** — **1.2.0 (2026-09-10)**: CTO gate REVISE — TC-SEC-011 and
 > TC-COMP-001 aligned to the strict dual-control ruling (no role carve-out:

@@ -1,6 +1,6 @@
 # Deliverable 10 — Audit Log Design
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.0.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval
 
 > This document describes the audit trail **AS BUILT**. Sources of truth:
 > `server.ts` (`recordAudit()` and every call site; `audit_logs` DDL),

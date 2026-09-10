@@ -1,6 +1,6 @@
 # Risk Register — KB J Capital Intranet Rebuild
 
-**Version:** 1.2.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 1.2.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval
 
 > **Change log:** 1.2.0 — added RISK-022 (DCR-7, dual-control state-machine bypass) and RISK-023 (DCR-8, audit-trail fabrication) per CTO gate REVISE Blocker 3; register now 23 risks. 1.1.0 — added RISK-021 (maker-checker bypass on `/api/news`, verified at `server.ts:1306`), lead-triaged as DCR-3, pending CTO ratification at the Wave-1 gate. 1.0.0 — initial register (20 risks).
 

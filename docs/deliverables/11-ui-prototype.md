@@ -1,6 +1,6 @@
 # UI Prototype Record — KB J Capital Intranet Portal
 
-**Version:** 1.0.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 1.0.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-1 → Lead review → CTO approval
 
 > This document records the **actual React SPA as the approved prototype** —
 > there is no separate Figma/mockup artifact; the running application is the

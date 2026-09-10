@@ -1,6 +1,6 @@
 # 07 — Data Dictionary
 
-**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
 
 AS-BUILT reference for every data structure the KB J Capital Intranet & CMS Portal persists. Compiled directly from `scripts/schema.sql` (canonical PostgreSQL DDL), the `PG_DDL` constant and repository implementations in `server.ts`, the shared types in `src/types.ts`, and the tooling in `scripts/migrate.js` / `scripts/seed-users.js`. Compliance context: Bank of Thailand (BOT) financial-institution governance and Thailand PDPA B.E. 2562.
 

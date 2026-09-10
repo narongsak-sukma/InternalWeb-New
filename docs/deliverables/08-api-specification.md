@@ -1,6 +1,6 @@
 # 08 — API Specification
 
-**Version:** 1.1.0 · **Status:** Draft · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Approved · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval
 
 Complete as-built specification of the HTTP API served by the Express gateway in `server.ts` (bundled to `dist/server.cjs`). Every endpoint, status code, validation rule, default value, and side effect below was extracted from the code — nothing is aspirational. A machine-readable (partial) mirror is served at `GET /api/openapi.json`.
 
