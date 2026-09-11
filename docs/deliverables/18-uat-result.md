@@ -1,6 +1,15 @@
 # Deliverable 18 — UAT Result
 
-**Version:** 0.2.1 · **Status:** **Approved** (codex re-gate 1 APPROVE @ `f70ae51`, 2026-09-11, decision #23 — `.omc/artifacts/cto-gate-doc18-regate1-verdict.md`; approved **as a technical UAT record** — L6 exit conditional on recorded 18a nominee acceptance + obs-U1 offline-sim before Release review) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 0.3.0 · **Status:** **Reviewed** (codex re-gate 1 APPROVE @ `f70ae51`, decision #23 — approved as a technical UAT record; v0.3.0 obs-U1 closure + UAT-043 flip — re-gate 2 in flight) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+
+> **v0.3.0 (obs-U1 closure — re-gate-1 rider "offline-simulation evidence
+> required before Release review"):** new evidence class **O** (§3): worker-2
+> lane `tests/uat-offline-sim.mjs` (:3225, 14:19:40Z→14:20:31Z @ git
+> `f9c1f55`) — run `run-2026-09-11T1419Z-offlinesim`: **6 PASS / 0 FAIL**,
+> exit 0; offline badge byte-for-byte + bundled sample data + honest
+> offline-login refusal + full recovery. **UAT-043 NOT TESTED → PASS** (§5;
+> tally 62 PASS · 0 NOT TESTED); obs-U1 disposition EXECUTED (§7); the L6
+> outstanding list reduces to the 18a nominee sign-off (§6).
 
 > **v0.2.1 (codex re-gate 1 = APPROVE, decision #23 — 4 NITs applied):**
 > (1) the lead-review ruling (a) and the UAT-1 A4-toast sentence are labeled
@@ -97,7 +106,7 @@ Doc 12 §5 defines the six scenarios as UI journeys; the repo's walkthrough
 real-browser assertions. Steps not covered were executed as **scripted API
 probes in the Doc 19 §5 lane-executed style** (every probe logs method +
 path + payload + raw status + untruncated response body; passwords uniformly
-redacted). Each UAT-0nn verdict cites one of four evidence classes:
+redacted). Each UAT-0nn verdict cites one of six evidence classes:
 
 | Class | Meaning | Record |
 |---|---|---|
@@ -105,6 +114,7 @@ redacted). Each UAT-0nn verdict cites one of four evidence classes:
 | **P** | Lane probe (scripted curl/node, Doc 19 style) | `.omc/reports/w3-4-uat/probe-*.log` — **43 literal verdicts in the main families: 42 PASS + 1 FAIL**, plus one successful PDF-upload record logged without an explicit verdict line (3 logged probes, 2 verdict lines — `probe-uat2-uploads.log`) (the FAIL is a probe-script assertion bug, not a product behavior — corrected re-probe `probe-export-shape-corrected.log` → PASS; judgment call J-7), **plus 5 addendum PASS** (§5 rows UAT-028/032) = **48 literal PASS verdicts + 1 retained FAIL record** overall *(v0.2.0: counts restated as literal `VERDICT:` lines per the gate-1 ruling; the original logs are unchanged)* |
 | **V** | Visual/UI capture leg (`tests/uat-visuals.mjs`, new lane file) | runId **`run-2026-09-11T1255Z-uat`** — `visuals-results.json`: **PASS=6 FAIL=0** (V0 prep + V1..V5), exit 0; 8 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0, re-verified fresh) |
 | **J** | Journey-evidence leg (gate-1 fix cycle; `tests/uat-journey-evidence.mjs`, new lane file) | runId **`run-2026-09-11T1344Z-uat2`** — `journey-results.json`: **15 PASS / 0 FAIL** (S0 bootstrap + J1/J2/J3 legs), exit 0; 10 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0); J3 toast ledger: 8 sweeps, summed error surfacing = **0** |
+| **O** | Offline-simulation leg (obs-U1 closure, v0.3.0; `tests/uat-offline-sim.mjs`, new lane file) | runId **`run-2026-09-11T1419Z-offlinesim`** — `offline-results.json`: **6 PASS / 0 FAIL** (+1 non-gating OBS), exit 0; 4 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0) |
 | **C** | Cited standing-suite record (no re-execution this lane) | Doc 17 (L2/L4) and Doc 19 (L5) archived records — used only where the behavior is environment-bound (PG persistence, prod-boot secret guard, timing) and the standing record already asserts it |
 
 **FLAKY disposition (Doc 12 §9 rule 4):** the single W FLAKY is row `S0`
@@ -187,7 +197,7 @@ evidence; **NOT TESTED** where no executable path exists (never inferred).
 | UAT-040 CMS view gating | PASS | B14 nav-limited + A6 gate (W) + V5 deep-link `#nav-cms=0`, System Dashboard=0 (V) |
 | UAT-041 role-conditional CMS controls | PASS | C5 maker sees no Approve/Reject; C6 no delete/User-Mgmt tab; D4 checker edit allowed / delete forbidden (W) |
 | UAT-042 inline errors/toasts | PASS | C-FR failed save keeps form open with entered data (W) |
-| UAT-043 offline fallback | **NOT TESTED** | No scripted offline-simulation asset exists in any suite (L2–L6; Doc 17 Appendix A records no offline row either). RTM maps FR-CMS-004→UAT-043 (`04-rtm.md:129`) and §5.1 exercises the acceptance refs inside the six scenarios (nominally UAT-1's staff browsing) — the deferral is an **accepted exception** (CTO-ratified, obs-U1 §7; offline-sim evidence required before Release review), not proof of coverage |
+| UAT-043 offline fallback | **PASS** (v0.3.0) | Class **O** (§3): run `run-2026-09-11T1419Z-offlinesim` — offline badge text **byte-for-byte** (`โหมดออฟไลน์ — แสดงข้อมูลตัวอย่าง / Offline mode — showing bundled sample data`, strict `===` + runtime src/App.tsx re-read cross-check) displayed over **bundled sample data** (server-only dual-control marker absent — the server seeds the same bundle, so a unique approved item is the discriminator); offline login retry surfaces the **real network error** with the badge persisting (no fake success); full recovery on reconnect (server marker back, badge gone). *Scope note (honest): the stable logged-in bundled view is not user-reachable — offline login is refused and an offline reload cannot load the SPA — so the badge+bundled state is evidenced at logout-while-offline; the recovery first-paint transient was not captured (recorded as a non-gating OBS).* *(v0.1.0–v0.2.1 history: NOT TESTED — no scripted offline-sim asset existed L2–L6; obs-U1 §7 CTO-ratified exception required this leg before Release review — RTM maps FR-CMS-004→UAT-043 at `04-rtm.md:129`)* |
 | UAT-044 session restore | PASS | V5b reload → still authenticated, no login form (V) |
 | UAT-045 public portal components | PASS | `anon-tools-public` 200 (P) + A1/B1 portal chrome and carousel render (W) |
 | UAT-046 audit actor stamping | PASS | D3 correct actors (maker01/checker01) on trail (W) + server-derived actor fields on LOGIN_FAILED samples (P) |
@@ -209,8 +219,8 @@ evidence; **NOT TESTED** where no executable path exists (never inferred).
 | UAT-064 bilingual fields | PASS | B8 English-title search ("BOT") (W) + `titleEn` carried and returned on created items (P) |
 | UAT-065 Thai dates | PASS | created items return `"publishedAt":"11 ก.ย. 2569"` (Thai-locale, Buddhist era) — verbatim from probe bodies (P) |
 
-**Per-reference tally: 61 PASS · 1 NOT TESTED (UAT-043) · 0 FAIL — 62 distinct
-ids accounted.**
+**Per-reference tally (v0.3.0): 62 PASS · 0 NOT TESTED · 0 FAIL — 62 distinct
+ids accounted.** *(v0.2.1 history: 61 PASS · 1 NOT TESTED (UAT-043).)*
 
 ## 6. Exit-criteria assessment (Doc 12 §7 L6 row)
 
@@ -220,11 +230,12 @@ ids accounted.**
 | "defects ≥S2 = 0 open" | **MET** — zero product defects found at any severity in the lane; nothing ≥S2 open (§7) | §7 register |
 
 **L6 verdict: PENDING.** Executed evidence: 6/6 scenarios technically
-complete (§4) and defects ≥S2 = 0 (§7). Outstanding: (1) **recorded
-business-nominee acceptance** for all six scenarios (18a sheet) per the CTO
-gate-1 ruling — acceptance cannot be substituted by scripted execution;
-(2) the obs-U1 offline-simulation leg before Release-gate review (accepted
-exception, §7).
+complete (§4), defects ≥S2 = 0 (§7), and (v0.3.0) the obs-U1
+offline-simulation leg **EXECUTED** (class O, §3/§10). Outstanding:
+**recorded business-nominee acceptance** for all six scenarios (18a sheet)
+per the CTO gate-1 ruling — acceptance cannot be substituted by scripted
+execution. *(v0.2.1 history: outstanding item (2) "obs-U1 offline-sim
+before Release-gate review" — closed by the v0.3.0 class-O lane.)*
 
 ## 7. Findings register (Doc 12 §8 format)
 
@@ -236,7 +247,7 @@ probe, or capture leg.
 
 | id | Severity | Observation | Disposition |
 |---|---|---|---|
-| obs-U1 | S3 (coverage debt) | UAT-043 (FR-CMS-004 offline fallback / offline badge) has no scripted offline-simulation asset in any suite L2–L6; reported **NOT TESTED** per Doc 12 §9 rule 3 rather than inferred | CTO-ratified accepted exception (Doc 18 gate-1, decision #21): an offline-simulation leg (e.g. Playwright `context.setOffline`) is **required before Release-gate review**. UAT-043 is nominally exercised inside scenario UAT-1 per §5.1's containment rule — deferral is an accepted coverage exception, not evidence of coverage |
+| obs-U1 | S3 (coverage debt) | UAT-043 (FR-CMS-004 offline fallback / offline badge) has no scripted offline-simulation asset in any suite L2–L6; reported **NOT TESTED** per Doc 12 §9 rule 3 rather than inferred | CTO-ratified accepted exception (Doc 18 gate-1, decision #21): an offline-simulation leg (e.g. Playwright `context.setOffline`) is **required before Release-gate review**. UAT-043 is nominally exercised inside scenario UAT-1 per §5.1's containment rule — deferral is an accepted coverage exception, not evidence of coverage. **EXECUTED 2026-09-11 (v0.3.0)**: the required offline-sim leg ran as the class-O lane (§10) — 6 PASS / 0 FAIL, exit 0; UAT-043 flipped to PASS (§5). Debt closed pending codex re-gate 2 |
 
 **Lane annotations (verification-methodology notes, retained per
 annotate-not-rewrite; none are product findings):**
@@ -391,6 +402,41 @@ this document together with the lane's evidence set per the W3-4 dispatch.
   / `draft-reopened-with-image` / `submitted-pending-row`; J2
   `reject-dialog-thai-reason` / `rejected-row` / `resubmitted-pending` /
   `approved-synced` / `audit-both-decisions`.
+
+**Offline simulation (class O — obs-U1 closure, worker-2 lane, v0.3.0)**
+
+- `tests/uat-offline-sim.mjs` — new lane file (modeled on the
+  visuals/journey lane files; RUN_ID suffix `-offlinesim`; untracked outputs
+  only — no tracked file touched; lead gates on the changed tree: tsc 0 ·
+  build 0 · smoke 108/108 · node --check 0 · secrets clean,
+  `.omc/reports/offlinesim-lead-gates.log`).
+- `.omc/reports/w3-4-offlinesim.log` — lane transcript (header pins git
+  `f9c1f55` + verbatim status; build / node-check / run exits all 0;
+  SUMMARY PASS=6 FAIL=0; teardown `PORT_3225_RELEASED=OK` with post-SIGTERM
+  healthz=000/listeners=0 proof, `no_tmp_residue=CONFIRMED`;
+  14:19:40Z→14:20:31Z). Runs 1–3 INVALID-marked via sibling files after
+  harness-side bugs (missing password default in a helper; emulation-lag
+  timeouts fixed by an in-page connectivity probe; login-form
+  password-clearing race fixed by re-fill) — run 4 is the evidence run.
+- `.omc/reports/w3-4-uat/offline-results.json` — runId
+  `run-2026-09-11T1419Z-offlinesim`, 6 PASS / 0 FAIL + 1 non-gating OBS
+  (O0 boot+provision · O0-MARKER dual-control approved marker · O1 online
+  baseline · O2a badge byte-for-byte · O2b offline login refused · O3
+  recovery).
+- `.omc/reports/screenshots/run-2026-09-11T1419Z-offlinesim/` — 4 PNGs +
+  `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0): O1 online server data,
+  O2a badge after logout-while-offline, O2b offline login refused + badge
+  persists, O3 recovered server data + badge gone.
+- Lane judgment calls (all lead-ACCEPTED): admin password generated via
+  `openssl rand` and never logged (placeholder in transcript; same class as
+  the journey-lane precedent); server-vs-bundle discrimination via a unique
+  dual-control-approved news item (the server seeds the same
+  `INITIAL_NEWS` bundle, so the approved marker is the only server-only
+  content); the stable logged-in bundled view is NOT user-reachable
+  (offline login refused; offline reload cannot load the same-origin SPA)
+  so the badge+bundled state is evidenced at logout-while-offline, with the
+  recovery first-paint transient recorded as an honest non-captured OBS;
+  badge asserted byte-for-byte with a runtime source re-read cross-check.
 
 **Sign-off instrument**
 
