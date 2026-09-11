@@ -1,6 +1,6 @@
 # Deliverable 17 — System Test Result
 
-**Version:** 1.1.1 · **Status:** Draft (awaiting codex re-gate 2) · **Date:** 2026-09-11 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.1.2 · **Status:** **Approved** (codex re-gate 2 @ `f11e4fe`, 2026-09-11 — `.omc/artifacts/cto-gate-doc17-regate2-verdict.md`) · **Date:** 2026-09-11 · **Author:** worker-5 → Lead review → CTO approval
 
 > v1.0.1 (lead review pass): TC-SYS-006 kustomize half re-executed by the
 > lead with raw-log capture (`tc-sys-006-kustomize-rerun.log`) closing §3.6
@@ -568,9 +568,11 @@ Evidence files are unmodified archives (no edits by this author).
   default-mode report cited throughout §2/§3.3: 108/108 passed; generated
   2026-09-11T10:08:31.188Z; Node v24.13.1 darwin 25.5.0; spawned
   `dist/server.cjs` on :3210; in-memory mode. **Live-file caveat:** the
-  harness overwrites this fixed filename per run — the on-disk file NOW
-  holds the W3-2R PG-run-2 report (stamp 10:33:21.471Z, 127/127), same code
-  tree; the 10:08:31Z values here are historical record, and the durable
+  harness overwrites this fixed filename per run — as of the v1.1.1
+  revision (10:5xZ) the on-disk file held the W3-2R PG-run-2 report (stamp
+  10:33:21.471Z, 127/127; it has since advanced again with subsequent
+  lanes' runs), same code tree; the 10:08:31Z values here are historical
+  record, and the durable
   transcript-form evidence for the current head is
   `w3r1-standing-gates.log` §3.
 - `.omc/reports/w3fix1-pg-run-1.log` — W3-FIX-1 PG opt-in run 1: 127/127 in
@@ -686,9 +688,10 @@ completeness: aggregate green counts above say nothing about catalog
 coverage; this table is the coverage claim.
 
 **Totals: 157 rows — 100 PASS · 18 PARTIAL · 39 NOT COVERED at L2/L3**
-*(v1.1.0-draft counts were 97/18/42; the three P0 closures and the
-v1.1.1 executed-assertion closures below shift PASS up — A.19 is the
-authoritative reconciliation).*
+*(v1.1.0-draft counts were 97/18/42; only the three P0 closures shifted
+PASS up — the v1.1.1 executed-assertion closures upgraded evidence on rows
+already counted PASS and changed no totals; A.19 is the authoritative
+reconciliation).*
 
 ### A.1 §6.1 Authentication — AUTH
 
