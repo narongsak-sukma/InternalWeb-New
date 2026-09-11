@@ -41,11 +41,11 @@ app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
-// Middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 // Enterprise Security Headers (OWASP & BOT Compliance)
+// Mounted BEFORE the body parsers so headers are set on `res` on the way in —
+// every downstream response, including body-parser error envelopes (400
+// malformed JSON / 413 payload too large) from the final error handler,
+// carries all five headers.
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -54,6 +54,10 @@ app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   next();
 });
+
+// Middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logger for K8s ingress diagnostics (Structured JSON logging ready for Logstash/CloudWatch)
 app.use((req, res, next) => {
