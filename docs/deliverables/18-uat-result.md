@@ -1,13 +1,30 @@
 # Deliverable 18 — UAT Result
 
-**Version:** 0.3.0 · **Status:** **Reviewed** (codex re-gate 1 APPROVE @ `f70ae51`, decision #23 — approved as a technical UAT record; v0.3.0 obs-U1 closure + UAT-043 flip — re-gate 2 in flight) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 0.3.1 · **Status:** **Reviewed** (codex re-gate 1 APPROVE @ `f70ae51`, decision #23 — approved as a technical UAT record; v0.3.1 re-gate-2 blocker closure — re-gate 3 in flight) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+
+> **v0.3.1 (re-gate-2 blocker closure — decision #24):** the re-gate-2
+> verdict ruled UAT-043's v0.3.0 PASS overclaimed (O2a evidences the badge
+> over the login screen; FR-CMS-004(a) rendered-bundled-content acceptance
+> uncovered) and offered **supplying covering evidence** as a closure path.
+> Executed: the class-O lane extended with a **surgical data-endpoint
+> outage leg (O4, route-abort)** — run `run-2026-09-11T1501Z-offlinesim`
+> (**10 PASS / 0 FAIL / +1 non-gating OBS**, exit 0): O4a renders
+> **bundled news/rooms/banners in the logged-in portal under the badge**
+> with the server-only marker strictly absent (acceptance (a)); O4b surfaces
+> the exact authenticated sync-failure toast — no silent substitution
+> (acceptance (b)); O4c recovers — server data back, badge gone (acceptance
+> (c)). UAT-043 stays **PASS** on full covering evidence (§5); §3/§10
+> records updated; slash-separated badge renderings now labeled two-line
+> transcriptions (re-gate-2 NIT).
 
 > **v0.3.0 (obs-U1 closure — re-gate-1 rider "offline-simulation evidence
 > required before Release review"):** new evidence class **O** (§3): worker-2
 > lane `tests/uat-offline-sim.mjs` (:3225, 14:19:40Z→14:20:31Z @ git
 > `f9c1f55`) — run `run-2026-09-11T1419Z-offlinesim`: **6 PASS / 0 FAIL**,
-> exit 0; offline badge byte-for-byte + bundled sample data + honest
-> offline-login refusal + full recovery. **UAT-043 NOT TESTED → PASS** (§5;
+> exit 0; offline badge byte-for-byte + bundled sample data *(claim narrowed
+> by re-gate 2, decision #24 — rendered-content covering evidence supplied
+> at v0.3.1)* + honest offline-login refusal + full recovery.
+> **UAT-043 NOT TESTED → PASS** (§5;
 > tally 62 PASS · 0 NOT TESTED); obs-U1 disposition EXECUTED (§7); the L6
 > outstanding list reduces to the 18a nominee sign-off (§6).
 
@@ -114,7 +131,7 @@ redacted). Each UAT-0nn verdict cites one of six evidence classes:
 | **P** | Lane probe (scripted curl/node, Doc 19 style) | `.omc/reports/w3-4-uat/probe-*.log` — **43 literal verdicts in the main families: 42 PASS + 1 FAIL**, plus one successful PDF-upload record logged without an explicit verdict line (3 logged probes, 2 verdict lines — `probe-uat2-uploads.log`) (the FAIL is a probe-script assertion bug, not a product behavior — corrected re-probe `probe-export-shape-corrected.log` → PASS; judgment call J-7), **plus 5 addendum PASS** (§5 rows UAT-028/032) = **48 literal PASS verdicts + 1 retained FAIL record** overall *(v0.2.0: counts restated as literal `VERDICT:` lines per the gate-1 ruling; the original logs are unchanged)* |
 | **V** | Visual/UI capture leg (`tests/uat-visuals.mjs`, new lane file) | runId **`run-2026-09-11T1255Z-uat`** — `visuals-results.json`: **PASS=6 FAIL=0** (V0 prep + V1..V5), exit 0; 8 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0, re-verified fresh) |
 | **J** | Journey-evidence leg (gate-1 fix cycle; `tests/uat-journey-evidence.mjs`, new lane file) | runId **`run-2026-09-11T1344Z-uat2`** — `journey-results.json`: **15 PASS / 0 FAIL** (S0 bootstrap + J1/J2/J3 legs), exit 0; 10 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0); J3 toast ledger: 8 sweeps, summed error surfacing = **0** |
-| **O** | Offline-simulation leg (obs-U1 closure, v0.3.0; `tests/uat-offline-sim.mjs`, new lane file) | runId **`run-2026-09-11T1419Z-offlinesim`** — `offline-results.json`: **6 PASS / 0 FAIL** (+1 non-gating OBS), exit 0; 4 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0) |
+| **O** | Offline-simulation leg (obs-U1 closure v0.3.0; re-gate-2 blocker closure v0.3.1; `tests/uat-offline-sim.mjs`, new lane file) | runId **`run-2026-09-11T1501Z-offlinesim`** — `offline-results.json`: **10 PASS / 0 FAIL** (+1 non-gating OBS), exit 0 (full-offline legs O0–O3 + route-abort data-outage legs O4-SETUP/O4a/O4b/O4c); 8 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0). *(v0.3.0 history: first execution `run-2026-09-11T1419Z-offlinesim` — 6 PASS / 0 FAIL, 4 PNGs — superseded by this extended run of the same file; both runs' transcripts retained)* |
 | **C** | Cited standing-suite record (no re-execution this lane) | Doc 17 (L2/L4) and Doc 19 (L5) archived records — used only where the behavior is environment-bound (PG persistence, prod-boot secret guard, timing) and the standing record already asserts it |
 
 **FLAKY disposition (Doc 12 §9 rule 4):** the single W FLAKY is row `S0`
@@ -197,7 +214,7 @@ evidence; **NOT TESTED** where no executable path exists (never inferred).
 | UAT-040 CMS view gating | PASS | B14 nav-limited + A6 gate (W) + V5 deep-link `#nav-cms=0`, System Dashboard=0 (V) |
 | UAT-041 role-conditional CMS controls | PASS | C5 maker sees no Approve/Reject; C6 no delete/User-Mgmt tab; D4 checker edit allowed / delete forbidden (W) |
 | UAT-042 inline errors/toasts | PASS | C-FR failed save keeps form open with entered data (W) |
-| UAT-043 offline fallback | **PASS** (v0.3.0) | Class **O** (§3): run `run-2026-09-11T1419Z-offlinesim` — offline badge text **byte-for-byte** (`โหมดออฟไลน์ — แสดงข้อมูลตัวอย่าง / Offline mode — showing bundled sample data`, strict `===` + runtime src/App.tsx re-read cross-check) displayed over **bundled sample data** (server-only dual-control marker absent — the server seeds the same bundle, so a unique approved item is the discriminator); offline login retry surfaces the **real network error** with the badge persisting (no fake success); full recovery on reconnect (server marker back, badge gone). *Scope note (honest): the stable logged-in bundled view is not user-reachable — offline login is refused and an offline reload cannot load the SPA — so the badge+bundled state is evidenced at logout-while-offline; the recovery first-paint transient was not captured (recorded as a non-gating OBS).* *(v0.1.0–v0.2.1 history: NOT TESTED — no scripted offline-sim asset existed L2–L6; obs-U1 §7 CTO-ratified exception required this leg before Release review — RTM maps FR-CMS-004→UAT-043 at `04-rtm.md:129`)* |
+| UAT-043 offline fallback | **PASS** (v0.3.0; evidence completed v0.3.1) | Class **O** (§3): run `run-2026-09-11T1501Z-offlinesim` — FR-CMS-004 acceptance covered in two complementary legs. **(a) rendered sample content with the badge (O4a, v0.3.1 — surgical data-endpoint route-abort at login-hydration; deterministic; honestly labeled route-abort, not `context.setOffline` — JC5):** the logged-in portal (staff01 real UI login) renders bundled news `บริษัทฯ ขอแจ้งเตือนภัยทุจริต (Anti-Fraud Alert)`, bundled room `Kookmin Room` (after the real Meeting-Rooms-tab click), and bundled banner `เรื่องเงินจบไว ไว้ใจ KASHJOY !` under the offline badge — badge text asserted **strict `===` byte-for-byte** (actual string is two lines, Thai line then English line; transcribed inline with a slash as `โหมดออฟไลน์ — แสดงข้อมูลตัวอย่าง / Offline mode — showing bundled sample data` — re-gate-2 NIT label; runtime src/App.tsx re-read cross-check); server-only dual-control marker strictly absent (count 0; the server seeds the same bundle, so a unique approved item is the discriminator). **(b) authenticated data never silently substituted (O4b):** exact toast `Directory/documents sync failed: Cannot reach server (network error)` strict `===` (composed from src/App.tsx:181 + src/api.ts:90) — contacts/documents hydration errors out; sample substitution is confined to public surfaces. **(c) badge clears on reconnect (O4c):** `unrouteAll` + real `page.reload()` → server-seeded news returns (polled) and badge count = 0 (strict). **Full-offline corroboration (O2 legs, v0.3.0):** logout-while-offline shows the badge byte-for-byte; offline login retry is refused with the real network error and the badge persists (no fake success); recovery returns server data with the badge gone. *Scope note (honest): the stable logged-in bundled view is not reachable under full offline (offline login refused; an offline reload cannot load the same-origin SPA) — which is precisely why acceptance (a) is evidenced by the surgical data-outage leg O4: `route.abort()` drives the identical client code path (fetch rejection → `publicGet` bundled fallback + offline flag) while the SPA is still served; the recovery first-paint transient was not captured (recorded as a non-gating OBS).* *(v0.3.0 history: the initial PASS rested on the O2 legs alone — re-gate 2, decision #24, ruled the rendered-bundled-content acceptance uncovered; the O4 leg supplied the covering evidence. v0.1.0–v0.2.1 history: NOT TESTED — no scripted offline-sim asset existed L2–L6; obs-U1 §7 CTO-ratified exception required this leg before Release review — RTM maps FR-CMS-004→UAT-043 at `04-rtm.md:129`)* |
 | UAT-044 session restore | PASS | V5b reload → still authenticated, no login form (V) |
 | UAT-045 public portal components | PASS | `anon-tools-public` 200 (P) + A1/B1 portal chrome and carousel render (W) |
 | UAT-046 audit actor stamping | PASS | D3 correct actors (maker01/checker01) on trail (W) + server-derived actor fields on LOGIN_FAILED samples (P) |
@@ -231,11 +248,15 @@ ids accounted.** *(v0.2.1 history: 61 PASS · 1 NOT TESTED (UAT-043).)*
 
 **L6 verdict: PENDING.** Executed evidence: 6/6 scenarios technically
 complete (§4), defects ≥S2 = 0 (§7), and (v0.3.0) the obs-U1
-offline-simulation leg **EXECUTED** (class O, §3/§10). Outstanding:
-**recorded business-nominee acceptance** for all six scenarios (18a sheet)
-per the CTO gate-1 ruling — acceptance cannot be substituted by scripted
+offline-simulation leg **EXECUTED** (class O, §3/§10), completed at v0.3.1
+with the re-gate-2 covering-evidence leg O4 — FR-CMS-004 acceptance
+(a)/(b)/(c) all evidenced (§5 UAT-043). Outstanding: **recorded
+business-nominee acceptance** for all six scenarios (18a sheet) per the
+CTO gate-1 ruling — acceptance cannot be substituted by scripted
 execution. *(v0.2.1 history: outstanding item (2) "obs-U1 offline-sim
-before Release-gate review" — closed by the v0.3.0 class-O lane.)*
+before Release-gate review" — closed by the v0.3.0 class-O lane. v0.3.0
+history: re-gate 2, decision #24, ruled the outstanding list could not yet
+reduce solely to 18a — resolved by the v0.3.1 O4 covering evidence.)*
 
 ## 7. Findings register (Doc 12 §8 format)
 
@@ -247,7 +268,7 @@ probe, or capture leg.
 
 | id | Severity | Observation | Disposition |
 |---|---|---|---|
-| obs-U1 | S3 (coverage debt) | UAT-043 (FR-CMS-004 offline fallback / offline badge) has no scripted offline-simulation asset in any suite L2–L6; reported **NOT TESTED** per Doc 12 §9 rule 3 rather than inferred | CTO-ratified accepted exception (Doc 18 gate-1, decision #21): an offline-simulation leg (e.g. Playwright `context.setOffline`) is **required before Release-gate review**. UAT-043 is nominally exercised inside scenario UAT-1 per §5.1's containment rule — deferral is an accepted coverage exception, not evidence of coverage. **EXECUTED 2026-09-11 (v0.3.0)**: the required offline-sim leg ran as the class-O lane (§10) — 6 PASS / 0 FAIL, exit 0; UAT-043 flipped to PASS (§5). Debt closed pending codex re-gate 2 |
+| obs-U1 | S3 (coverage debt) | UAT-043 (FR-CMS-004 offline fallback / offline badge) has no scripted offline-simulation asset in any suite L2–L6; reported **NOT TESTED** per Doc 12 §9 rule 3 rather than inferred | CTO-ratified accepted exception (Doc 18 gate-1, decision #21): an offline-simulation leg (e.g. Playwright `context.setOffline`) is **required before Release-gate review**. UAT-043 is nominally exercised inside scenario UAT-1 per §5.1's containment rule — deferral is an accepted coverage exception, not evidence of coverage. **EXECUTED 2026-09-11 (v0.3.0)**: the required offline-sim leg ran as the class-O lane (§10) — 6 PASS / 0 FAIL, exit 0; UAT-043 flipped to PASS (§5). Debt closed pending codex re-gate 2 → re-gate 2 (decision #24) demanded rendered-content covering evidence → **O4 leg executed (v0.3.1)**: run `run-2026-09-11T1501Z-offlinesim` 10 PASS / 0 FAIL, exit 0 — acceptance (a)/(b)/(c) all evidenced (§5 UAT-043) |
 
 **Lane annotations (verification-methodology notes, retained per
 annotate-not-rewrite; none are product findings):**
@@ -403,7 +424,7 @@ this document together with the lane's evidence set per the W3-4 dispatch.
   `reject-dialog-thai-reason` / `rejected-row` / `resubmitted-pending` /
   `approved-synced` / `audit-both-decisions`.
 
-**Offline simulation (class O — obs-U1 closure, worker-2 lane, v0.3.0)**
+**Offline simulation (class O — obs-U1 closure v0.3.0 + re-gate-2 covering evidence v0.3.1; worker-2 lanes)**
 
 - `tests/uat-offline-sim.mjs` — new lane file (modeled on the
   visuals/journey lane files; RUN_ID suffix `-offlinesim`; untracked outputs
@@ -437,6 +458,52 @@ this document together with the lane's evidence set per the W3-4 dispatch.
   so the badge+bundled state is evidenced at logout-while-offline, with the
   recovery first-paint transient recorded as an honest non-captured OBS;
   badge asserted byte-for-byte with a runtime source re-read cross-check.
+
+**v0.3.1 extension (re-gate-2 blocker closure — W3-4O-2 lane, same file
+extended):**
+
+- `tests/uat-offline-sim.mjs` — the O4 leg added (the file's only tracked
+  change, `M` on top of the v0.3.0 commit). Lead gates on the changed tree
+  (tsc 0 · build 0 · smoke 108/108 exit 0 · node --check 0 · secrets
+  clean): `.omc/reports/offlinesim2-lead-gates.log`.
+- `.omc/reports/w3-4-offlinesim2.log` — evidence-run transcript (run 3):
+  header pins git `45187c8` + the verbatim ` M tests/uat-offline-sim.mjs`
+  status, node v24.13.1 / Playwright 1.63.0; run exit 0; SUMMARY
+  PASS=10 FAIL=0 OBS=1; teardown `PORT_3225_RELEASED=OK` (post-SIGTERM
+  healthz=000, listeners=0), `no_tmp_residue=CONFIRMED`;
+  15:01:13Z→15:01:21Z. Runs 1–2 INVALID-marked via sibling files after
+  harness-side targeting bugs (run 1 assumed the rooms grid renders in the
+  default directory view — it renders only under `activeTab='rooms'`; run
+  2's "Meeting Rooms Plan" text-filter click resolved to the QuickToolsBar
+  button instead of the tab — fixed by targeting the stable id
+  `#tab-meeting-rooms`).
+- `.omc/reports/w3-4-uat/offline-results.json` — overwritten by the
+  evidence run: runId `run-2026-09-11T1501Z-offlinesim`, **10 PASS / 0
+  FAIL + 1 non-gating OBS** (O0 · O0-MARKER · O1 · O2a · O2b ·
+  O3-TRANSIENT:OBS · O3 · **O4-SETUP · O4a · O4b · O4c**). The v0.3.0
+  1419Z counts live on in the retained `w3-4-offlinesim.log` transcript.
+- `.omc/reports/screenshots/run-2026-09-11T1501Z-offlinesim/` — 8 PNGs +
+  `MANIFEST.sha256` (shasum → exit 0): the four v0.3.0-style captures plus
+  `o4a-routeaborted-portal-bundled-content-badge.png` and
+  `o4a-routeaborted-newscard-badge-closeup.png` (the blocker-closing
+  artifact — bundled news card + two-line badge in one crop; lead-verified
+  visually), `o4b-routeaborted-directory-docs-sync-failed-toast.png`,
+  `o4c-unrouteall-reload-server-news-back-badge-gone.png`. The v0.3.0
+  4-PNG dir `run-2026-09-11T1419Z-offlinesim/` retained as history.
+- Extension judgment calls (JC5–JC7, lead-ACCEPTED; JC1–JC4 unchanged):
+  **JC5** O4 is a surgical data-endpoint **route-abort** outage, NOT
+  `context.setOffline` (the full-offline legs O2a/O2b stay as-is) —
+  `route.abort()` drives the identical client code path (fetch rejection →
+  `publicGet` bundled fallback + offline flag) while the SPA is still
+  served; honestly labeled route-abort everywhere. **JC6** one
+  deterministic outage config armed from setup (no mid-flight route
+  changes); the 3800 ms auto-dismiss toast polled immediately after login
+  and deterministically re-triggered via `page.reload()` if the window was
+  lost; exact toast string strict `===`. **JC7** banner surface asserted
+  via the carousel current-slide title being a bundled `INITIAL_BANNERS`
+  member (during the abort `/api/banners` can never answer, so any
+  rendered banner is necessarily the fallback); room surface via exact
+  `Kookmin Room` `<h4>` after the real Meeting-Rooms tab click.
 
 **Sign-off instrument**
 
