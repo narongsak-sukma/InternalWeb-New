@@ -1,6 +1,18 @@
 # Deliverable 18 — UAT Result
 
-**Version:** 0.1.0 · **Status:** **Reviewed** (lead review PASS, 2026-09-11) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 0.2.0 · **Status:** **Reviewed** (lead review PASS 2026-09-11; codex gate-1 REVISE applied — v0.2.0, awaiting re-gate) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+
+> **v0.2.0 (codex gate-1 = REVISE, decision #21 — fix cycle applied):**
+> (1) §6 criterion-1 no longer declared MET — scripted execution is technical
+> evidence; Doc 12 §11 acceptance requires **recorded business-nominee
+> sign-off** (instrument: `docs/deliverables/18a-uat-signoff-sheet.md`);
+> L6 PENDING. (2) §4 W/P attributions corrected (walkthrough C2 uploads then
+> cancels — attachment journey evidence re-executed; D2's reject reason is
+> English — Thai-reason cycle re-executed in the UI; no-toast criterion now
+> swept explicitly) via the journey-evidence lane (§3 class J). (3) §3 W path
+> fixed (the root `e2e-results.json` is the earlier 1127Z pre-scope run) and
+> probe counts restated as literal verdicts (48 PASS + 1 retained FAIL).
+> UAT-043 rationale restated as an accepted exception per the CTO ruling.
 
 > Assembled strictly from archived evidence captured in the W3-4 lane (transcript
 > `.omc/reports/w3-4-uat.log`, probe logs under `.omc/reports/w3-4-uat/`,
@@ -41,7 +53,10 @@ L6 run produces this document.
 nominees arranged by Lead". For this Wave-3 execution the scenarios were run
 as **scripted role proxies** (worker-1 executing the documented §5 scenario
 steps verbatim through the real UI and API as each role) per the W3-4
-dispatch; formal business-nominee sign-off rides to Lead review (§6).
+dispatch. The CTO gate-1 ruling (decision #21) holds: scripted execution is
+technical evidence only — §11 acceptance requires **recorded business-nominee
+sign-off** (instrument `docs/deliverables/18a-uat-signoff-sheet.md`; §6
+PENDING until the recorded acceptance exists).
 
 **Out of scope (per Doc 12 §10):** L0–L4 → Doc 17; L5 → Doc 19; remediation
 re-runs → Doc 20.
@@ -75,9 +90,10 @@ redacted). Each UAT-0nn verdict cites one of four evidence classes:
 
 | Class | Meaning | Record |
 |---|---|---|
-| **W** | Walkthrough row (real-browser UI journey step) | runId **`run-2026-09-11T1243Z-e2e`** — `.omc/reports/e2e-results.json`: **64 rows = 63 PASS / 1 FLAKY / 0 FAIL**, exit 0; 46 screenshots + `MANIFEST.sha256` in `.omc/reports/screenshots/run-2026-09-11T1243Z-e2e/` (`shasum -a 256 -c` → exit 0, re-verified fresh at Doc 18 assembly) |
-| **P** | Lane probe (scripted curl/node, Doc 19 style) | `.omc/reports/w3-4-uat/probe-*.log` — **44 verdicts in the main families: 43 PASS + 1 FAIL** (the FAIL is a probe-script assertion bug, not a product behavior — corrected re-probe `probe-export-shape-corrected.log` → PASS; judgment call J-7), **plus 5 addendum PASS** (§5 rows UAT-028/032) = **48 PASS product-behavior probe verdicts** |
+| **W** | Walkthrough row (real-browser UI journey step) | runId **`run-2026-09-11T1243Z-e2e`** — `.omc/reports/w3-4-uat/e2e-results.json`: **64 rows = 63 PASS / 1 FLAKY / 0 FAIL**, exit 0; 46 screenshots + `MANIFEST.sha256` in `.omc/reports/screenshots/run-2026-09-11T1243Z-e2e/` (`shasum -a 256 -c` → exit 0, re-verified fresh at Doc 18 assembly). *(v0.2.0: path corrected — the root `.omc/reports/e2e-results.json` holds the earlier `run-2026-09-11T1127Z-e2e` pre-scope harness verification, a different run)* |
+| **P** | Lane probe (scripted curl/node, Doc 19 style) | `.omc/reports/w3-4-uat/probe-*.log` — **43 literal verdicts in the main families: 42 PASS + 1 FAIL**, plus one successful PDF-upload record logged without an explicit verdict line (3 logged probes, 2 verdict lines — `probe-uat2-uploads.log`) (the FAIL is a probe-script assertion bug, not a product behavior — corrected re-probe `probe-export-shape-corrected.log` → PASS; judgment call J-7), **plus 5 addendum PASS** (§5 rows UAT-028/032) = **48 literal PASS verdicts + 1 retained FAIL record** overall *(v0.2.0: counts restated as literal `VERDICT:` lines per the gate-1 ruling; the original logs are unchanged)* |
 | **V** | Visual/UI capture leg (`tests/uat-visuals.mjs`, new lane file) | runId **`run-2026-09-11T1255Z-uat`** — `visuals-results.json`: **PASS=6 FAIL=0** (V0 prep + V1..V5), exit 0; 8 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0, re-verified fresh) |
+| **J** | Journey-evidence leg (gate-1 fix cycle; `tests/uat-journey-evidence.mjs`, new lane file) | runId **`run-2026-09-11T1344Z-uat2`** — `journey-results.json`: **15 PASS / 0 FAIL** (S0 bootstrap + J1/J2/J3 legs), exit 0; 10 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0); J3 toast ledger: 8 sweeps, summed error surfacing = **0** |
 | **C** | Cited standing-suite record (no re-execution this lane) | Doc 17 (L2/L4) and Doc 19 (L5) archived records — used only where the behavior is environment-bound (PG persistence, prod-boot secret guard, timing) and the standing record already asserts it |
 
 **FLAKY disposition (Doc 12 §9 rule 4):** the single W FLAKY is row `S0`
@@ -90,14 +106,20 @@ on the same step = FAIL" rule is not triggered.
 ## 4. Scenario results (Doc 12 §5)
 
 Full-pass criterion per Doc 12 §5: "the scenario completes with the business
-outcome and no error toast". All six scenarios completed with their
-acceptance criteria observed; verdicts below cite the covering rows.
+outcome and no error toast". All six scenarios completed their business
+outcomes with cited evidence. The no-error-toast element is qualified
+(v0.2.0, gate-1 ruling): walkthrough A4 verifies an *expected*
+wrong-password error and cannot alone substantiate toast absence — the
+journey-evidence lane (§3 class J, leg J3) swept **8 success steps with zero
+unexpected error surfacing** (`summedErrorSurfacing=0`; 8 benign success
+toasts recorded — full ledger in `journey-results.json → toastSweeps`).
+Verdicts below cite the covering rows.
 
 | Scenario | Role | Verdict | Evidence (class W unless noted) |
 |---|---|---|---|
 | **UAT-1** — log in → read news → find colleague → open policy document → book room → release it; no CMS/Sync nav | staff | **PASS** | B0 login → portal home; B4 news ("ข่าวสารและประกาศ") loads seeded articles; B5 article modal; B9/B10 Directory ("สมุดโทรศัพท์") search by name + department chips; B13 document open (category filter); B11 book → In-Use; B12 release → available; B14 header badge STAFF, CMS/External nav absent; B17 logout. No error toast (suite asserts bilingual error surfaced only where expected, A4). Supplementary: V5 deep-link gate (V), F1 375px no overflow |
-| **UAT-2** — CMS create w/ attachment → draft → edit → submit → pending (amber); maker cannot approve own item | maker | **PASS** | C0 CMS nav; C1 create; C2 image upload → server URL; draft persists (C3 edit preserves fields on the draft); C4 submit → Thai chip รอการอนุมัติ (amber dot); own-approval blocked server-side (P `maker-self-approve-blocked` → **403**, probe-uat2-maker) and no Approve/Reject controls rendered (C5). Supplementary: P full draft/false create contract; V4 External Web Sync preview (V) |
-| **UAT-3** — approval queue → reject w/ Thai reason → resubmitted item → approve; audit tab shows both | checker | **PASS** | D0 queue visible; D2 reject with required reason → ถูกปฏิเสธ; D0a+D1 resubmitted item approved → เผยแพร่แล้ว + sync log entry (✓ approver stamped); D3 Audit Trail tab lists both decisions with correct actors. Supplementary: P reject cycle (Thai reason `'ทบทวนถ้อยคำภาษาไทยอีกครั้งก่อนเผยแพร่'` → `rejected`; edit-after-reject forced reset to draft; resubmit → approve `synced` + `approvedBy`) |
+| **UAT-2** — CMS create w/ attachment → draft → edit → submit → pending (amber); maker cannot approve own item | maker | **PASS** | C0 CMS nav; C1 create; C4 submit → Thai chip รอการอนุมัติ (amber dot); own-approval blocked server-side (P `maker-self-approve-blocked` → **403**, probe-uat2-maker) and no Approve/Reject controls rendered (C5). Draft edit persistence: C3 (fields preserved) + **J1 (attachment)** — *v0.2.0 attribution fix: walkthrough C2 uploads then cancels the form, so attachment persistence is NOT W-evidenced; J1 closes the gap: the uploaded `/uploads/ecf6a596-…png` survives draft save → editor reopen (form field) → content edit → submit with strict URL equality at every stage, `pending_approval` w/ imageUrl intact*. Supplementary: P full draft/false create contract; V4 External Web Sync preview (V) |
+| **UAT-3** — approval queue → reject w/ Thai reason → resubmitted item → approve; audit tab shows both | checker | **PASS** | D0 queue visible; D2 reject with required reason (input `E2E: wording revision required`, English) → ถูกปฏิเสธ; D0a+D1 resubmitted item approved → เผยแพร่แล้ว + sync log entry (✓ approver stamped); D3 Audit Trail tab lists both decisions with correct actors. **Thai-reason cycle in the real UI (J2)** — *v0.2.0 attribution fix: D2's reason is English, so the Thai cycle was P-only at v0.1.0; J2 closes it: checker rejects with `'ทบทวนถ้อยคำภาษาไทยอีกครั้งก่อนเผยแพร่'` (button disabled while empty), ถูกปฏิเสธ; maker reopens (attachment intact), forced draft ร่าง, resubmit → รอการอนุมัติ; approve → เผยแพร่แล้ว (`synced`, `approvedBy=checker01`); Audit Trail shows BOTH the REJECT (Thai reason in the entry) and APPROVE rows*. Supplementary: P full reject-cycle semantics (forced reset, resubmit, stamps) |
 | **UAT-4** — user lifecycle → self-deactivation blocked → re-activate → sync trigger → export JSON | admin | **PASS** | E0 admin nav; E4 create staff + duplicate 409 inline; E4b deactivate kills login server-side + reactivate restores; self-deactivation refused (P `self-deactivation-blocked` → **400** with clear message, probe-uat4-admin); E6 force sync trigger reports; E7 JSON export downloads; P `system-export-admin` → 200 with **non-zero counts** `{"news":15,"banners":6,"contacts":9,"meeting_rooms":5,"documents":8,"audit_logs":73,"sync_logs":8}` (DCR-1 top-level `tables` shape; corrected re-probe) |
 | **UAT-5** — CMS by URL state; deleted-account login | staff (negative) | **PASS** | V5 staff deep-link `/?view=admin-cms#/cms` → portal chrome renders, `#nav-cms=0`, System Dashboard=0 (view state not URL-addressable; V); A6 deep-link/query params do not bypass auth gate; B14 nav-limited corroboration; deactivated login fails with **generic** error (P `deactivated-login-rejected` → 401, body byte-identical to wrong-password 401 — `generic_error_check: true`, probe-uat5-negative) |
 | **UAT-6** — visit portal logged out | anonymous | **PASS** | A1 `/` shows the login screen (auth gate); V3 login at 375px (V); public surfaces answer anonymous (P: `/api/news` 200 non-empty + search, `/api/banners` 200, `/api/rooms` 200, `/api/tools` 200 — probe-uat6-anonymous); directory/documents/users/audit demand login (P: 401 ×4) |
@@ -154,7 +176,7 @@ evidence; **NOT TESTED** where no executable path exists (never inferred).
 | UAT-040 CMS view gating | PASS | B14 nav-limited + A6 gate (W) + V5 deep-link `#nav-cms=0`, System Dashboard=0 (V) |
 | UAT-041 role-conditional CMS controls | PASS | C5 maker sees no Approve/Reject; C6 no delete/User-Mgmt tab; D4 checker edit allowed / delete forbidden (W) |
 | UAT-042 inline errors/toasts | PASS | C-FR failed save keeps form open with entered data (W) |
-| UAT-043 offline fallback | **NOT TESTED** | No scripted offline-simulation asset exists in any suite (L2–L6; Doc 17 Appendix A records no offline row either). Not a §5 scenario step; recorded as coverage-gap observation obs-U1 (§7), not inferred |
+| UAT-043 offline fallback | **NOT TESTED** | No scripted offline-simulation asset exists in any suite (L2–L6; Doc 17 Appendix A records no offline row either). RTM maps FR-CMS-004→UAT-043 (`04-rtm.md:129`) and §5.1 exercises the acceptance refs inside the six scenarios (nominally UAT-1's staff browsing) — the deferral is an **accepted exception** (CTO-ratified, obs-U1 §7; offline-sim evidence required before Release review), not proof of coverage |
 | UAT-044 session restore | PASS | V5b reload → still authenticated, no login form (V) |
 | UAT-045 public portal components | PASS | `anon-tools-public` 200 (P) + A1/B1 portal chrome and carousel render (W) |
 | UAT-046 audit actor stamping | PASS | D3 correct actors (maker01/checker01) on trail (W) + server-derived actor fields on LOGIN_FAILED samples (P) |
@@ -183,13 +205,15 @@ ids accounted.**
 
 | Criterion (quoted from Doc 12 §7) | Assessment | Evidence |
 |---|---|---|
-| "All 6 UAT scenarios accepted by role proxies" | **MET on executed evidence** — 6/6 scenarios PASS (§4) executed as scripted role proxies on ENV-PROD-MODE with seeded demo data and recorded screen captures (Doc 12 §4 L6 row). **Caveat:** Doc 12 §11 names "business-side nominees arranged by Lead" as the proxy source; this lane's proxies are scripted (per the W3-4 dispatch). Formal nominee sign-off rides to Lead review | §4; W/P/V records |
+| "All 6 UAT scenarios accepted by role proxies" | **PENDING** — technical execution complete: 6/6 scenarios PASS on executed evidence (§4; scripted role proxies on ENV-PROD-MODE, seeded demo data, recorded captures per Doc 12 §4 L6 row). **Doc 12 §11 acceptance is NOT yet satisfied**: recorded business-nominee acceptance must exist for all six scenarios (CTO gate-1 ruling, decision #21 — scripted execution cannot substitute for acceptance). Instrument: `docs/deliverables/18a-uat-signoff-sheet.md` (Thai-first, per-scenario sign-off; nominees test on a live server or review the recorded evidence). **L6 stays PENDING until the recorded acceptance exists** | §4; W/P/V/J records; 18a sheet |
 | "defects ≥S2 = 0 open" | **MET** — zero product defects found at any severity in the lane; nothing ≥S2 open (§7) | §7 register |
 
-**L6 verdict: PASS (exit criteria met on the executed evidence), conditional
-on Lead acceptance of the scripted-proxy method (§1, judgment call J-2 of the
-dispatch) and disposition of obs-U1 (UAT-043 NOT TESTED — S3-class coverage
-debt, not a defect).**
+**L6 verdict: PENDING.** Executed evidence: 6/6 scenarios technically
+complete (§4) and defects ≥S2 = 0 (§7). Outstanding: (1) **recorded
+business-nominee acceptance** for all six scenarios (18a sheet) per the CTO
+gate-1 ruling — acceptance cannot be substituted by scripted execution;
+(2) the obs-U1 offline-simulation leg before Release-gate review (accepted
+exception, §7).
 
 ## 7. Findings register (Doc 12 §8 format)
 
@@ -201,7 +225,7 @@ probe, or capture leg.
 
 | id | Severity | Observation | Disposition |
 |---|---|---|---|
-| obs-U1 | S3 (coverage debt) | UAT-043 (FR-CMS-004 offline fallback / offline badge) has no scripted offline-simulation asset in any suite L2–L6; reported **NOT TESTED** per Doc 12 §9 rule 3 rather than inferred | Flagged for Lead triage: schedule an offline-simulation leg (e.g. Playwright `context.setOffline`) before Release-gate review; not a §5 scenario step, so L6 exit per §7 is unaffected |
+| obs-U1 | S3 (coverage debt) | UAT-043 (FR-CMS-004 offline fallback / offline badge) has no scripted offline-simulation asset in any suite L2–L6; reported **NOT TESTED** per Doc 12 §9 rule 3 rather than inferred | CTO-ratified accepted exception (Doc 18 gate-1, decision #21): an offline-simulation leg (e.g. Playwright `context.setOffline`) is **required before Release-gate review**. UAT-043 is nominally exercised inside scenario UAT-1 per §5.1's containment rule — deferral is an accepted coverage exception, not evidence of coverage |
 
 **Lane annotations (verification-methodology notes, retained per
 annotate-not-rewrite; none are product findings):**
@@ -227,6 +251,12 @@ All three closures captured in run **`run-2026-09-11T1255Z-uat`**
 | 3 | Login screen at 375px mobile | `v3-login-mobile-375.png` (`2f1aec80f91e45b5…`) | In-script overflow assertion (scrollWidth−clientWidth = 0 px); image read confirms centered, no clipping, Thai-first labels verbatim (ชื่อผู้ใช้งาน / Username · รหัสผ่าน / Password · เข้าสู่ระบบ / Sign in), hotline 1258 |
 
 Extra UI legs captured in the same run (supporting §5 rows): `v4-maker-external-web-sync.png` (UAT-055), `v5-staff-deeplink-no-cms.png` + `v5b-session-restore-after-reload.png` (UAT-040/044).
+
+*codex gate-1 NIT (recorded, non-blocking): `hasConsequence` is logged by the
+capture script (`tests/uat-visuals.mjs:138,154`) but is not part of V1's
+in-script failure condition — the archived value is `true` and the image
+visibly contains ร่าง, so the capture stands; future runs should include it
+in the assertion.*
 
 ## 9. Worker judgment calls (flagged for Lead review)
 
@@ -323,6 +353,34 @@ this document together with the lane's evidence set per the W3-4 dispatch.
 - `.omc/reports/screenshots/run-2026-09-11T1249Z-uat/` — run 1, retained as
   history (V1 page-shot invalidated — L-2; remaining files valid captures of
   their legs).
+
+**Journey evidence (class J — gate-1 fix cycle, worker-4 lane)**
+
+- `tests/uat-journey-evidence.mjs` — new lane file (the lane's only repo
+  write; `tests/e2e-walkthrough.mjs` untouched; modeled on
+  `tests/uat-visuals.mjs`: `-uat2` run-id suffix, run-dir + MANIFEST
+  convention, results JSON, J3 sweep folded into every success action).
+- `.omc/reports/w3-4-uat/journey-results.json` — runId
+  `run-2026-09-11T1344Z-uat2`, 15 PASS / 0 FAIL, exit 0; `toastSweeps`
+  ledger (8 sweeps, summed error surfacing 0, 8 benign success toasts).
+- `.omc/reports/w3-4-uat-journey.log` — lane transcript (header pins git
+  `90be09c` clean; node-check + journey exits; SUMMARY PASS=15 FAIL=0;
+  teardown `PORT_3224_RELEASED=OK`, `no_tmp_residue=CONFIRMED`,
+  13:38:24Z→13:48:01Z; run-1 of the script itself INVALID-marked via sibling
+  file after a harness-side `.replace`-on-Promise bug — pristine run 2 is
+  the evidence run).
+- `.omc/reports/screenshots/run-2026-09-11T1344Z-uat2/` — 10 PNGs +
+  `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0): J1 `form-with-uploaded-image`
+  / `draft-reopened-with-image` / `submitted-pending-row`; J2
+  `reject-dialog-thai-reason` / `rejected-row` / `resubmitted-pending` /
+  `approved-synced` / `audit-both-decisions`.
+
+**Sign-off instrument**
+
+- `docs/deliverables/18a-uat-signoff-sheet.md` — business-nominee acceptance
+  sheet (Thai-first; six per-scenario sign-off rows; §6 PENDING condition).
+  Unexecuted until nominees are arranged — the acceptance record will cite
+  it when signed.
 
 **Cited standing records (class C)**
 
