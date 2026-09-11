@@ -36,11 +36,16 @@
  *     → also opt-in for section 17: two further PG-mode servers (ports
  *       3214/3215) exercise the W2-FIX-1 transaction COMMIT and ROLLBACK
  *       paths plus the concurrency race against real PostgreSQL.
- *     → also opt-in for section 18 (W2-FIX-3): two more PG-mode pods (ports
- *       3216/3217) share ONE PostgreSQL and race concurrent edits against
- *       approve/withdraw across PROCESSES — the replicas:2 regressions the
- *       codex cycle-2 verdict mandates (SELECT ... FOR UPDATE transitions;
- *       3 concurrent + 2 deterministic staggered iterations per race).
+ *     → also opt-in for section 18 (W2-FIX-3, restructured in W2-FIX-4):
+ *       four PG-mode pods share ONE PostgreSQL — clean pair :3216/:3217,
+ *       delayed pod :3218 (SMOKE_DELAY_NEWS_COMMIT_MS=400 holds the FOR
+ *       UPDATE row lock mid-transaction), sim pod :3219
+ *       (SMOKE_SIMULATE_STALE_READ=1 reproduces the pre-fix stale read).
+ *       Families: S sequential (await + assert the first response before
+ *       the second), O deterministic lock-handoff overlap, N negative
+ *       control (asserts the BUG signature under the sim pod — the
+ *       detection-power proof), F informational single-iteration fuzz
+ *       (invariant assertions only).
  *   Section 17 (W2-FIX-1) always runs: it spawns its own NODE_ENV=test
  *   servers (ports 3212/3213) that set SMOKE_SEED_W2FIX1_FIXTURES /
  *   SMOKE_INJECT_AUDIT_FAILURE — the hooks are non-production-guarded, so the
@@ -1953,46 +1958,81 @@ async function runW2Fix1Suite() {
 }
 
 // ---------------------------------------------------------------------------
-// Section 18 (W2-FIX-3, codex cycle-2 mandate): the two-process PostgreSQL
-// regressions. Opt-in under SMOKE_DATABASE_URL (same opt-in as sections 15
-// and 17-PG). Spawns TWO server processes that share ONE PostgreSQL:
-//   :3216 (pod A) and :3217 (pod B) — both NODE_ENV=test,
-//   DATABASE_URL=$SMOKE_DATABASE_URL, SMOKE_SEED_W2FIX1_FIXTURES=1, own
-//   UPLOAD_DIR, spawned sequentially (health-wait A, then B) so boot
-//   seeding never races.
+// Section 18 (W2-FIX-3, codex cycle-2 mandate; restructured by W2-FIX-4 after
+// the codex cycle-3 verdict): the multi-process PostgreSQL regressions.
+// Opt-in under SMOKE_DATABASE_URL (same opt-in as sections 15 and 17-PG).
+// FOUR spawned server processes share ONE PostgreSQL (spawned sequentially,
+// health-wait one by one, so boot seeding never races):
+//   :3216 (pod A) and :3217 (pod B) — clean pair (fixture hook only)
+//   :3218 (pod D, delayed) — SMOKE_DELAY_NEWS_COMMIT_MS=400: every committed
+//           runNewsTransition holds its transaction open 400ms between the
+//           plan and the UPDATE, i.e. it HOLDS the FOR UPDATE row lock across
+//           the delay (the deterministic lock-handoff control)
+//   :3219 (pod S, sim) — SMOKE_SIMULATE_STALE_READ=1 + the same delay: reads
+//           the row UNLOCKED, plans on that stale snapshot, and holds only a
+//           lock-free 400ms window — a faithful reproduction of the
+//           PRE-W2-FIX-3 implementation (the negative-control pod)
 // This is the shipped k8s/deployment.yaml replicas:2 topology: the
-// process-local withNewsLock mutex CANNOT serialize these two pods, so every
+// process-local withNewsLock mutex CANNOT serialize these pods, so every
 // invariant below is enforced solely by the SELECT ... FOR UPDATE re-read
-// inside runNewsTransition. Each race check runs 3 CONCURRENT fire-both-at-once
-// iterations (invariant assertions hold for whichever interleaving the
-// scheduler picks) plus 2 STAGGERED iterations (~150ms apart) that pin each
-// legal branch deterministically: approve/withdraw-first → 200 with its audit
-// row, edit-first → 400/409 from the FOR UPDATE re-read. Users follow the
-// §17-PG pattern — the bootstrap admin (shared DB) plays the maker; a fresh
-// checker is created via POST /api/users for dual-control (submitter ≠ actor).
+// inside runNewsTransition. W2-FIX-4 removed the former 150ms-stagger
+// branch-pinning (a scheduler-dependent timing assumption the codex cycle-3
+// verdict rejected) in favor of four families:
+//   Family S — sequential: every case AWAITS and asserts the FIRST response
+//              before sending the second (zero timing assumptions).
+//   Family O — overlap: a transition or PUT fired on :3218 holds the row
+//              lock mid-transaction for 400ms; the paired request fires on a
+//              clean pod ~100ms later and its SELECT ... FOR UPDATE cannot be
+//              granted before the delayed COMMIT — the lock handoff is
+//              exercised deterministically, and the asserted outcomes hold
+//              no matter where in the window the second request lands.
+//   Family N — negative control: the same overlap shape against :3219
+//              (stale-read simulation). The check ASSERTS the bug signature
+//              (approve/withdraw 200 on a stale snapshot; the final row
+//              clobbered back to the stale base content) and therefore
+//              PASSES only while the former defective implementation is
+//              faithfully reproduced — the detection-power proof the codex
+//              verdict demanded: run against the pre-W2-FIX-3 code, the
+//              Family S/O assertions would fail on exactly this signature.
+//   Family F — informational fuzz: ONE Promise.all iteration per race,
+//              invariant assertions only (final draft+edited via both pods,
+//              AUD-P01 present) — outcome mixes are reported, never asserted.
+// Users follow the §17-PG pattern — the bootstrap admin (shared DB) plays
+// the maker; a fresh checker is created via POST /api/users for dual-control
+// (submitter ≠ actor).
 // ---------------------------------------------------------------------------
 
 const W2FIX3_POD_A_PORT = Number(process.env.SMOKE_W2FIX3_POD_A_PORT || 3216);
 const W2FIX3_POD_B_PORT = Number(process.env.SMOKE_W2FIX3_POD_B_PORT || 3217);
+const W2FIX3_POD_DELAYED_PORT = Number(process.env.SMOKE_W2FIX3_POD_DELAYED_PORT || 3218);
+const W2FIX3_POD_SIM_PORT = Number(process.env.SMOKE_W2FIX3_POD_SIM_PORT || 3219);
+const W2FIX4_OVERLAP_DELAY_MS = 400; // matches :3218/:3219 SMOKE_DELAY_NEWS_COMMIT_MS
+const W2FIX4_SECOND_FIRE_OFFSET_MS = 100; // second request fires this far into the 400ms window
 
 async function runW2Fix3Suite() {
   const databaseUrl = process.env.SMOKE_DATABASE_URL;
   if (!databaseUrl) return; // opt-in, like sections 15/17-PG
 
-  section('18. W2-FIX-3 cross-pod regression: two pods, one PostgreSQL, FOR UPDATE transitions');
+  section('18. W2-FIX-3/FIX-4 cross-pod regression: four pods, one PostgreSQL, FOR UPDATE transitions');
 
   const { killSpawned, spawnAux, reqAt, loginAt, findNewsAt, auditRowsAt, contentFingerprint } = makeAuxToolkit();
 
   try {
     let podA = null;
     let podB = null;
+    let podD = null; // delayed pod (:3218) — holds the row lock mid-transaction
+    let podS = null; // sim pod (:3219) — reproduces the pre-fix stale read
     let makerA = null;
     let makerB = null;
+    let makerD = null;
+    let makerS = null;
     let checkerA = null;
     let checkerB = null;
+    let checkerD = null;
+    let checkerS = null;
 
-    await check('W2-FIX-3 pods boot and share one PostgreSQL: an item created via pod A reads back byte-identical via pod B', async () => {
-      // Spawn sequentially (health-wait A, then B) so boot seeding never races.
+    await check('W2-FIX-4 §18 boot: four pods share one PostgreSQL — an item created via pod A reads back byte-identical via pod B (TC-NEWS-020)', async () => {
+      // Spawn sequentially (health-wait each) so boot seeding never races.
       podA = await spawnAux(
         W2FIX3_POD_A_PORT,
         { DATABASE_URL: databaseUrl, SMOKE_SEED_W2FIX1_FIXTURES: '1', UPLOAD_DIR: './uploads-test-w2fix3-a' },
@@ -2003,11 +2043,24 @@ async function runW2Fix3Suite() {
         { DATABASE_URL: databaseUrl, SMOKE_SEED_W2FIX1_FIXTURES: '1', UPLOAD_DIR: './uploads-test-w2fix3-b' },
         'w2fix3-pod-b',
       );
+      podD = await spawnAux(
+        W2FIX3_POD_DELAYED_PORT,
+        { DATABASE_URL: databaseUrl, SMOKE_SEED_W2FIX1_FIXTURES: '1', SMOKE_DELAY_NEWS_COMMIT_MS: String(W2FIX4_OVERLAP_DELAY_MS), UPLOAD_DIR: './uploads-test-w2fix3-d' },
+        'w2fix3-pod-delayed',
+      );
+      podS = await spawnAux(
+        W2FIX3_POD_SIM_PORT,
+        { DATABASE_URL: databaseUrl, SMOKE_SEED_W2FIX1_FIXTURES: '1', SMOKE_SIMULATE_STALE_READ: '1', SMOKE_DELAY_NEWS_COMMIT_MS: String(W2FIX4_OVERLAP_DELAY_MS), UPLOAD_DIR: './uploads-test-w2fix3-s' },
+        'w2fix3-pod-sim',
+      );
 
-      // Bootstrap admin plays the maker (it exists in the shared DB); a fresh
-      // checker user enables the dual-control races (submitter ≠ approver).
+      // Bootstrap admin plays the maker on every pod (it exists in the shared
+      // DB); a fresh checker user enables the dual-control races
+      // (submitter ≠ approver). One login per pod keeps requests per-process.
       makerA = await loginAt(podA, ADMIN_USERNAME, ADMIN_PASSWORD);
       makerB = await loginAt(podB, ADMIN_USERNAME, ADMIN_PASSWORD);
+      makerD = await loginAt(podD, ADMIN_USERNAME, ADMIN_PASSWORD);
+      makerS = await loginAt(podS, ADMIN_USERNAME, ADMIN_PASSWORD);
       const checkerName = `w2fix3ck${String(Date.now()).slice(-8)}`;
       const mkChecker = await reqAt(podA, 'POST', '/api/users', {
         cookie: makerA,
@@ -2016,6 +2069,8 @@ async function runW2Fix3Suite() {
       expectStatus(mkChecker, 201, 'POST /api/users (W2-FIX-3 checker fixture)');
       checkerA = await loginAt(podA, checkerName, 'W2fix3@PG2026');
       checkerB = await loginAt(podB, checkerName, 'W2fix3@PG2026');
+      checkerD = await loginAt(podD, checkerName, 'W2fix3@PG2026');
+      checkerS = await loginAt(podS, checkerName, 'W2fix3@PG2026');
 
       const id = `news-w2fix3-shared-${Date.now()}`;
       const create = await reqAt(podA, 'POST', '/api/news', {
@@ -2029,313 +2084,330 @@ async function runW2Fix3Suite() {
         `pods must read the same row: A(title="${viaA.title}") vs B(title="${viaB.title}")`);
       assert(contentFingerprint(viaA) === contentFingerprint(viaB),
         'the two pods must agree on every content field byte-for-byte');
-      return `pods healthy on :${W2FIX3_POD_A_PORT}/:${W2FIX3_POD_B_PORT}; item created via A, read via B — one shared store`;
+      return `pods healthy on :${W2FIX3_POD_A_PORT}/:${W2FIX3_POD_B_PORT}/:${W2FIX3_POD_DELAYED_PORT}(delayed)/:${W2FIX3_POD_SIM_PORT}(sim); item created via A, read via B — one shared store`;
     });
 
-    if (podA && podB) {
-
-      await check('W2-FIX-3 race 1 (codex repro 1): concurrent cross-pod edit vs approve never yields synced-with-stale-content (3 concurrent + 2 staggered iterations)', async () => {
-        const observed = [];
-        for (let i = 0; i < 3; i += 1) {
-          const editOnA = i % 2 === 0;
-          const editPod = editOnA ? podA : podB;
-          const approvePod = editOnA ? podB : podA;
-          const editCookie = editOnA ? makerA : makerB;
-          const approveCookie = editOnA ? checkerB : checkerA;
-          const id = `news-w2fix3-race1-${Date.now()}-${i}`;
-          const editedTitle = `W2-FIX-3 race1 edited ${Date.now()}-${i}`;
-
-          const create = await reqAt(editPod, 'POST', '/api/news', {
-            cookie: editCookie,
-            json: { id, title: `W2-FIX-3 race1 base ${i}`, summary: 'race base', content: 'race base body' },
-          });
-          expectStatus(create, 201, `POST /api/news (race 1 iter ${i})`);
-          const sub = await reqAt(editPod, 'POST', `/api/news/${id}/submit-approval`, { cookie: editCookie });
-          expectStatus(sub, 200, `POST submit-approval (race 1 iter ${i})`);
-          const pending = await findNewsAt(editPod, id);
-          assert(pending.externalSyncStatus === 'pending_approval',
-            `race 1 iter ${i}: pre-race state must be pending_approval, got "${pending.externalSyncStatus}"`);
-
-          // Fire CONCURRENTLY on DIFFERENT pods; the fire order also alternates
-          // so both interleavings get a chance across the iterations.
-          const responses = await Promise.all(editOnA
-            ? [
-              reqAt(editPod, 'PUT', `/api/news/${id}`, { cookie: editCookie, json: { title: editedTitle, summary: 'race edited' } }),
-              reqAt(approvePod, 'POST', `/api/news/${id}/approve`, { cookie: approveCookie }),
-            ]
-            : [
-              reqAt(approvePod, 'POST', `/api/news/${id}/approve`, { cookie: approveCookie }),
-              reqAt(editPod, 'PUT', `/api/news/${id}`, { cookie: editCookie, json: { title: editedTitle, summary: 'race edited' } }),
-            ]);
-          const putRes = responses[editOnA ? 0 : 1];
-          const approveRes = responses[editOnA ? 1 : 0];
-          assert(putRes.status === 200,
-            `race 1 iter ${i}: the edit PUT must succeed in either interleaving, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
-          assert([200, 400].includes(approveRes.status),
-            `race 1 iter ${i}: cross-pod approve must be 200 (won the FOR UPDATE lock) or 400 (edit committed first), got ${approveRes.status}: ${approveRes.text.slice(0, 160)}`);
-
-          // Final state read via BOTH pods: draft + edited title, byte-same.
-          const viaEditPod = await findNewsAt(editPod, id);
-          const viaApprovePod = await findNewsAt(approvePod, id);
-          for (const [label, item] of [['edit-pod', viaEditPod], ['approve-pod', viaApprovePod]]) {
-            assert(item.externalSyncStatus === 'draft',
-              `race 1 iter ${i} (${label}): final state must be draft in either interleaving, got "${item.externalSyncStatus}"`);
-            assert(item.title === editedTitle,
-              `race 1 iter ${i} (${label}): final content must be the EDITED snapshot (no stale sync), got "${item.title}"`);
-          }
-          assert(contentFingerprint(viaEditPod) === contentFingerprint(viaApprovePod),
-            `race 1 iter ${i}: both pods must read the byte-same final row`);
-
-          if (approveRes.status === 200) {
-            const reset = (await auditRowsAt(approvePod, makerA, id))
-              .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('reset externalSyncStatus to draft'));
-            assert(reset,
-              `race 1 iter ${i}: approve won the lock → the following PUT must have audited the forced reset (AUD-P01)`);
-          }
-          observed.push(approveRes.status);
+    if (podA && podB && podD && podS) {
+      // -- shared §18 helpers (scoped here so §17 keeps its own inline shape) --
+      const stamp = () => `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      const mkNews = async (pod, cookie, id, title) => {
+        const r = await reqAt(pod, 'POST', '/api/news', {
+          cookie,
+          json: { id, title, summary: 'race base', content: `${title} body` },
+        });
+        expectStatus(r, 201, `POST /api/news (${id})`);
+      };
+      const submitNews = async (pod, cookie, id) => {
+        const r = await reqAt(pod, 'POST', `/api/news/${id}/submit-approval`, { cookie });
+        expectStatus(r, 200, `POST submit-approval (${id})`);
+      };
+      const makePending = async (pod, cookie, id, title) => {
+        await mkNews(pod, cookie, id, title);
+        await submitNews(pod, cookie, id);
+      };
+      const makeSynced = async (pod, cookie, checkerCookie, id, title) => {
+        await makePending(pod, cookie, id, title);
+        const r = await reqAt(pod, 'POST', `/api/news/${id}/approve`, { cookie: checkerCookie });
+        expectStatus(r, 200, `POST approve (${id})`);
+      };
+      const putEdit = (pod, cookie, id, title) =>
+        reqAt(pod, 'PUT', `/api/news/${id}`, { cookie, json: { title, summary: 'race edited' } });
+      const approveOn = (pod, cookie, id) => reqAt(pod, 'POST', `/api/news/${id}/approve`, { cookie });
+      const withdrawOn = (pod, cookie, id) => reqAt(pod, 'POST', `/api/news/${id}/withdraw`, { cookie });
+      const assertFinalDraftEdited = async (id, editedTitle, pods, label) => {
+        const reads = [];
+        for (const [podLabel, pod] of pods) {
+          const item = await findNewsAt(pod, id);
+          assert(item.externalSyncStatus === 'draft',
+            `${label} (${podLabel}): final state must be draft, got "${item.externalSyncStatus}"`);
+          assert(item.title === editedTitle,
+            `${label} (${podLabel}): final content must be the EDITED snapshot, got "${item.title}"`);
+          reads.push(item);
         }
+        for (const item of reads.slice(1)) {
+          assert(contentFingerprint(reads[0]) === contentFingerprint(item),
+            `${label}: every pod must read the byte-same final row`);
+        }
+      };
+      const findResetAudit = async (pod, cookie, id) =>
+        (await auditRowsAt(pod, cookie, id))
+          .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('reset externalSyncStatus to draft'));
+      const findWithdrawAudit = async (pod, cookie, id) =>
+        (await auditRowsAt(pod, cookie, id))
+          .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('Withdrawal from public web'));
+      const bothCleanPods = () => [['podA', podA], ['podB', podB]];
 
-        // ---- staggered iterations (deterministic branch coverage) ----
-        // The concurrent iterations above prove the invariants for whichever
-        // interleaving the scheduler picks; the two staggered runs below pin
-        // EACH branch deterministically — 150ms is far more than a local
-        // transaction needs to commit, so the first request is always fully
-        // committed before the second re-reads the row under FOR UPDATE.
-        const staggered = [];
-        {
-          // Staggered A (approve-first): approve commits synced; the late edit
-          // PUT re-reads it and forced-resets to draft.
-          const id = `news-w2fix3-race1-staga-${Date.now()}`;
-          const editedTitle = `W2-FIX-3 race1 staggered-A edited ${Date.now()}`;
-          const create = await reqAt(podA, 'POST', '/api/news', {
-            cookie: makerA,
-            json: { id, title: 'W2-FIX-3 race1 staggered-A base', summary: 'race base', content: 'race base body' },
-          });
-          expectStatus(create, 201, 'POST /api/news (race 1 staggered A)');
-          const sub = await reqAt(podA, 'POST', `/api/news/${id}/submit-approval`, { cookie: makerA });
-          expectStatus(sub, 200, 'POST submit-approval (race 1 staggered A)');
-          const approvePromise = reqAt(podB, 'POST', `/api/news/${id}/approve`, { cookie: checkerB });
-          await sleep(150);
-          const putRes = await reqAt(podA, 'PUT', `/api/news/${id}`, { cookie: makerA, json: { title: editedTitle, summary: 'race edited' } });
-          const approveRes = await approvePromise;
-          assert(approveRes.status === 200,
-            `race 1 staggered A: approve fired 150ms ahead must commit (200), got ${approveRes.status}: ${approveRes.text.slice(0, 160)}`);
-          assert(putRes.status === 200,
-            `race 1 staggered A: the late edit PUT must succeed, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
-          const viaA = await findNewsAt(podA, id);
-          const viaB = await findNewsAt(podB, id);
-          for (const [label, item] of [['podA', viaA], ['podB', viaB]]) {
-            assert(item.externalSyncStatus === 'draft' && item.title === editedTitle,
-              `race 1 staggered A (${label}): final must be draft + edited title (the PUT reset the just-approved item), got ${item.externalSyncStatus}/"${item.title}"`);
-          }
-          assert(contentFingerprint(viaA) === contentFingerprint(viaB),
-            'race 1 staggered A: both pods must read the byte-same final row');
-          const reset = (await auditRowsAt(podB, makerA, id))
-            .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('reset externalSyncStatus to draft'));
-          assert(reset,
-            'race 1 staggered A: the PUT that followed the approval must have audited the forced reset (AUD-P01)');
-          staggered.push('approve-first: approve=200, PUT=200, AUD-P01 reset row present');
-        }
-        {
-          // Staggered B (PUT-first): the edit forced-resets pending → draft;
-          // the late approve re-reads draft under FOR UPDATE → 400.
-          const id = `news-w2fix3-race1-stagb-${Date.now()}`;
-          const editedTitle = `W2-FIX-3 race1 staggered-B edited ${Date.now()}`;
-          const create = await reqAt(podB, 'POST', '/api/news', {
-            cookie: makerB,
-            json: { id, title: 'W2-FIX-3 race1 staggered-B base', summary: 'race base', content: 'race base body' },
-          });
-          expectStatus(create, 201, 'POST /api/news (race 1 staggered B)');
-          const sub = await reqAt(podB, 'POST', `/api/news/${id}/submit-approval`, { cookie: makerB });
-          expectStatus(sub, 200, 'POST submit-approval (race 1 staggered B)');
-          const putRes = await reqAt(podB, 'PUT', `/api/news/${id}`, { cookie: makerB, json: { title: editedTitle, summary: 'race edited' } });
-          await sleep(150);
-          const approveRes = await reqAt(podA, 'POST', `/api/news/${id}/approve`, { cookie: checkerA });
-          assert(putRes.status === 200,
-            `race 1 staggered B: the edit PUT fired 150ms ahead must commit (200), got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
-          assert(approveRes.status === 400,
-            `race 1 staggered B: the late approve must re-read draft under FOR UPDATE and be refused (400), got ${approveRes.status}: ${approveRes.text.slice(0, 160)}`);
-          const viaA = await findNewsAt(podA, id);
-          const viaB = await findNewsAt(podB, id);
-          for (const [label, item] of [['podA', viaA], ['podB', viaB]]) {
-            assert(item.externalSyncStatus === 'draft' && item.title === editedTitle,
-              `race 1 staggered B (${label}): final must be draft + edited title, got ${item.externalSyncStatus}/"${item.title}"`);
-          }
-          assert(contentFingerprint(viaA) === contentFingerprint(viaB),
-            'race 1 staggered B: both pods must read the byte-same final row');
-          staggered.push('PUT-first: PUT=200, approve=400 (draft re-read)');
-        }
-        return `concurrent approve per iteration: [${observed.join(', ')}] (200 = approve won the lock, 400 = edit committed first); staggered deterministic: ${staggered.join('; ')}`;
+      // ------------------------------------------------------------------
+      // Family S — sequential (W2-FIX-4): await + assert the FIRST response
+      // BEFORE issuing the second; zero timing assumptions. This is the
+      // branch coverage the codex cycle-3 verdict demanded.
+      // ------------------------------------------------------------------
+
+      await check('W2-FIX-4 §18 S/race1-A sequential: approve commits first (awaited + asserted), then the edit force-resets it (TC-NEWS-021)', async () => {
+        const id = `news-w2fix4-s-r1a-${stamp()}`;
+        const editedTitle = `W2-FIX-4 S/race1-A edited ${stamp()}`;
+        await makePending(podA, makerA, id, 'W2-FIX-4 S/race1-A base');
+        const approveRes = await approveOn(podB, checkerB, id); // fired first, AWAITED + asserted
+        expectStatus(approveRes, 200, 'S/race1-A approve (fired first, awaited)');
+        const putRes = await putEdit(podA, makerA, id, editedTitle);
+        expectStatus(putRes, 200, 'S/race1-A PUT (after the approval committed)');
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'S/race1-A');
+        assert(await findResetAudit(podB, makerA, id),
+          'S/race1-A: the PUT that followed the approval must have audited the forced reset (AUD-P01)');
+        return 'sequential approve→PUT: approve=200 (awaited first), PUT=200 forced reset, final draft+edited via both pods, AUD-P01 present';
       });
 
-      await check('W2-FIX-3 race 2 (codex repro 2): concurrent cross-pod edit vs withdraw preserves the edit and the synced precondition (3 concurrent + 2 staggered iterations)', async () => {
-        const observed = [];
-        for (let i = 0; i < 3; i += 1) {
-          const editOnA = i % 2 === 0;
-          const editPod = editOnA ? podA : podB;
-          const opPod = editOnA ? podB : podA; // approve + withdraw run on the OTHER pod
-          const editCookie = editOnA ? makerA : makerB;
-          const opMakerCookie = editOnA ? makerB : makerA;
-          const checkerCookie = editOnA ? checkerB : checkerA;
-          const id = `news-w2fix3-race2-${Date.now()}-${i}`;
-          const editedTitle = `W2-FIX-3 race2 edited ${Date.now()}-${i}`;
+      await check('W2-FIX-4 §18 S/race1-B sequential: edit commits first (awaited + asserted), then approve re-reads draft and is refused 400 (TC-NEWS-021)', async () => {
+        const id = `news-w2fix4-s-r1b-${stamp()}`;
+        const editedTitle = `W2-FIX-4 S/race1-B edited ${stamp()}`;
+        await makePending(podB, makerB, id, 'W2-FIX-4 S/race1-B base');
+        const putRes = await putEdit(podB, makerB, id, editedTitle); // fired first, AWAITED + asserted
+        expectStatus(putRes, 200, 'S/race1-B PUT (fired first, awaited)');
+        const approveRes = await approveOn(podA, checkerA, id);
+        expectStatus(approveRes, 400, 'S/race1-B approve (must re-read the committed draft)');
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'S/race1-B');
+        assert(await findResetAudit(podA, makerA, id),
+          'S/race1-B: the forced-reset PUT must have audited AUD-P01');
+        return 'sequential PUT→approve: PUT=200 (awaited first), approve=400 (draft re-read), final draft+edited via both pods';
+      });
 
-          const create = await reqAt(editPod, 'POST', '/api/news', {
-            cookie: editCookie,
-            json: { id, title: `W2-FIX-3 race2 base ${i}`, summary: 'race base', content: `race 2 body ${i}` },
-          });
-          expectStatus(create, 201, `POST /api/news (race 2 iter ${i})`);
-          const sub = await reqAt(editPod, 'POST', `/api/news/${id}/submit-approval`, { cookie: editCookie });
-          expectStatus(sub, 200, `POST submit-approval (race 2 iter ${i})`);
-          // Approve via the OTHER pod — the normal cross-pod path too.
-          const appr = await reqAt(opPod, 'POST', `/api/news/${id}/approve`, { cookie: checkerCookie });
-          expectStatus(appr, 200, `POST approve via the other pod (race 2 iter ${i})`);
-          const syncedBefore = await findNewsAt(editPod, id);
-          assert(syncedBefore.externalSyncStatus === 'synced' && syncedBefore.syncToExternal === true,
-            `race 2 iter ${i}: pre-race state must be synced/live, got ${syncedBefore.externalSyncStatus}/${syncedBefore.syncToExternal}`);
-          const fingerprintBefore = contentFingerprint(syncedBefore);
+      await check('W2-FIX-4 §18 S/race2-A sequential: withdraw commits first (awaited + asserted, content + AUD-P01 checked), then the edit lands on the draft (TC-NEWS-022)', async () => {
+        const id = `news-w2fix4-s-r2a-${stamp()}`;
+        const editedTitle = `W2-FIX-4 S/race2-A edited ${stamp()}`;
+        await makeSynced(podA, makerA, checkerB, id, 'W2-FIX-4 S/race2-A base');
+        const syncedBefore = await findNewsAt(podA, id);
+        const fingerprintBefore = contentFingerprint(syncedBefore);
+        const withdrawRes = await withdrawOn(podB, makerB, id); // fired first, AWAITED + asserted
+        expectStatus(withdrawRes, 200, 'S/race2-A withdraw (fired first, awaited)');
+        const wdData = withdrawRes.json && withdrawRes.json.data;
+        assert(wdData, `S/race2-A: withdraw 200 must return {success:true, data:item}, got: ${withdrawRes.text.slice(0, 160)}`);
+        assert(contentFingerprint(wdData) === fingerprintBefore,
+          'S/race2-A: the withdrawal must preserve the pre-race synced content byte-for-byte');
+        const row = await findWithdrawAudit(podB, makerA, id);
+        assert(row, 'S/race2-A: withdraw 200 must carry the AUD-P01 withdrawal row');
+        assert(String(row.details).includes("prior_status='synced'"),
+          `S/race2-A: AUD-P01 details must record prior_status='synced', got: "${row.details}"`);
+        const putRes = await putEdit(podA, makerA, id, editedTitle);
+        expectStatus(putRes, 200, 'S/race2-A PUT (after the withdrawal committed)');
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'S/race2-A');
+        return 'sequential withdraw→PUT: withdraw=200 (awaited first; content preserved, AUD-P01 prior_status=synced), PUT=200, final draft+edited via both pods';
+      });
 
-          const responses = await Promise.all(editOnA
-            ? [
-              reqAt(editPod, 'PUT', `/api/news/${id}`, { cookie: editCookie, json: { title: editedTitle, summary: 'race edited' } }),
-              reqAt(opPod, 'POST', `/api/news/${id}/withdraw`, { cookie: opMakerCookie }),
-            ]
-            : [
-              reqAt(opPod, 'POST', `/api/news/${id}/withdraw`, { cookie: opMakerCookie }),
-              reqAt(editPod, 'PUT', `/api/news/${id}`, { cookie: editCookie, json: { title: editedTitle, summary: 'race edited' } }),
-            ]);
-          const putRes = responses[editOnA ? 0 : 1];
-          const withdrawRes = responses[editOnA ? 1 : 0];
-          assert(putRes.status === 200,
-            `race 2 iter ${i}: the edit PUT must succeed in either interleaving, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
-          assert([200, 409].includes(withdrawRes.status),
-            `race 2 iter ${i}: cross-pod withdraw must be 200 (won the FOR UPDATE lock while still synced) or 409 (edit reset to draft first), got ${withdrawRes.status}: ${withdrawRes.text.slice(0, 160)}`);
+      await check('W2-FIX-4 §18 S/race2-B sequential: edit commits first (awaited + asserted), then withdraw re-reads draft and is refused 409 (TC-NEWS-022)', async () => {
+        const id = `news-w2fix4-s-r2b-${stamp()}`;
+        const editedTitle = `W2-FIX-4 S/race2-B edited ${stamp()}`;
+        await makeSynced(podB, makerB, checkerA, id, 'W2-FIX-4 S/race2-B base');
+        const putRes = await putEdit(podB, makerB, id, editedTitle); // fired first, AWAITED + asserted
+        expectStatus(putRes, 200, 'S/race2-B PUT (fired first, awaited)');
+        const withdrawRes = await withdrawOn(podA, makerA, id);
+        expectStatus(withdrawRes, 409, 'S/race2-B withdraw (must re-read the committed draft)');
+        assert(withdrawRes.json && withdrawRes.json.currentState === 'draft',
+          `S/race2-B: withdraw 409 must report the ACTUAL current (draft) state, got: ${withdrawRes.text.slice(0, 160)}`);
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'S/race2-B');
+        return 'sequential PUT→withdraw: PUT=200 (awaited first), withdraw=409 (currentState=draft), final draft+edited via both pods';
+      });
 
-          // Final state via BOTH pods: draft + edited title + not live, byte-same.
-          const viaEditPod = await findNewsAt(editPod, id);
-          const viaOpPod = await findNewsAt(opPod, id);
-          for (const [label, item] of [['edit-pod', viaEditPod], ['op-pod', viaOpPod]]) {
-            assert(item.externalSyncStatus === 'draft' && item.syncToExternal === false,
-              `race 2 iter ${i} (${label}): final state must be draft/not-live, got ${item.externalSyncStatus}/${item.syncToExternal}`);
-            assert(item.title === editedTitle,
-              `race 2 iter ${i} (${label}): final content must be the EDITED snapshot (the concurrent edit is never destroyed), got "${item.title}"`);
-          }
-          assert(contentFingerprint(viaEditPod) === contentFingerprint(viaOpPod),
-            `race 2 iter ${i}: both pods must read the byte-same final row`);
+      // ------------------------------------------------------------------
+      // Family O — deterministic lock-handoff overlap (W2-FIX-4). The first
+      // request runs on the DELAYED pod :3218: its transaction holds the FOR
+      // UPDATE row lock across the 400ms pre-UPDATE delay. The second request
+      // fires on a clean pod ~100ms into that window: its SELECT ... FOR
+      // UPDATE cannot be granted before the delayed COMMIT, and under READ
+      // COMMITTED it then re-reads the winner's committed row. The asserted
+      // outcomes hold regardless of where inside the window the second
+      // request lands — the lock handoff itself is the deterministic part.
+      // ------------------------------------------------------------------
 
-          if (withdrawRes.status === 200) {
-            // The winning withdrawal preserved the pre-race synced content
-            // byte-for-byte (the edit then lands on top via the draft PUT path).
-            const wdData = withdrawRes.json && withdrawRes.json.data;
-            assert(wdData, `race 2 iter ${i}: withdraw 200 must return {success:true, data:item}, got: ${withdrawRes.text.slice(0, 160)}`);
-            assert(contentFingerprint(wdData) === fingerprintBefore,
-              `race 2 iter ${i}: a winning withdrawal must preserve the pre-race synced content byte-for-byte`);
-            const row = (await auditRowsAt(opPod, makerA, id))
-              .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('Withdrawal from public web'));
-            assert(row, `race 2 iter ${i}: withdraw 200 must carry the AUD-P01 withdrawal row`);
-            assert(String(row.details).includes("prior_status='synced'"),
-              `race 2 iter ${i}: AUD-P01 details must record prior_status='synced', got: "${row.details}"`);
-          } else {
-            assert(withdrawRes.json && withdrawRes.json.currentState === 'draft',
-              `race 2 iter ${i}: withdraw 409 must report the ACTUAL current (draft) state, got: ${withdrawRes.text.slice(0, 160)}`);
-          }
-          observed.push(withdrawRes.status);
-        }
+      await check('W2-FIX-4 §18 O/race1 overlap: approve holds the row lock on the delayed pod; the overlapping PUT blocks, re-reads synced, force-resets (TC-NEWS-021)', async () => {
+        const id = `news-w2fix4-o-r1a-${stamp()}`;
+        const editedTitle = `W2-FIX-4 O/race1 edited ${stamp()}`;
+        await makePending(podA, makerA, id, 'W2-FIX-4 O/race1 base');
+        const approvePromise = approveOn(podD, checkerD, id); // takes the lock, holds it 400ms mid-tx
+        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
+        const putRes = await putEdit(podA, makerA, id, editedTitle); // blocks until the delayed COMMIT
+        const approveRes = await approvePromise;
+        expectStatus(approveRes, 200, 'O/race1 approve (lock holder)');
+        expectStatus(putRes, 200, 'O/race1 PUT (blocked on FOR UPDATE, then re-read synced)');
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'O/race1');
+        assert(await findResetAudit(podA, makerA, id),
+          'O/race1: the PUT that followed the locked approval must have audited the forced reset (AUD-P01)');
+        return `overlap approve(holds lock ${W2FIX4_OVERLAP_DELAY_MS}ms)→PUT(+${W2FIX4_SECOND_FIRE_OFFSET_MS}ms): approve=200, PUT=200 after blocking on the row lock, final draft+edited via both pods, AUD-P01 present`;
+      });
 
-        // ---- staggered iterations (deterministic branch coverage) ----
-        // Same rationale as race 1: 150ms staggers pin each branch — the
-        // 200-withdraw (synced precondition held, content preserved, AUD-P01
-        // prior_status='synced') and the 409-withdraw (late withdraw re-reads
-        // the edit's forced draft reset, currentState reports draft).
-        const staggered = [];
-        {
-          // Staggered A (withdraw-first): withdraw commits synced→draft with
-          // the synced content intact; the late PUT lands the edit on draft.
-          const id = `news-w2fix3-race2-staga-${Date.now()}`;
-          const editedTitle = `W2-FIX-3 race2 staggered-A edited ${Date.now()}`;
-          const create = await reqAt(podA, 'POST', '/api/news', {
-            cookie: makerA,
-            json: { id, title: 'W2-FIX-3 race2 staggered-A base', summary: 'race base', content: 'race 2 staggered-A body' },
-          });
-          expectStatus(create, 201, 'POST /api/news (race 2 staggered A)');
-          const sub = await reqAt(podA, 'POST', `/api/news/${id}/submit-approval`, { cookie: makerA });
-          expectStatus(sub, 200, 'POST submit-approval (race 2 staggered A)');
-          const appr = await reqAt(podB, 'POST', `/api/news/${id}/approve`, { cookie: checkerB });
-          expectStatus(appr, 200, 'POST approve via the other pod (race 2 staggered A)');
-          const syncedBefore = await findNewsAt(podA, id);
-          assert(syncedBefore.externalSyncStatus === 'synced' && syncedBefore.syncToExternal === true,
-            `race 2 staggered A: pre-race state must be synced/live, got ${syncedBefore.externalSyncStatus}/${syncedBefore.syncToExternal}`);
-          const fingerprintBefore = contentFingerprint(syncedBefore);
+      await check('W2-FIX-4 §18 O/race2 overlap: withdraw holds the row lock on the delayed pod; the overlapping PUT blocks and lands on the withdrawn draft (TC-NEWS-022)', async () => {
+        const id = `news-w2fix4-o-r2a-${stamp()}`;
+        const editedTitle = `W2-FIX-4 O/race2 edited ${stamp()}`;
+        await makeSynced(podA, makerA, checkerB, id, 'W2-FIX-4 O/race2 base');
+        const syncedBefore = await findNewsAt(podA, id);
+        const fingerprintBefore = contentFingerprint(syncedBefore);
+        const withdrawPromise = withdrawOn(podD, makerD, id); // holds the lock 400ms mid-tx
+        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
+        const putRes = await putEdit(podA, makerA, id, editedTitle); // blocks until the delayed COMMIT
+        const withdrawRes = await withdrawPromise;
+        expectStatus(withdrawRes, 200, 'O/race2 withdraw (lock holder; synced precondition held under the lock)');
+        const wdData = withdrawRes.json && withdrawRes.json.data;
+        assert(wdData, `O/race2: withdraw 200 must return {success:true, data:item}, got: ${withdrawRes.text.slice(0, 160)}`);
+        assert(contentFingerprint(wdData) === fingerprintBefore,
+          'O/race2: the locked withdrawal must preserve the pre-race synced content byte-for-byte');
+        const row = await findWithdrawAudit(podA, makerA, id);
+        assert(row, 'O/race2: withdraw 200 must carry the AUD-P01 withdrawal row');
+        assert(String(row.details).includes("prior_status='synced'"),
+          `O/race2: AUD-P01 details must record prior_status='synced', got: "${row.details}"`);
+        expectStatus(putRes, 200, 'O/race2 PUT (blocked on FOR UPDATE, then landed on the withdrawn draft)');
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'O/race2');
+        return `overlap withdraw(holds lock ${W2FIX4_OVERLAP_DELAY_MS}ms)→PUT(+${W2FIX4_SECOND_FIRE_OFFSET_MS}ms): withdraw=200 (content preserved), PUT=200 after blocking on the row lock, final draft+edited via both pods`;
+      });
 
-          const withdrawPromise = reqAt(podB, 'POST', `/api/news/${id}/withdraw`, { cookie: makerB });
-          await sleep(150);
-          const putRes = await reqAt(podA, 'PUT', `/api/news/${id}`, { cookie: makerA, json: { title: editedTitle, summary: 'race edited' } });
-          const withdrawRes = await withdrawPromise;
-          assert(withdrawRes.status === 200,
-            `race 2 staggered A: withdraw fired 150ms ahead on the synced item must commit (200), got ${withdrawRes.status}: ${withdrawRes.text.slice(0, 160)}`);
-          assert(putRes.status === 200,
-            `race 2 staggered A: the late edit PUT must land on the withdrawn draft, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+      await check('W2-FIX-4 §18 O/race1 (reversed) overlap: the PUT holds the row lock on the delayed pod; the overlapping approve blocks, re-reads draft, is refused 400 (TC-NEWS-021)', async () => {
+        const id = `news-w2fix4-o-r1b-${stamp()}`;
+        const editedTitle = `W2-FIX-4 O/race1-B edited ${stamp()}`;
+        await makePending(podA, makerA, id, 'W2-FIX-4 O/race1-B base');
+        const putPromise = putEdit(podD, makerD, id, editedTitle); // forced reset, holds the lock 400ms
+        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
+        const approveRes = await approveOn(podA, checkerA, id); // blocks, re-reads the committed draft
+        const putRes = await putPromise;
+        expectStatus(putRes, 200, 'O/race1-B PUT (lock holder)');
+        expectStatus(approveRes, 400, 'O/race1-B approve (blocked on FOR UPDATE, re-read draft)');
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'O/race1-B');
+        assert(await findResetAudit(podA, makerA, id),
+          'O/race1-B: the lock-holding forced-reset PUT must have audited AUD-P01');
+        const denial = (await auditRowsAt(podA, makerA, id))
+          .find((e) => String(e.action).toUpperCase() === 'APPROVE' && String(e.status).toUpperCase() === 'WARNING');
+        assert(denial, 'O/race1-B: the refused approve must have its WARNING denial audit row');
+        return `overlap PUT(holds lock)→approve(+${W2FIX4_SECOND_FIRE_OFFSET_MS}ms): PUT=200, approve=400 after blocking on the row lock (draft re-read) with its denial audit, final draft+edited via both pods`;
+      });
+
+      await check('W2-FIX-4 §18 O/race2 (reversed) overlap: the PUT holds the row lock on the delayed pod; the overlapping withdraw blocks, re-reads draft, is refused 409 (TC-NEWS-022)', async () => {
+        const id = `news-w2fix4-o-r2b-${stamp()}`;
+        const editedTitle = `W2-FIX-4 O/race2-B edited ${stamp()}`;
+        await makeSynced(podA, makerA, checkerB, id, 'W2-FIX-4 O/race2-B base');
+        const putPromise = putEdit(podD, makerD, id, editedTitle); // forced reset, holds the lock 400ms
+        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
+        const withdrawRes = await withdrawOn(podA, makerA, id); // blocks, re-reads the committed draft
+        const putRes = await putPromise;
+        expectStatus(putRes, 200, 'O/race2-B PUT (lock holder)');
+        expectStatus(withdrawRes, 409, 'O/race2-B withdraw (blocked on FOR UPDATE, re-read draft)');
+        assert(withdrawRes.json && withdrawRes.json.currentState === 'draft',
+          `O/race2-B: withdraw 409 must report the ACTUAL current (draft) state, got: ${withdrawRes.text.slice(0, 160)}`);
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'O/race2-B');
+        return `overlap PUT(holds lock)→withdraw(+${W2FIX4_SECOND_FIRE_OFFSET_MS}ms): PUT=200, withdraw=409 (currentState=draft) after blocking on the row lock, final draft+edited via both pods`;
+      });
+
+      // ------------------------------------------------------------------
+      // Family N — negative control / detection-power proof (W2-FIX-4). The
+      // sim pod :3219 reproduces the PRE-W2-FIX-3 implementation (unlocked
+      // snapshot read; no FOR UPDATE; UPDATE clobbers by id). The assertions
+      // below therefore demand the BUG signature and pass only while the
+      // former defect is faithfully simulated — against the real (fixed)
+      // code this shape cannot occur. That is the codex-demanded proof that
+      // the regression suite would have CAUGHT the pre-fix implementation.
+      // ------------------------------------------------------------------
+
+      await check('W2-FIX-4 §18 N/race1 negative control: under stale-read simulation the pre-fix defect reproduces — approve 200 on a stale pending snapshot clobbers the edit (detection-power proof, TC-NEWS-021)', async () => {
+        const id = `news-w2fix4-n-r1-${stamp()}`;
+        const baseTitle = 'W2-FIX-4 N/race1 base';
+        const editedTitle = `W2-FIX-4 N/race1 edited ${stamp()}`;
+        await makePending(podA, makerA, id, baseTitle);
+        const approvePromise = approveOn(podS, checkerS, id); // sim: UNLOCKED read sees pending; the 400ms window holds NO lock
+        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
+        const putRes = await putEdit(podA, makerA, id, editedTitle); // lock is free → forced reset commits draft+edited
+        const approveRes = await approvePromise;
+        expectStatus(putRes, 200, 'N/race1 PUT (the sim pod holds no lock)');
+        // BUG signature (simulated pre-fix behavior, asserted ON PURPOSE):
+        expectStatus(approveRes, 200, 'N/race1 approve — under stale-read simulation the guard saw the stale pending snapshot');
+        const finalRow = await findNewsAt(podA, id);
+        assert(finalRow.externalSyncStatus === 'synced',
+          `N/race1 bug signature: the stale approve must have clobbered the row to synced, got "${finalRow.externalSyncStatus}"`);
+        assert(finalRow.title === baseTitle,
+          `N/race1 bug signature: the final row must carry the stale BASE content, got "${finalRow.title}"`);
+        const viaB = await findNewsAt(podB, id);
+        assert(viaB.externalSyncStatus === 'synced' && viaB.title === baseTitle,
+          'N/race1 bug signature: both pods must read the clobbered stale row');
+        return 'negative control PASSED: the simulated pre-fix stale read reproduced the defect (approve=200 on a stale snapshot; final row synced+BASE clobber). The Family S/O assertions would FAIL against this implementation — the suite detects the former bug';
+      });
+
+      await check('W2-FIX-4 §18 N/race2 negative control: under stale-read simulation the pre-fix defect reproduces — withdraw 200 on a stale synced snapshot clobbers the edit (detection-power proof, TC-NEWS-022)', async () => {
+        const id = `news-w2fix4-n-r2-${stamp()}`;
+        const baseTitle = 'W2-FIX-4 N/race2 base';
+        const editedTitle = `W2-FIX-4 N/race2 edited ${stamp()}`;
+        await makeSynced(podA, makerA, checkerB, id, baseTitle);
+        const syncedBefore = await findNewsAt(podA, id);
+        const fingerprintBefore = contentFingerprint(syncedBefore);
+        const withdrawPromise = withdrawOn(podS, makerS, id); // sim: UNLOCKED read sees synced; 400ms window, no lock
+        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
+        const putRes = await putEdit(podA, makerA, id, editedTitle); // lock free → forced reset commits draft+edited
+        const withdrawRes = await withdrawPromise;
+        expectStatus(putRes, 200, 'N/race2 PUT (the sim pod holds no lock)');
+        // BUG signature (simulated pre-fix behavior, asserted ON PURPOSE):
+        expectStatus(withdrawRes, 200, 'N/race2 withdraw — under stale-read simulation the precondition saw the stale synced snapshot');
+        const finalRow = await findNewsAt(podA, id);
+        assert(finalRow.externalSyncStatus === 'draft' && finalRow.syncToExternal === false,
+          `N/race2 bug signature: the stale withdraw must have landed its own state-only transition, got ${finalRow.externalSyncStatus}/${finalRow.syncToExternal}`);
+        assert(finalRow.title === baseTitle,
+          `N/race2 bug signature: the final row must carry the stale BASE content (the committed edit was clobbered), got "${finalRow.title}"`);
+        assert(contentFingerprint(finalRow) === fingerprintBefore,
+          'N/race2 bug signature: the final content must be the pre-race base fingerprint');
+        const row = await findWithdrawAudit(podA, makerA, id);
+        assert(row, 'N/race2: the stale withdraw still writes its AUD-P01 row');
+        return 'negative control PASSED: the simulated pre-fix stale read reproduced the defect (withdraw=200 on a stale snapshot; final row draft+BASE clobber). The Family S/O assertions would FAIL against this implementation — the suite detects the former bug';
+      });
+
+      // ------------------------------------------------------------------
+      // Family F — informational fuzz (W2-FIX-4). ONE concurrent iteration
+      // per race, fired together on the two clean pods. INVARIANT assertions
+      // only (they hold in every interleaving); the observed outcome mix is
+      // reported, never asserted — branch coverage is Family S/O's job.
+      // ------------------------------------------------------------------
+
+      await check('W2-FIX-4 §18 F/race1 informational: one concurrent cross-pod edit-vs-approve iteration — invariants only (TC-NEWS-021)', async () => {
+        const id = `news-w2fix4-f-r1-${stamp()}`;
+        const editedTitle = `W2-FIX-4 F/race1 edited ${stamp()}`;
+        await makePending(podA, makerA, id, 'W2-FIX-4 F/race1 base');
+        const [putRes, approveRes] = await Promise.all([
+          putEdit(podA, makerA, id, editedTitle),
+          approveOn(podB, checkerB, id),
+        ]);
+        expectStatus(putRes, 200, 'F/race1 PUT (must succeed in either interleaving)');
+        assert([200, 400].includes(approveRes.status),
+          `F/race1: approve must land in the legal set {200,400}, got ${approveRes.status}`);
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'F/race1');
+        assert(await findResetAudit(podB, makerA, id),
+          'F/race1 invariant: the forced-reset PUT must have audited AUD-P01');
+        return `informational (outcome not asserted): approve=${approveRes.status} — final draft+edited via both pods, AUD-P01 present`;
+      });
+
+      await check('W2-FIX-4 §18 F/race2 informational: one concurrent cross-pod edit-vs-withdraw iteration — invariants only (TC-NEWS-022)', async () => {
+        const id = `news-w2fix4-f-r2-${stamp()}`;
+        const editedTitle = `W2-FIX-4 F/race2 edited ${stamp()}`;
+        await makeSynced(podA, makerA, checkerB, id, 'W2-FIX-4 F/race2 base');
+        const syncedBefore = await findNewsAt(podA, id);
+        const fingerprintBefore = contentFingerprint(syncedBefore);
+        const [putRes, withdrawRes] = await Promise.all([
+          putEdit(podA, makerA, id, editedTitle),
+          withdrawOn(podB, makerB, id),
+        ]);
+        expectStatus(putRes, 200, 'F/race2 PUT (must succeed in either interleaving)');
+        assert([200, 409].includes(withdrawRes.status),
+          `F/race2: withdraw must land in the legal set {200,409}, got ${withdrawRes.status}`);
+        if (withdrawRes.status === 200) {
           const wdData = withdrawRes.json && withdrawRes.json.data;
-          assert(wdData, `race 2 staggered A: withdraw 200 must return {success:true, data:item}, got: ${withdrawRes.text.slice(0, 160)}`);
+          assert(wdData, 'F/race2 (200 branch): withdraw must return {success:true, data:item}');
           assert(contentFingerprint(wdData) === fingerprintBefore,
-            'race 2 staggered A: the withdrawal must preserve the pre-race synced content byte-for-byte');
-          const row = (await auditRowsAt(podB, makerA, id))
-            .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('Withdrawal from public web'));
-          assert(row, 'race 2 staggered A: withdraw 200 must carry the AUD-P01 withdrawal row');
-          assert(String(row.details).includes("prior_status='synced'"),
-            `race 2 staggered A: AUD-P01 details must record prior_status='synced', got: "${row.details}"`);
-          const viaA = await findNewsAt(podA, id);
-          const viaB = await findNewsAt(podB, id);
-          for (const [label, item] of [['podA', viaA], ['podB', viaB]]) {
-            assert(item.externalSyncStatus === 'draft' && item.syncToExternal === false,
-              `race 2 staggered A (${label}): final must be draft/not-live, got ${item.externalSyncStatus}/${item.syncToExternal}`);
-            assert(item.title === editedTitle,
-              `race 2 staggered A (${label}): final content must be the EDITED snapshot, got "${item.title}"`);
-          }
-          assert(contentFingerprint(viaA) === contentFingerprint(viaB),
-            'race 2 staggered A: both pods must read the byte-same final row');
-          staggered.push('withdraw-first: withdraw=200 (content preserved, AUD-P01 prior_status=synced), PUT=200');
-        }
-        {
-          // Staggered B (PUT-first): the edit forced-resets synced → draft;
-          // the late withdraw re-reads draft → 409 with currentState draft.
-          const id = `news-w2fix3-race2-stagb-${Date.now()}`;
-          const editedTitle = `W2-FIX-3 race2 staggered-B edited ${Date.now()}`;
-          const create = await reqAt(podB, 'POST', '/api/news', {
-            cookie: makerB,
-            json: { id, title: 'W2-FIX-3 race2 staggered-B base', summary: 'race base', content: 'race 2 staggered-B body' },
-          });
-          expectStatus(create, 201, 'POST /api/news (race 2 staggered B)');
-          const sub = await reqAt(podB, 'POST', `/api/news/${id}/submit-approval`, { cookie: makerB });
-          expectStatus(sub, 200, 'POST submit-approval (race 2 staggered B)');
-          const appr = await reqAt(podA, 'POST', `/api/news/${id}/approve`, { cookie: checkerA });
-          expectStatus(appr, 200, 'POST approve via the other pod (race 2 staggered B)');
-          const syncedBefore = await findNewsAt(podB, id);
-          assert(syncedBefore.externalSyncStatus === 'synced' && syncedBefore.syncToExternal === true,
-            `race 2 staggered B: pre-race state must be synced/live, got ${syncedBefore.externalSyncStatus}/${syncedBefore.syncToExternal}`);
-
-          const putRes = await reqAt(podB, 'PUT', `/api/news/${id}`, { cookie: makerB, json: { title: editedTitle, summary: 'race edited' } });
-          await sleep(150);
-          const withdrawRes = await reqAt(podA, 'POST', `/api/news/${id}/withdraw`, { cookie: makerA });
-          assert(putRes.status === 200,
-            `race 2 staggered B: the edit PUT fired 150ms ahead must commit its forced reset (200), got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
-          assert(withdrawRes.status === 409,
-            `race 2 staggered B: the late withdraw must re-read draft under FOR UPDATE and be refused (409), got ${withdrawRes.status}: ${withdrawRes.text.slice(0, 160)}`);
+            'F/race2 (200 branch): the winning withdrawal must preserve the pre-race synced content');
+        } else {
           assert(withdrawRes.json && withdrawRes.json.currentState === 'draft',
-            `race 2 staggered B: withdraw 409 must report the ACTUAL current (draft) state, got: ${withdrawRes.text.slice(0, 160)}`);
-          const viaA = await findNewsAt(podA, id);
-          const viaB = await findNewsAt(podB, id);
-          for (const [label, item] of [['podA', viaA], ['podB', viaB]]) {
-            assert(item.externalSyncStatus === 'draft' && item.syncToExternal === false,
-              `race 2 staggered B (${label}): final must be draft/not-live, got ${item.externalSyncStatus}/${item.syncToExternal}`);
-            assert(item.title === editedTitle,
-              `race 2 staggered B (${label}): final content must be the EDITED snapshot, got "${item.title}"`);
-          }
-          assert(contentFingerprint(viaA) === contentFingerprint(viaB),
-            'race 2 staggered B: both pods must read the byte-same final row');
-          staggered.push('PUT-first: PUT=200 (forced reset), withdraw=409 (currentState=draft)');
+            'F/race2 (409 branch): withdraw must report the ACTUAL current (draft) state');
         }
-        return `concurrent withdraw per iteration: [${observed.join(', ')}] (200 = withdraw won the lock, 409 = edit reset to draft first); staggered deterministic: ${staggered.join('; ')}`;
+        await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'F/race2');
+        // Interleaving-agnostic AUD-P01 invariant: exactly one of the two
+        // transitions hit a non-draft row and owns the AUD-P01 row — the PUT
+        // (forced reset) when it won the lock, the withdrawal otherwise (the
+        // trailing PUT then landed on the already-withdrawn draft and is
+        // legitimately audit-less). Demanding the RESET row unconditionally
+        // would be a scheduler assumption (W2-FIX-4 lead review catch).
+        assert((await findResetAudit(podB, makerA, id)) || (await findWithdrawAudit(podB, makerA, id)),
+          'F/race2 invariant: an AUD-P01 row must exist — the forced-reset row (PUT won the lock) or the withdrawal row (withdraw won)');
+        return `informational (outcome not asserted): withdraw=${withdrawRes.status} — final draft+edited via both pods, AUD-P01 present (reset or withdrawal row per the lock winner)`;
       });
     }
   } finally {

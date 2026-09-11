@@ -340,6 +340,8 @@ class InMemoryRepository implements Repository {
     // run the sync/pure plan, then apply state + optional audit/sync-log with
     // prior-state restore if the audit write fails: a retry hits the SAME
     // pre-transition state (it can never silently skip the audit row).
+    // (The W2-FIX-4 hooks — commit delay / stale-read simulation — are
+    // PG-topology test tools and are deliberately NOT mirrored here.)
     const locked = await this.findNews(id);
     const p = plan(locked);
     if (p.kind === 'readonly') return p.result;
@@ -1057,10 +1059,23 @@ class PostgresRepository implements Repository {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const sel = await client.query('SELECT * FROM news WHERE id = $1 LIMIT 1 FOR UPDATE', [id]);
+      // W2-FIX-4 test hooks (PG only — see the hook block near the IS_PRODUCTION
+      // guards): SIMULATE_STALE_READ reads the row UNLOCKED and skips the FOR
+      // UPDATE select entirely, faithfully reproducing the pre-W2-FIX-3
+      // stale-read shape that smoke §18 Family N must be able to detect.
+      const sel = SIMULATE_STALE_READ
+        ? await client.query('SELECT * FROM news WHERE id = $1 LIMIT 1', [id])
+        : await client.query('SELECT * FROM news WHERE id = $1 LIMIT 1 FOR UPDATE', [id]);
       const locked = sel.rows[0] ? newsFromRow(sel.rows[0]) : null;
       const p = plan(locked);
       if (p.kind === 'commit') {
+        // W2-FIX-4 delay hook: in normal mode the transaction HOLDS the FOR
+        // UPDATE row lock across this sleep (the deterministic lock-handoff
+        // point smoke §18 Family O exercises); in SIMULATE_STALE_READ mode it
+        // merely holds the unlocked window open with no lock held.
+        if (NEWS_COMMIT_DELAY_MS > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, NEWS_COMMIT_DELAY_MS));
+        }
         await client.query(NEWS_UPDATE_SQL, newsUpdateValues(p.next));
         // The hook means "audit-write failure": it fires only when an audit
         // row is imminent (after the UPDATE, immediately before the audit
@@ -1241,6 +1256,29 @@ const AUDIT_FAILURE_INJECTION =
   process.env.SMOKE_INJECT_AUDIT_FAILURE === '1' && !IS_PRODUCTION;
 const SEED_W2FIX1_FIXTURES =
   process.env.SMOKE_SEED_W2FIX1_FIXTURES === '1' && !IS_PRODUCTION;
+
+// ---- W2-FIX-4 test-only hooks (codex fix-cycle-3 regression coverage) ----
+// Both are PG-topology test tools for smoke §18; the memory repository stays
+// hook-free on purpose (single-process semantics have no cross-pod window to
+// exercise). Inert unless env-set AND non-production, same guard style as
+// the W2-FIX-1 hooks above.
+// - SMOKE_DELAY_NEWS_COMMIT_MS: hold the runNewsTransition transaction open
+//   for N ms after the plan decides 'commit', BEFORE the UPDATE. In normal
+//   mode the FOR UPDATE row lock is held ACROSS the sleep — the
+//   deterministic lock-handoff point smoke §18 Family O exercises. In
+//   SMOKE_SIMULATE_STALE_READ mode the sleep merely holds the unlocked
+//   window open with NO lock held.
+// - SMOKE_SIMULATE_STALE_READ=1: faithfully reproduce the PRE-W2-FIX-3
+//   behavior — read the row WITHOUT FOR UPDATE, run the plan against that
+//   unlocked snapshot, and skip the FOR UPDATE select entirely (guards on a
+//   stale read; the UPDATE then clobbers by id). Exists so smoke §18
+//   Family N can prove the regression suite DETECTS the former stale-read
+//   defect.
+const NEWS_COMMIT_DELAY_MS = IS_PRODUCTION
+  ? 0
+  : Math.max(0, Number(process.env.SMOKE_DELAY_NEWS_COMMIT_MS) || 0);
+const SIMULATE_STALE_READ =
+  process.env.SMOKE_SIMULATE_STALE_READ === '1' && !IS_PRODUCTION;
 
 function toSafeUser(user: User): SafeUser {
   const { passwordHash: _passwordHash, ...safe } = user;
