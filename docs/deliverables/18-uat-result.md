@@ -1,6 +1,15 @@
 # Deliverable 18 — UAT Result
 
-**Version:** 0.2.0 · **Status:** **Reviewed** (lead review PASS 2026-09-11; codex gate-1 REVISE applied — v0.2.0, awaiting re-gate) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 0.2.1 · **Status:** **Approved** (codex re-gate 1 APPROVE @ `f70ae51`, 2026-09-11, decision #23 — `.omc/artifacts/cto-gate-doc18-regate1-verdict.md`; approved **as a technical UAT record** — L6 exit conditional on recorded 18a nominee acceptance + obs-U1 offline-sim before Release review) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+
+> **v0.2.1 (codex re-gate 1 = APPROVE, decision #23 — 4 NITs applied):**
+> (1) the lead-review ruling (a) and the UAT-1 A4-toast sentence are labeled
+> superseded by v0.2.0; (2) §10's J-transcript bullet acknowledges the
+> concurrent document edits present in the tree during the lane (worker
+> judgment call 4); (3) 18a v0.1.1 carries the exact J archive path; §8
+> records the `hasThaiReasonInAudit` future-assert note. Verdict: "approved
+> as a technical UAT record. Business acceptance remains outstanding."
+> Release withheld; L6 exit conditional.
 
 > **v0.2.0 (codex gate-1 = REVISE, decision #21 — fix cycle applied):**
 > (1) §6 criterion-1 no longer declared MET — scripted execution is technical
@@ -33,7 +42,9 @@
 > misreading plus a typo — §2 and §9 J-14 amended). **Lead rulings**: (a)
 > scripted role proxies satisfy Doc 12 §11 for L6 exit, with the caveat riding
 > to the CTO gate — formal business-nominee sign-off scheduled as a
-> Release-gate item; (b) obs-U1 (UAT-043 NOT TESTED) is S3-class coverage
+> Release-gate item *(**SUPERSEDED by the codex gate-1 ruling, decision #21**:
+> scripted execution ≠ §11 acceptance; recorded nominee sign-off required —
+> §6 PENDING, instrument 18a)*; (b) obs-U1 (UAT-043 NOT TESTED) is S3-class coverage
 > debt, not a defect — an offline-simulation leg (Playwright
 > `context.setOffline`) scheduled before Release-gate review.
 
@@ -117,7 +128,7 @@ Verdicts below cite the covering rows.
 
 | Scenario | Role | Verdict | Evidence (class W unless noted) |
 |---|---|---|---|
-| **UAT-1** — log in → read news → find colleague → open policy document → book room → release it; no CMS/Sync nav | staff | **PASS** | B0 login → portal home; B4 news ("ข่าวสารและประกาศ") loads seeded articles; B5 article modal; B9/B10 Directory ("สมุดโทรศัพท์") search by name + department chips; B13 document open (category filter); B11 book → In-Use; B12 release → available; B14 header badge STAFF, CMS/External nav absent; B17 logout. No error toast (suite asserts bilingual error surfaced only where expected, A4). Supplementary: V5 deep-link gate (V), F1 375px no overflow |
+| **UAT-1** — log in → read news → find colleague → open policy document → book room → release it; no CMS/Sync nav | staff | **PASS** | B0 login → portal home; B4 news ("ข่าวสารและประกาศ") loads seeded articles; B5 article modal; B9/B10 Directory ("สมุดโทรศัพท์") search by name + department chips; B13 document open (category filter); B11 book → In-Use; B12 release → available; B14 header badge STAFF, CMS/External nav absent; B17 logout. No error toast *(v0.2.0 supersession: the original "suite asserts bilingual error surfaced only where expected, A4" sentence established expected-error handling, not toast absence — see §4 intro; J3 supplies the success-step sweep evidence)*. Supplementary: V5 deep-link gate (V), F1 375px no overflow |
 | **UAT-2** — CMS create w/ attachment → draft → edit → submit → pending (amber); maker cannot approve own item | maker | **PASS** | C0 CMS nav; C1 create; C4 submit → Thai chip รอการอนุมัติ (amber dot); own-approval blocked server-side (P `maker-self-approve-blocked` → **403**, probe-uat2-maker) and no Approve/Reject controls rendered (C5). Draft edit persistence: C3 (fields preserved) + **J1 (attachment)** — *v0.2.0 attribution fix: walkthrough C2 uploads then cancels the form, so attachment persistence is NOT W-evidenced; J1 closes the gap: the uploaded `/uploads/ecf6a596-…png` survives draft save → editor reopen (form field) → content edit → submit with strict URL equality at every stage, `pending_approval` w/ imageUrl intact*. Supplementary: P full draft/false create contract; V4 External Web Sync preview (V) |
 | **UAT-3** — approval queue → reject w/ Thai reason → resubmitted item → approve; audit tab shows both | checker | **PASS** | D0 queue visible; D2 reject with required reason (input `E2E: wording revision required`, English) → ถูกปฏิเสธ; D0a+D1 resubmitted item approved → เผยแพร่แล้ว + sync log entry (✓ approver stamped); D3 Audit Trail tab lists both decisions with correct actors. **Thai-reason cycle in the real UI (J2)** — *v0.2.0 attribution fix: D2's reason is English, so the Thai cycle was P-only at v0.1.0; J2 closes it: checker rejects with `'ทบทวนถ้อยคำภาษาไทยอีกครั้งก่อนเผยแพร่'` (button disabled while empty), ถูกปฏิเสธ; maker reopens (attachment intact), forced draft ร่าง, resubmit → รอการอนุมัติ; approve → เผยแพร่แล้ว (`synced`, `approvedBy=checker01`); Audit Trail shows BOTH the REJECT (Thai reason in the entry) and APPROVE rows*. Supplementary: P full reject-cycle semantics (forced reset, resubmit, stamps) |
 | **UAT-4** — user lifecycle → self-deactivation blocked → re-activate → sync trigger → export JSON | admin | **PASS** | E0 admin nav; E4 create staff + duplicate 409 inline; E4b deactivate kills login server-side + reactivate restores; self-deactivation refused (P `self-deactivation-blocked` → **400** with clear message, probe-uat4-admin); E6 force sync trigger reports; E7 JSON export downloads; P `system-export-admin` → 200 with **non-zero counts** `{"news":15,"banners":6,"contacts":9,"meeting_rooms":5,"documents":8,"audit_logs":73,"sync_logs":8}` (DCR-1 top-level `tables` shape; corrected re-probe) |
@@ -256,7 +267,9 @@ Extra UI legs captured in the same run (supporting §5 rows): `v4-maker-external
 capture script (`tests/uat-visuals.mjs:138,154`) but is not part of V1's
 in-script failure condition — the archived value is `true` and the image
 visibly contains ร่าง, so the capture stands; future runs should include it
-in the assertion.*
+in the assertion. Re-gate-1 NIT (same class): `hasThaiReasonInAudit` in the
+J2 lane is likewise logged (archived value `true` — the Thai reason is
+visible in the audit entry) but not asserted; future runs should assert it.*
 
 ## 9. Worker judgment calls (flagged for Lead review)
 
@@ -364,7 +377,11 @@ this document together with the lane's evidence set per the W3-4 dispatch.
   `run-2026-09-11T1344Z-uat2`, 15 PASS / 0 FAIL, exit 0; `toastSweeps`
   ledger (8 sweeps, summed error surfacing 0, 8 benign success toasts).
 - `.omc/reports/w3-4-uat-journey.log` — lane transcript (header pins git
-  `90be09c` clean; node-check + journey exits; SUMMARY PASS=15 FAIL=0;
+  `90be09c`; the lane's own untracked outputs were the only files it wrote,
+  while concurrent **document** edits by the lead (this doc's v0.2.0
+  corrections + the 18a sheet) were present in the working tree and logged
+  as such by the worker (judgment call 4) — no code file changed;
+  node-check + journey exits; SUMMARY PASS=15 FAIL=0;
   teardown `PORT_3224_RELEASED=OK`, `no_tmp_residue=CONFIRMED`,
   13:38:24Z→13:48:01Z; run-1 of the script itself INVALID-marked via sibling
   file after a harness-side `.replace`-on-Promise bug — pristine run 2 is
