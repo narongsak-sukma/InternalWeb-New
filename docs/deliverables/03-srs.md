@@ -2,7 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.5.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions + W2-3 as-built flip: worker-5; W2-5 flip: worker-3)
+**Version:** 1.6.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-11 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions + W2-3 as-built flip: worker-5; W2-5 flip: worker-3; W2-FIX-1 pass: worker-5)
+
+> **Change log (v1.6.0, W2-FIX-1):** codex REVISE blockers 1–4 closed in code (commit `2c97cc3`) — requirements trued to as-built. **NEW FR-NEWS-010** (withdraw a live item from the public web — state-only, no checker per the ratified DCR-9 policy; the semantics are *not* covered by FR-NEWS-009, which constrains only the path **to** `synced` and grants no withdrawal right — hence a new id, flagged as a judgment call for lead review). **FR-NEWS-009 extended in place** (no new id): legacy-decision denial (a `pending_approval` row with no recorded submitter cannot be decided — 409 fresh-cycle, `ACCESS_DENIED` audit) and workflow atomicity/serialization (per-item lock; state+audit(+sync-log) commit as one all-or-nothing unit — 500 + rollback on audit-write failure, retry-safe). Inventory **94 → 95 REQ** (64 FR + 31 NFR). New TCs TC-NEWS-013..019 (Doc 12 v1.9.0, smoke §17); design side = Doc 10 §9.3; API side = Doc 08 §6.8.
 
 > **Change log (v1.5.0, W2-3 as-built flip):** FR-AUDIT-003's Wave-2 extension flipped from target state to **AS-BUILT (W2-3 code landed, commit `4650335`)** — the three call-site classes (sync trigger / system export / access denials) are live per Doc 10 §9.1; the audit-union prune is executed (net 14 values = the live writer set, Doc 10 §9.2); flip-pins TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 asserted in smoke §16 (Doc 12 v1.8.0; TC-SYNC-004 P2→P1). FR-AUDIT-004 and the §2.6 DCR-8 entry trued up in passing (stale "until the W2-2 code phase" clauses → removal **landed `f6fa52d`**). No new FR ids — the 94-REQ inventory is unchanged.
 
@@ -90,7 +92,7 @@ website itself, the legacy portal, and customer-facing systems.
 
 Section 2 gives the overall description (product perspective, user classes,
 environment, constraints, assumptions). Section 3 lists the specific
-requirements — 63 functional (§3.1, 13 domains) and 31 non-functional
+requirements — 64 functional (§3.1, 13 domains) and 31 non-functional
 (§3.2, 6 domains) — each with inputs, outputs and testable acceptance
 criteria. Section 4 summarizes requirement counts per domain.
 
@@ -404,11 +406,20 @@ Actor: all roles (maker, checker, admin).
 Controls (as built):
 - Create/update (`POST /api/news`, `PUT /api/news/:id`): the workflow fields `externalSyncStatus`, `approvedBy`, `approvedAt` and the `syncToExternal` flag are **server-controlled** — client-supplied values for these fields are stripped at the validation layer (`stripNewsWorkflowFields`, applied to the request body so all current and future news mutation endpoints inherit it), and a new item is persisted as `'draft'` with `syncToExternal:false`; create/update write **no** `sync_logs` row.
 - Submit (FR-NEWS-005): accepted only when the item is in `'draft'`; any other state → 400. The submitter identity is persisted on the item (`news.submitted_by` user id + `submitted_at`) for the self-approval guard, and the SUBMIT_APPROVAL audit entry names the submitter.
-- Approve/reject (FR-NEWS-006/007): accepted only when the item is in `'pending_approval'`; any other state → 400. Additionally, the approver identity must differ from the submitter identity (**submitter ≠ approver guard**, compared as user ids via `submitted_by`); a self-decision attempt → 403.
+- Approve/reject (FR-NEWS-006/007): accepted only when the item is in `'pending_approval'`; any other state → 400. Additionally, the approver identity must differ from the submitter identity (**submitter ≠ approver guard**, compared as user ids via `submitted_by`); a self-decision attempt → 403. *W2-FIX-1 extension:* a `'pending_approval'` row carrying **no `submittedBy`** (pre-migration legacy shape; no API path can create it today — every submit stamps) **cannot be decided by anyone** — the dual-control invariant is unverifiable without a submitter identity, so approve/reject → **409** ("รายการนี้ถูกส่งก่อนการย้ายระบบ กรุณาให้ผู้สร้างส่งคำขออนุมัติใหม่ / Legacy submission requires a fresh submission cycle") with an `ACCESS_DENIED`/WARNING audit row; a fresh submission cycle (edit → submit) restores decidability.
 - Forced transition: **content change ⇒ draft** — editing an item in any non-draft state (`'pending_approval'`, `'synced'`, `'rejected'`) resets it to `'draft'`, clearing the prior cycle's approval/submission stamps and setting `syncToExternal:false` (the item drops out of the live public set until a checker re-approves; a pending item cannot be mutated under an open review). The only legal path is `draft → pending_approval → synced|rejected`; only checker approve makes content live.
+- *W2-FIX-1 extension — atomicity & serialization:* every news workflow transition (edit-reset, submit, approve, reject, and the FR-NEWS-010 withdrawal) commits its state change **and its audit row (and the approve-path sync log) as one all-or-nothing unit** (`repo.commitNewsTransition`: PG `BEGIN`/`UPDATE`/`INSERT`/`COMMIT` with `ROLLBACK` on any failure; in-memory with prior-state restore) — an audit-write failure rolls the transition back and returns 500, so **no committed transition can lack its audit row** and a retry hits the identical pre-transition state. All six news mutations additionally serialize per item through a chained-promise critical section (`withNewsLock`, each handler re-reading inside it), so a concurrent edit+approve race can never end as `synced` carrying stale content — the state guards always see the winning write.
 Outputs (as built): `'synced'` (with `approvedBy`/`approvedAt` stamps and `syncToExternal:true`) can only be produced by a valid checker approve of a `'pending_approval'` item that was submitted by a different identity; every path remains audited (FR-AUDIT-003) — forced transitions and guard rejections each write an audit row with the reason in `details` (AUD-P01/02/03).
-Acceptance: (a) no role — including admin — can produce `'synced'` via create/update or via any endpoint other than checker approve; (b) approve/reject on an item not in `'pending_approval'` → 400; (c) approve by the same identity that submitted the item → 403; (d) submit-approval on an item not in `'draft'` → 400; (e) client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` in create/update payloads have no effect on persisted state; (f) regression tests cover each guard (a)–(e) (`scripts/smoke-test.mjs` maker-checker section, TC-SEC-011/TC-COMP-001).
-Status: **AS-BUILT (W2-1, v1.2.0)** — implemented in `server.ts` (`stripNewsWorkflowFields` validation-layer strip; guards on submit-approval/approve/reject; `news.submitted_by`/`submitted_at` columns in `scripts/schema.sql` and the server DDL, lockstep per NFR-MAINT-004). *Note:* any future admin override capability must be introduced as a separate, explicitly risk-accepted **break-glass requirement** — it is explicitly out of scope for the current requirements.
+Acceptance: (a) no role — including admin — can produce `'synced'` via create/update or via any endpoint other than checker approve; (b) approve/reject on an item not in `'pending_approval'` → 400; (c) approve by the same identity that submitted the item → 403; (d) submit-approval on an item not in `'draft'` → 400; (e) client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` in create/update payloads have no effect on persisted state; (f) regression tests cover each guard (a)–(e) (`scripts/smoke-test.mjs` maker-checker section, TC-SEC-011/TC-COMP-001); (g) *(W2-FIX-1)* a decision on a legacy no-submitter pending row → 409, state unchanged, `ACCESS_DENIED` audit written; (h) *(W2-FIX-1)* an audit-write failure during any transition rolls the state change back (500) — no committed transition exists without its audit row; (i) *(W2-FIX-1)* a concurrent edit+approve never yields `synced`-with-stale-content in either interleaving. (g)–(i) asserted in `scripts/smoke-test.mjs` §17 (TC-NEWS-013/014/017/018/019, Doc 12 v1.9.0).
+Status: **AS-BUILT (W2-1, v1.2.0; W2-FIX-1 extension — legacy-decision denial + atomicity/serialization — v1.6.0, commit `2c97cc3`)** — implemented in `server.ts` (`stripNewsWorkflowFields` validation-layer strip; guards on submit-approval/approve/reject; `news.submitted_by`/`submitted_at` columns in `scripts/schema.sql` and the server DDL, lockstep per NFR-MAINT-004; `withNewsLock` per-item serialization and `commitNewsTransition` atomic commit per Doc 10 §9.3). *Note:* any future admin override capability must be introduced as a separate, explicitly risk-accepted **break-glass requirement** — it is explicitly out of scope for the current requirements.
+
+**FR-NEWS-010 — Withdraw a live item from the public web (state-only).**
+Ratified DCR-9 policy (withdrawal needs **no checker** — the safe direction: un-publish), implemented without the stale-snapshot defect of the former PUT-based action (codex REVISE blocker 3; **W2-FIX-1, commit `2c97cc3`**). Complements FR-NEWS-009, which constrains the path **to** `'synced'` but grants no withdrawal right — hence a separate requirement id.
+Actor: maker, admin (checker explicitly excluded from this action; any author-side role may un-publish, per the DCR-9 ruling).
+Inputs: `POST /api/news/:id/withdraw` — **no request body**; any body is ignored (state-only by design: the server withdraws its *current* content, so a stale browser snapshot can never overwrite a concurrent maker's edits).
+Outputs: `200` with the item at `externalSyncStatus:'draft'`, `syncToExternal:false`, and `approvedBy`/`approvedAt`/`submittedBy`/`submittedAt` cleared — **every content field preserved byte-for-byte**; `409` when the item is not `'synced'` (Thai-first message "ประกาศไม่ได้อยู่ในสถานะเผยแพร่ / Item is not live on the public web", body carries the current state, no state change, **no** audit row); `404` unknown id; `500` atomic-commit failure (item stays `synced` — FR-NEWS-009 atomicity). The transition writes an `UPDATE`/SUCCESS audit row with `prior_status='synced'` in `details` (AUD-P01 shape, Doc 10 §9.3) committed atomically with the state change; **no** sync log (nothing new left the building).
+Acceptance: (a) withdrawal of a `'synced'` item returns it to `'draft'` and drops it from the live public set while every content field is byte-identical before/after; (b) withdrawal of a non-`'synced'` item → 409 with the current state exposed, no state change, no audit row; (c) staff/checker → 403 (maker/admin only); (d) the audit row and the state change commit together or not at all (FR-NEWS-009(h)); (e) verified by TC-NEWS-015/016 (`scripts/smoke-test.mjs` §17, Doc 12 v1.9.0).
+Status: **AS-BUILT (W2-FIX-1, `2c97cc3`)** — new requirement introduced by this fix cycle; the §4 inventory grows **94 → 95 REQ (64 FR + 31 NFR)**.
 
 #### 3.1.5 Hero banners (BANNER)
 
@@ -737,7 +748,7 @@ as-built implementation.
 | FR | AUTH | 6 | FR-AUTH-001…006 |
 | FR | SES | 6 | FR-SES-001…006 |
 | FR | USER | 5 | FR-USER-001…005 |
-| FR | NEWS | 9 | FR-NEWS-001…009 |
+| FR | NEWS | 10 | FR-NEWS-001…010 |
 | FR | BANNER | 4 | FR-BANNER-001…004 |
 | FR | CONTACT | 4 | FR-CONTACT-001…004 |
 | FR | DOC | 3 | FR-DOC-001…003 |
@@ -753,7 +764,7 @@ as-built implementation.
 | NFR | COMP | 4 | NFR-COMP-001…004 |
 | NFR | I18N | 3 | NFR-I18N-001…003 |
 | NFR | MAINT | 7 | NFR-MAINT-001…007 |
-| **Total** | | **94** | 63 functional (1 `[PLANNED]`: FR-SYNC-004 outbound call) + 31 non-functional |
+| **Total** | | **95** | 64 functional (1 `[PLANNED]`: FR-SYNC-004 outbound call) + 31 non-functional |
 
 Cross-references: each requirement above is traced to design artifacts, test
 cases (`TC-<DOMAIN>-<nnn>`) and UAT items (`UAT-<nnn>`) in

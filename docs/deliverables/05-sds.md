@@ -2,9 +2,9 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public Sync Portal**
 
-**Version:** 1.1.0 · **Status:** Draft (W2-1 truth revision) · **Date:** 2026-09-10 · **Author:** worker-3 → Lead review → CTO approval (W2-1 truth pass: worker-3)
+**Version:** 1.2.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-11 · **Author:** worker-3 → Lead review → CTO approval (W2-1 truth pass: worker-3; W2-FIX-1 ripple pass: worker-5)
 
-> **Change log** — **1.1.0 (2026-09-10)**: W2-1 truth pass (align to the landed branch code, same treatment as docs 07/08): §3.3 rewritten to the **single legal path** — the Wave-1 direct-publish bypass (PATH A, DCR-3) is closed by FR-NEWS-009 (`stripNewsWorkflowFields` validation-layer strip, submit-approval draft-only + `submittedBy/At` stamps, approve/reject pending-only, submitter ≠ approver for every role, forced edit-reset with AUD-P01 audit, sync logs written only by approve/DELETE/`sync/trigger`); §2.2/§2.3 line references refreshed to the Wave-2 working tree (W2-1 dual-control + W2-2 audit-append removal landed; worker-2's W2-3 audit-coverage WIP is in flight on this branch and is documented in Doc 10 §9.1, not restated here); §7 row 9 and §8 row 0 converted to the decision record (resolved). **1.0.0**: initial AS-BUILT record (Wave-1 gate, approved) — its §3.3 documented the then-live dual-path behavior.
+> **Change log** — **1.2.0 (2026-09-11)**: W2-FIX-1 ripple + staleness close-out (the doc-05 ripple debt queued from `0be867c`): §3.5 audit-action listing trued to the **14-value live writer set** (was the pre-prune Wave-1 union — dead `CREATE`/`DELETE`/`SYNC_PUBLIC` listed, `SYNC_TRIGGER`/`SYSTEM_EXPORT`/`ACCESS_DENIED` missing); write path updated to the **two-path** reality (`recordAudit` direct vs `commitNewsTransition` atomic state+audit commit, W2-FIX-1 `2c97cc3` — Doc 10 §9.3); the stale "admins may append explicit entries (POST)" line removed (DCR-8 landed `f6fa52d`); W2-FIX-1 call-site shapes noted (withdrawal `UPDATE` with `prior_status='synced'`; legacy-decision `ACCESS_DENIED`); §2 module-map audit row refreshed to current line anchors. Truth alignment only — no design-change decisions. **1.1.0 (2026-09-10)**: W2-1 truth pass (align to the landed branch code, same treatment as docs 07/08): §3.3 rewritten to the **single legal path** — the Wave-1 direct-publish bypass (PATH A, DCR-3) is closed by FR-NEWS-009 (`stripNewsWorkflowFields` validation-layer strip, submit-approval draft-only + `submittedBy/At` stamps, approve/reject pending-only, submitter ≠ approver for every role, forced edit-reset with AUD-P01 audit, sync logs written only by approve/DELETE/`sync/trigger`); §2.2/§2.3 line references refreshed to the Wave-2 working tree (W2-1 dual-control + W2-2 audit-append removal landed; worker-2's W2-3 audit-coverage WIP is in flight on this branch and is documented in Doc 10 §9.1, not restated here); §7 row 9 and §8 row 0 converted to the decision record (resolved). **1.0.0**: initial AS-BUILT record (Wave-1 gate, approved) — its §3.3 documented the then-live dual-path behavior.
 
 ---
 
@@ -132,7 +132,7 @@ functional sections, plus operational scripts.
 | Session & crypto core | L1075–1209 | Constants (`kbj_session`, 7-day TTL, bcrypt cost 12); `SESSION_SECRET` production guard; `toSafeUser`; `createUser` (bcrypt hash); HMAC-SHA256 sign/verify (`timingSafeEqual`); `parseCookies`; `createSession`/`resolveSession`/`destroySession`; hourly session sweeper; precomputed `DUMMY_PASSWORD_HASH` |
 | Auth middleware & limiter | L1211–1286, L1356–1370 | `req.user` type declaration; `requireAuth`; `requireRole`; `requireResourceId`; login rate limiter |
 | News workflow strip (W2-1) | L1288–1295 | `NEWS_WORKFLOW_FIELDS` + `stripNewsWorkflowFields` — deletes `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` from every news request body at the validation layer (see §3.3) |
-| Audit helper & role labels | L1372–1408 | `recordAudit` (actor always from the session); `ROLE_LABELS` (admin/checker/maker/staff display names); module-level `repo` binding |
+| Audit helper & role labels | L1503–1531 | `buildAuditEntry`/`recordAudit` (actor always from the session; `recordAudit` is the **direct** write path — news workflow transitions instead commit atomically via `commitNewsTransition`, L174/L312/L1005); `ROLE_LABELS` (admin/checker/maker/staff display names); module-level `repo` binding. Nearby: per-item news workflow lock (`withNewsLock`, L1399–1410) |
 | Health probes | L1410–1475 | `GET /healthz|/health|/api/health` (process liveness, uptime, version, pod metadata) and `GET /readyz|/ready|/api/ready` (repository-aware readiness → 503 pulls the pod from rotation) |
 | News API + maker-checker | L1477–1788 | `GET/POST/PUT/DELETE /api/news`; `POST /api/news/:id/submit-approval|approve|reject` (state machine §3.3 — workflow fields stripped, forced edit-reset, self-approval barred); sync log written only by approve (and admin DELETE of a synced item) |
 | Banners / Contacts / Rooms / Documents / Tools APIs | L1790–1955 | CRUD per the RBAC matrix; rooms add `book`/`release`; tools are served from the static seed list (no table) |
@@ -396,7 +396,17 @@ Persistence: compose mounts the named `uploads` volume; Kubernetes mounts the
 
 ### 3.5 Audit logging (PDPA accountability)
 
-`recordAudit` (L1372–1390) is the single write path. Entries carry:
+Two write paths since W2-FIX-1 (`2c97cc3`): `recordAudit` (L1505–1519, via
+`buildAuditEntry`) is the **direct** path for non-atomic call sites (auth,
+users, sync-trigger, export, upload); every **news workflow transition**
+(edit-reset, submit, approve, reject, withdraw) instead commits its audit row
+together with the state change — and on approve the sync log — as **one
+all-or-nothing unit** via `repo.commitNewsTransition` (interface L174;
+in-memory L312; PG L1005 — single `BEGIN`/`UPDATE`/`INSERT`/`COMMIT`
+transaction with `ROLLBACK` on any failure). An audit-write failure rolls the
+transition back and surfaces the 500 envelope, so no committed transition can
+lack its audit row and a retry hits the identical pre-transition state
+(Doc 10 §9.3). Entries carry:
 `actor`, `actorRole`, `action`, `targetResource`, `resourceId`, `details`,
 `ipAddress`, `status`, plus server-generated `id` (`audit-<ts>-<hex>`) and
 `timestamp`.
@@ -404,17 +414,26 @@ Persistence: compose mounts the named `uploads` volume; Kubernetes mounts the
 - The **actor is always the authenticated session user** (`req.user`) or, for
   failed logins, the attempted username — client-supplied actor strings are
   never accepted.
-- Actions as built (from `AuditLog['action']`): `CREATE`, `UPDATE`, `DELETE`,
-  `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `SYNC_PUBLIC`, `LOGIN`,
+- Actions as built (from `AuditLog['action']` — pruned/extended at `4650335`;
+  W2-FIX-1 adds **no** member, its call sites reuse `UPDATE`/`ACCESS_DENIED`):
+  `UPDATE`, `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `LOGIN`,
   `LOGIN_FAILED`, `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`,
-  `USER_DEACTIVATE`, `FILE_UPLOAD`. Statuses: `SUCCESS` / `REJECTED` /
-  `WARNING`.
+  `USER_DEACTIVATE`, `FILE_UPLOAD`, `SYNC_TRIGGER`, `SYSTEM_EXPORT`,
+  `ACCESS_DENIED` — net 14 values, exactly the live writer set (Doc 10 §2).
+  Statuses: `SUCCESS` / `REJECTED` / `WARNING`.
+- W2-FIX-1 call-site shapes: the state-only withdrawal (`POST
+  /api/news/:id/withdraw`) writes the AUD-P01 `UPDATE`/SUCCESS row with
+  `prior_status='synced'` in `details`; a denied approve/reject decision on a
+  legacy no-submitter `pending_approval` row writes `ACCESS_DENIED`/WARNING
+  (a handler-level decision denial, distinct from the AUD-P07 middleware
+  403/401 rows).
 - **Append-only by construction**: there is no update or delete endpoint or
   SQL path for `audit_logs`; users are deactivated, never deleted, partly to
-  keep actor references resolvable.
+  keep actor references resolvable. The former admin manual-append endpoint
+  (`POST /api/audit-logs`) is **removed per DCR-8 (landed `f6fa52d`)** — 404
+  for every role incl. admin; audit rows are exclusively server-written.
 - Read access: `GET /api/audit-logs` is checker+ (compliance reads its own
-  trail). Admins may append explicit entries (`POST`) for manually logged
-  operational events.
+  trail).
 - Full design rationale and retention discussion: Deliverable 10
   (`10-audit-log-design.md`).
 

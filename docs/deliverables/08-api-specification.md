@@ -1,6 +1,6 @@
 # 08 — API Specification
 
-**Version:** 1.3.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval (W2-2 revision: worker-5; W2-1 truth pass: worker-4)
+**Version:** 1.4.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-11 · **Author:** worker-4 → Lead review → CTO approval (W2-2 revision: worker-5; W2-1 truth pass: worker-4; W2-FIX-1 as-built pass: worker-5)
 
 Complete as-built specification of the HTTP API served by the Express gateway in `server.ts` (bundled to `dist/server.cjs`). Every endpoint, status code, validation rule, default value, and side effect below was extracted from the code — nothing is aspirational. A machine-readable (partial) mirror is served at `GET /api/openapi.json`.
 
@@ -42,10 +42,10 @@ Other cookies are ignored; there is no bearer-token auth. `POST /api/auth/login`
 | `401` | `Authentication required` — missing/expired/invalid session on an authenticated route; login failure (`Invalid credentials`) |
 | `403` | `Insufficient permissions` — authenticated but role not allowed |
 | `404` | Unknown `:id` on PUT/booking routes (`{ "error": "<Resource> not found" }`); unmatched `/api/*` path (`No API endpoint for <METHOD> <path>`) |
-| `409` | Username already exists (users POST) |
+| `409` | Username already exists (users POST); news workflow (W2-FIX-1) — withdrawal of a non-live item (§6.8, body carries `currentState`) and approve/reject decisions on legacy no-submitter pending rows (§6.6/§6.7) |
 | `413` | Upload > 10 MB (`File exceeds the 10MB limit.`); JSON/urlencoded body > 10 MB (`Request body too large`) |
 | `429` | Login rate limit exceeded |
-| `500` | Unhandled error (`Internal server error`) — logged as one line, never a stack trace |
+| `500` | Unhandled error (`Internal server error`) — logged as one line, never a stack trace. Since W2-FIX-1 this includes an atomic workflow commit whose audit write failed: the state change is rolled back with it (§6.3–§6.8) |
 | `503` | `/readyz` when the repository is not healthy (PG mode) or stores are initializing (memory mode) |
 
 ### 1.5 Rate limiting — login only
@@ -88,12 +88,12 @@ Roles: `admin` > `checker` (compliance) > `maker` (author) > `staff` (read-only)
 | `GET /api/contacts` `/api/documents` | 401 | auth | auth | auth | auth |
 | `POST /api/rooms/:id/book` `/release` | 401 | auth | auth | auth | auth |
 | `POST /api/upload` | 401 | 403 | ✅ | ✅ | ✅ |
-| `POST/PUT /api/news`, `POST /api/news/:id/submit-approval` | 401 | 403 | ✅ | 403 | ✅ |
+| `POST/PUT /api/news`, `POST /api/news/:id/submit-approval`, `POST /api/news/:id/withdraw` | 401 | 403 | ✅ | 403 | ✅ |
 | `POST /api/banners` `/contacts` `/documents`, `PUT /api/banners/:id` `/contacts/:id` | 401 | 403 | ✅ | 403 | ✅ |
 | `POST /api/news/:id/approve` `/reject` | 401 | 403 | 403 | ✅ | ✅ |
 | `DELETE /api/{news,banners,contacts,documents}/:id` | 401 | 403 | 403 | 403 | ✅ |
 | `GET /api/audit-logs` | 401 | 403 | 403 | ✅ | ✅ |
-| `POST /api/audit-logs` | 401 | 403 | 403 | 403 | ✅ *(live today)* — **REMOVED per DCR-8**: target 404 for every role incl. admin (as-built until W2-2 code lands; §11.3) |
+| `POST /api/audit-logs` | 404 | 404 | 404 | 404 | 404 — **REMOVED per DCR-8 (landed `f6fa52d`)**: JSON catch-all 404 for every role incl. admin (§11.3) |
 | `GET /api/sync/logs`, `POST /api/sync/trigger` | 401 | 403 | 403 | 403 | ✅ |
 | `GET /api/system/export` | 401 | 403 | 403 | 403 | ✅ |
 | `GET/POST /api/users`, `PATCH /api/users/:id` | 401 | 403 | 403 | 403 | ✅ |
@@ -259,9 +259,13 @@ The richest domain: CRUD plus the BOT maker-checker workflow. State machine as b
 
 ```
   POST /api/news ──► draft ──submit-approval──► pending_approval ──approve──► synced
- (workflow fields     ▲ ▲                         (maker/admin;        (checker/admin; pending-
-  stripped; always    │ │                          draft-only)          only; submitter ≠ approver)
-  enters 'draft')     │ │                              │
+ (workflow fields     ▲ ▲ ▲                       (maker/admin;        (checker/admin; pending-
+  stripped; always    │ │ │                        draft-only)          only; submitter ≠ approver)
+  enters 'draft')     │ │ │                            │                    │
+                      │ │ └──── withdraw ◄─────────────┘ (maker/admin; synced-only; NO checker
+                      │ │       (state-only; content      per DCR-9; 409 + currentState
+                      │ │        preserved byte-          when not synced; §6.8)
+                      │ │        for-byte; AUD-P01)
                       │ └────────── reject ◄───────────┘
                       │            (checker/admin; pending-only; submitter ≠ decider)
                       │                │
@@ -272,6 +276,8 @@ The richest domain: CRUD plus the BOT maker-checker workflow. State machine as b
 ```
 
 Every guard rejection (illegal state → 400, self-approval/self-decision → 403) is audited as a `WARNING` row before the error is returned.
+
+**Concurrency & atomicity (W2-FIX-1, commit `2c97cc3`).** All six news mutations (create, PUT, submit, approve, reject, withdraw) serialize per item through a chained-promise critical section (`withNewsLock`, `server.ts:1387–1410`); each handler re-reads the item **inside** the lock, so a concurrent edit is always seen by the state guards — an edit+approve race can never end as `synced` with stale content (edit wins → the decision 400s; decision wins → the next edit force-resets to draft). Each workflow state change then commits with its audit row (plus the approve-path sync log) as **one all-or-nothing unit** (`repo.commitNewsTransition` — PG `BEGIN`/`UPDATE`/`INSERT`/`COMMIT` with `ROLLBACK` on any failure; in-memory with prior-state restore): an audit-write failure rolls the transition back and surfaces the §1.4 500 envelope — a retry hits the identical pre-transition state. **Legacy submissions (codex blocker 2):** an approve/reject decision on a `pending_approval` row carrying no `submittedBy` (pre-migration shape; no API path can create it today) is **denied 409** with a Thai-first fresh-cycle message and an `ACCESS_DENIED`/WARNING audit row — separation of duties cannot be verified without a submitter identity (§6.6/§6.7).
 
 ### 6.1 `GET /api/news` (anon)
 
@@ -329,7 +335,7 @@ Every guard rejection (illegal state → 400, self-approval/self-decision → 40
 | `404` | `{"error":"News item not found"}` (bare — §1.3) |
 | `400` | blank id (§1.7) |
 
-**Side effects.** When the forced reset fires: an `audit_logs` row `action=UPDATE`, `status=SUCCESS` — the AUD-P01 forced-transition record, details `Edit of <priorStatus> item "<title prefix>…" reset externalSyncStatus to draft (forced transition; approval and submission stamps cleared, item dropped from the live sync set until re-approval).` **No sync log on update** — PUT can no longer reach `syncToExternal=true`; the flag flips only via the checker approve endpoint.
+**Side effects.** When the forced reset fires: an `audit_logs` row `action=UPDATE`, `status=SUCCESS` — the AUD-P01 forced-transition record, details `Edit of <priorStatus> item "<title prefix>…" reset externalSyncStatus to draft (forced transition; approval and submission stamps cleared, item dropped from the live sync set until re-approval).` **No sync log on update** — PUT can no longer reach `syncToExternal=true`; the flag flips only via the checker approve endpoint. Since W2-FIX-1 the reset and its AUD-P01 row commit atomically via `commitNewsTransition` — an audit-write failure rolls the reset back and returns the 500 envelope (no silent state change, no orphan reset without its audit).
 
 ### 6.4 `DELETE /api/news/:id` (admin)
 
@@ -350,10 +356,11 @@ Enters the item into dual-control review — **legal from `draft` only** (W2-1):
 | `200` | `{"success":true,"data":{<NewsItem>},"audit":{<AuditLog>}}` |
 | `400` | `{"success":false,"error":"Only draft news items can be submitted for approval"}` — item not in `draft` (guard rejection audited WARNING first) |
 | `404` | `{"error":"News item not found"}` |
+| `500` | `{"success":false,"error":"Internal server error"}` — the atomic state+audit commit failed; the item remains `draft` with no submission stamps (W2-FIX-1) |
 
 **State transition:** `externalSyncStatus = "pending_approval"`, `syncToExternal = false` (not live until checker approval), and the submission is stamped `submittedBy` = submitter's user id, `submittedAt` = `YYYY-MM-DD HH:MM:SS` — the stamps the self-approval guard (§6.6/§6.7) checks and the draft reset (§6.3) clears.
 
-**Side effects.** `audit_logs` row `action=SUBMIT_APPROVAL`, `status=SUCCESS`, details `Submitted by <username> (id: <user id>): "<first 30 chars of title>…" for dual-control checker review before public publishing.` Blocked attempts (non-draft state) write the same action with `status=WARNING` and a `Blocked: …` details line before the 400 is returned.
+**Side effects.** `audit_logs` row `action=SUBMIT_APPROVAL`, `status=SUCCESS`, details `Submitted by <username> (id: <user id>): "<first 30 chars of title>…" for dual-control checker review before public publishing.` Blocked attempts (non-draft state) write the same action with `status=WARNING` and a `Blocked: …` details line before the 400 is returned. Since W2-FIX-1 the transition and its audit row commit as one unit (`commitNewsTransition`) — they commit or roll back together.
 
 ### 6.6 `POST /api/news/:id/approve` (checker, admin)
 
@@ -367,10 +374,12 @@ Enters the item into dual-control review — **legal from `draft` only** (W2-1):
 | `400` | `{"success":false,"error":"Only news items pending approval can be approved"}` — item not in `pending_approval` (guard rejection audited WARNING first) |
 | `403` | `{"success":false,"error":"Self-approval is not allowed: the submitter cannot approve their own item"}` — acting checker is the submitter (guard rejection audited WARNING first) |
 | `404` | `{"error":"News item not found"}` |
+| `409` | `{"success":false,"error":"รายการนี้ถูกส่งก่อนการย้ายระบบ กรุณาให้ผู้สร้างส่งคำขออนุมัติใหม่ / Legacy submission requires a fresh submission cycle"}` — **W2-FIX-1 (codex blocker 2)**: the pending row carries no `submittedBy` (pre-migration legacy shape); separation of duties cannot be verified, so the decision is denied pending a fresh submission cycle (denial audited `ACCESS_DENIED`/WARNING first — target `News Announcement`). The state is unchanged. |
+| `500` | `{"success":false,"error":"Internal server error"}` — the atomic state+audit+sync-log commit failed; the item remains `pending_approval` (W2-FIX-1) |
 
 **State transition:** `externalSyncStatus = "synced"`, `syncToExternal = true`, `approvedBy` = checker's username, `approvedAt` = `YYYY-MM-DD HH:MM:SS` (UTC label). The `submittedBy`/`submittedAt` stamps remain set — they anchor the approve audit's submitter attribution.
 
-**Side effects.** (1) `audit_logs` row `action=APPROVE`, details `Approved public synchronization to www.kbjcapital.co.th for "<title prefix>…" (submitted by id: <submitter id | unknown>).`; (2) `sync_logs` row `action=CREATE`, `status=SUCCESS`, endpoint `api.kbjcapital.co.th/v1/public/news`, `syncedBy` = checker — **the only code path that writes a sync log for news** (the sole path to `synced`). (The sync log records the state machine; no outbound HTTP occurs — §17.)
+**Side effects.** (1) `audit_logs` row `action=APPROVE`, details `Approved public synchronization to www.kbjcapital.co.th for "<title prefix>…" (submitted by id: <submitter id | unknown>).`; (2) `sync_logs` row `action=CREATE`, `status=SUCCESS`, endpoint `api.kbjcapital.co.th/v1/public/news`, `syncedBy` = checker — **the only code path that writes a sync log for news** (the sole path to `synced`). (The sync log records the state machine; no outbound HTTP occurs — §17.) Since W2-FIX-1 all three writes — news update, audit row, sync log — commit in **one transaction** (`commitNewsTransition`); any failure rolls all three back.
 
 ### 6.7 `POST /api/news/:id/reject` (checker, admin)
 
@@ -384,10 +393,31 @@ Enters the item into dual-control review — **legal from `draft` only** (W2-1):
 | `400` | `{"success":false,"error":"Only news items pending approval can be rejected"}` — item not in `pending_approval` (guard rejection audited WARNING first) |
 | `403` | `{"success":false,"error":"Self-decision is not allowed: the submitter cannot reject their own item"}` — acting checker is the submitter (guard rejection audited WARNING first) |
 | `404` | `{"error":"News item not found"}` |
+| `409` | `{"success":false,"error":"รายการนี้ถูกส่งก่อนการย้ายระบบ กรุณาให้ผู้สร้างส่งคำขออนุมัติใหม่ / Legacy submission requires a fresh submission cycle"}` — **W2-FIX-1 (codex blocker 2)**: same legacy no-submitter deny as approve (§6.6); denial audited `ACCESS_DENIED`/WARNING, state unchanged |
+| `500` | `{"success":false,"error":"Internal server error"}` — the atomic state+audit commit failed; the item remains `pending_approval` (W2-FIX-1) |
 
 **State transition:** `externalSyncStatus = "rejected"`, `syncToExternal = false`, and `approvedBy` is **overloaded** with `Rejected by <checker username>: <reason>` (there is no separate rejected-by/reason column — see doc 07 §5.3). `submittedBy`/`submittedAt` remain set (cleared only by the §6.3 draft reset when the maker edits the rejected item).
 
-**Side effects.** `audit_logs` row `action=REJECT`, `status=REJECTED`, details `Rejected approval for "<title prefix>…". Reason: <reason>`.
+**Side effects.** `audit_logs` row `action=REJECT`, `status=REJECTED`, details `Rejected approval for "<title prefix>…". Reason: <reason>`. Since W2-FIX-1 the transition and its audit row commit atomically (`commitNewsTransition`).
+
+### 6.8 `POST /api/news/:id/withdraw` (maker, admin)
+
+State-only withdrawal of a live item from the public web — **W2-FIX-1 (codex blocker 3), commit `2c97cc3`**, implementing the ratified DCR-9 policy (withdrawal needs **no checker**: the safe direction — un-publish) without the stale-snapshot defect of the former PUT-based action.
+
+**Request:** none — the body is **deliberately ignored**. The server withdraws its *current* content, so a stale browser snapshot can never overwrite a concurrent maker's edits (the former client action sent the entire cached item).
+
+| Status | Body |
+|---|---|
+| `200` | `{"success":true,"data":{<NewsItem>},"audit":{<AuditLog>}}` |
+| `409` | `{"success":false,"error":"ประกาศไม่ได้อยู่ในสถานะเผยแพร่ / Item is not live on the public web","currentState":"<externalSyncStatus or 'none'>"}` — precondition `synced` not met; **no** state change and **no** audit row |
+| `404` | `{"error":"News item not found"}` (bare — §1.3) |
+| `500` | `{"success":false,"error":"Internal server error"}` — the atomic state+audit commit failed; the item stays `synced`/live (W2-FIX-1: no silent draft without its audit row) |
+
+**State transition:** `synced → draft` with `syncToExternal=false` and `approvedBy`/`approvedAt`/`submittedBy`/`submittedAt` all cleared — **every content field is preserved byte-for-byte** (the handler spreads `{...item}` and moves only the workflow fields). Distinguished from the §6.3 PUT forced reset — which applies client-supplied content — by being state-only.
+
+**Side effects.** `audit_logs` row `action=UPDATE`, `status=SUCCESS`, details `Withdrawal from public web: synced item "<title prefix>…" withdrawn to draft (state-only transition; prior_status='synced'; content preserved; approval and submission stamps cleared, syncToExternal=false until re-approval).` — the same AUD-P01 forced-transition shape as the §6.3 reset rows, with `prior_status='synced'` naming the prior state. The row commits atomically with the state change (`commitNewsTransition`). **No sync log** — nothing new left the building; the item *leaves* the public set.
+
+Client: the CMS "Withdraw from public" row action (visible on `synced` items) calls this endpoint payload-free (`api.withdrawNews(id)`, `src/api.ts`); a 409 surfaces the Thai-first message. Mirrored in `GET /api/openapi.json` (§13.2).
 
 ---
 
@@ -498,22 +528,23 @@ Returns the in-code constant `INITIAL_TOOLS` verbatim: `{"data":[{id,name,descri
 
 `200` → `{"data":[<AuditLog>…]}` (newest first). Fields per doc 07 §5.9. No query/filter parameters are supported (as built).
 
-### 11.3 `POST /api/audit-logs` — **REMOVED per DCR-8** (CTO ruling, RISK-023, decision #5/#6)
+### 11.3 `POST /api/audit-logs` — **REMOVED per DCR-8 (landed `f6fa52d`)** (CTO ruling, RISK-023, decision #5/#6)
 
-**Target state (doc-first):** the endpoint is removed. `POST /api/audit-logs`
-returns `404` `{success:false, error:"No API endpoint for POST /api/audit-logs"}`
-(the JSON `/api` catch-all) for **every caller — anonymous, staff, maker,
-checker, and admin**. Audit rows are appended exclusively by server-side
-`recordAudit()`; the API offers no audit-fabrication path. GET `/api/audit-logs`
-(§11.2) is unchanged. Verification flip-pins: TC-AUDIT-008 / TC-RBAC-026
-(doc 12).
+**As built (since W2-2, commit `f6fa52d`):** the endpoint is removed.
+`POST /api/audit-logs` returns `404`
+`{success:false, error:"No API endpoint for POST /api/audit-logs"}` (the JSON
+`/api` catch-all) for **every caller — anonymous, staff, maker, checker, and
+admin**. Audit rows are appended exclusively by server-side
+`recordAudit()`/`commitNewsTransition()`; the API offers no audit-fabrication
+path. GET `/api/audit-logs` (§11.2) is unchanged. Verified by TC-AUDIT-008 /
+TC-RBAC-026 (doc 12 — flipped and asserted in the default smoke suite).
 
-*[As-built today, until the W2-2 code phase lands:* manual audit append for
-admin. Request `application/json` (all optional; defaults): `action` →
-`UPDATE`; `targetResource` → `General Portal`; `resourceId` → `PORTAL-GEN`;
-`details` → `User initiated state change.`; `status` → `SUCCESS`. `actor`,
-`actorRole`, `ipAddress`, `id`, `timestamp` always server-controlled; values
-not validated against the TS unions (free text accepted). `201` →
+*[Historical as-built until `f6fa52d`:* manual audit append for admin.
+Request `application/json` (all optional; defaults): `action` → `UPDATE`;
+`targetResource` → `General Portal`; `resourceId` → `PORTAL-GEN`; `details` →
+`User initiated state change.`; `status` → `SUCCESS`. `actor`, `actorRole`,
+`ipAddress`, `id`, `timestamp` always server-controlled; values not validated
+against the TS unions (free text accepted). `201` →
 `{"success":true,"data":{<AuditLog>}}`; `401`/`403`. — *documented in doc 10
 §5 AUD-11 and FR-AUDIT-004 (SRS v1.2.0) for removal.]*
 
@@ -616,27 +647,28 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | 15 | POST | `/api/news/:id/submit-approval` | maker/admin | §6.5 |
 | 16 | POST | `/api/news/:id/approve` | checker/admin | §6.6 |
 | 17 | POST | `/api/news/:id/reject` | checker/admin | §6.7 |
-| 18 | GET | `/api/banners` | anon | §7.1 |
-| 19 | POST | `/api/banners` | maker/admin | §7.2 |
-| 20 | PUT | `/api/banners/:id` | maker/admin | §7.3 |
-| 21 | DELETE | `/api/banners/:id` | admin | §7.4 |
-| 22 | GET | `/api/contacts` | auth | §8.1 |
-| 23 | POST | `/api/contacts` | maker/admin | §8.2 |
-| 24 | PUT | `/api/contacts/:id` | maker/admin | §8.3 |
-| 25 | DELETE | `/api/contacts/:id` | admin | §8.4 |
-| 26 | GET | `/api/rooms` | anon | §9.1 |
-| 27 | POST | `/api/rooms/:id/book` | auth | §9.2 |
-| 28 | POST | `/api/rooms/:id/release` | auth | §9.3 |
-| 29 | GET | `/api/documents` | auth | §10.1 |
-| 30 | POST | `/api/documents` | maker/admin | §10.2 |
-| 31 | DELETE | `/api/documents/:id` | admin | §10.3 |
-| 32 | GET | `/api/tools` | anon | §11.1 |
-| 33 | GET | `/api/audit-logs` | checker/admin | §11.2 |
-| 34 | POST | `/api/audit-logs` | ~~admin~~ **REMOVED per DCR-8** (target 404 all roles; as-built live until W2-2) | §11.3 |
-| 35 | GET | `/api/sync/logs` | admin | §12.1 |
-| 36 | POST | `/api/sync/trigger` | admin | §12.2 |
-| 37 | GET | `/api/system/export` | admin | §13.1 |
-| 38 | GET | `/api/openapi.json` | anon | §13.2 |
+| 18 | POST | `/api/news/:id/withdraw` | maker/admin | §6.8 |
+| 19 | GET | `/api/banners` | anon | §7.1 |
+| 20 | POST | `/api/banners` | maker/admin | §7.2 |
+| 21 | PUT | `/api/banners/:id` | maker/admin | §7.3 |
+| 22 | DELETE | `/api/banners/:id` | admin | §7.4 |
+| 23 | GET | `/api/contacts` | auth | §8.1 |
+| 24 | POST | `/api/contacts` | maker/admin | §8.2 |
+| 25 | PUT | `/api/contacts/:id` | maker/admin | §8.3 |
+| 26 | DELETE | `/api/contacts/:id` | admin | §8.4 |
+| 27 | GET | `/api/rooms` | anon | §9.1 |
+| 28 | POST | `/api/rooms/:id/book` | auth | §9.2 |
+| 29 | POST | `/api/rooms/:id/release` | auth | §9.3 |
+| 30 | GET | `/api/documents` | auth | §10.1 |
+| 31 | POST | `/api/documents` | maker/admin | §10.2 |
+| 32 | DELETE | `/api/documents/:id` | admin | §10.3 |
+| 33 | GET | `/api/tools` | anon | §11.1 |
+| 34 | GET | `/api/audit-logs` | checker/admin | §11.2 |
+| 35 | POST | `/api/audit-logs` | **REMOVED per DCR-8 (landed `f6fa52d`)** — 404 all roles incl. admin | §11.3 |
+| 36 | GET | `/api/sync/logs` | admin | §12.1 |
+| 37 | POST | `/api/sync/trigger` | admin | §12.2 |
+| 38 | GET | `/api/system/export` | admin | §13.1 |
+| 39 | GET | `/api/openapi.json` | anon | §13.2 |
 
 ---
 
@@ -658,6 +690,9 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | PUT news/banner/contact 404 | 404 | `{"error":"News item not found"}` / `{"error":"Banner not found"}` / `{"error":"Contact not found"}` (bare) |
 | News workflow state guard (§6.5–§6.7) | 400 | `{"success":false,"error":"Only draft news items can be submitted for approval"}` / `…Only news items pending approval can be approved` / `…Only news items pending approval can be rejected` — each preceded by a WARNING audit row |
 | News self-approval / self-decision guard (§6.6/§6.7) | 403 | `{"success":false,"error":"Self-approval is not allowed: the submitter cannot approve their own item"}` / `…Self-decision is not allowed: the submitter cannot reject their own item` — each preceded by a WARNING audit row |
+| News withdraw precondition (§6.8, W2-FIX-1) | 409 | `{"success":false,"error":"ประกาศไม่ได้อยู่ในสถานะเผยแพร่ / Item is not live on the public web","currentState":"<status or 'none'>"}` — no state change, no audit row |
+| News legacy-submission deny (§6.6/§6.7, W2-FIX-1) | 409 | `{"success":false,"error":"รายการนี้ถูกส่งก่อนการย้ายระบบ กรุณาให้ผู้สร้างส่งคำขออนุมัติใหม่ / Legacy submission requires a fresh submission cycle"}` — preceded by an `ACCESS_DENIED`/WARNING audit row |
+| Atomic workflow-commit failure (§6.3–§6.8, W2-FIX-1) | 500 | `{"success":false,"error":"Internal server error"}` — the state+audit commit rolled back together |
 | Room book/release 404 | 404 | `{"error":"Room not found"}` (bare) |
 | Room book conflict | 400 | `{"error":"Room is currently booked or under maintenance"}` (bare) |
 | Unmatched /api path | 404 | `{"success":false,"error":"No API endpoint for <METHOD> <path>"}` |
@@ -686,7 +721,7 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | DCR-3 | Create-path dual-control bypass | Pre-W2-1, `POST /api/news` with `syncToExternal=true` landed directly in `synced` + wrote a sync log — no checker involvement. HANDOVER §4 describes creates as `draft`. **Decided — CTO strict ruling (Wave-1 gate):** no role (admin included) reaches `synced` outside checker approve; workflow fields server-controlled; enforcement lands Wave-2 P0 with DCR-7 as one work item (FR-NEWS-009). **RESOLVED — W2-1 (commit 22023eb, FR-NEWS-009):** enforcement landed — workflow fields stripped at the validation layer on every create/update (§6.2/§6.3); create always enters `draft`; state guards on submit/approve/reject (400) + submitter ≠ approver/decider bar (403), admin included, every guard rejection audited WARNING (§6.5–§6.7); edit of a non-draft item force-resets it to `draft` with an AUD-P01 audit (§6.3); `submitted_by`/`submitted_at` columns added in schema lockstep (doc 07 §5.3/§12). |
 | DCR-4 | Envelope inconsistency | Reads omit `success`; some 404/400 route errors omit it too (§1.3). Clients must tolerate both. |
 | DCR-5 | `pending` dead union member (external sync) | Declared in the TS union (`src/types.ts:28`), never assigned by any code path; it is the **only** dead member — the union contains no `approved` value at all (doc 07 §3.2). |
-| DCR-8 | Manual audit append erodes trail integrity | `POST /api/audit-logs` (§11.3) lets an admin fabricate arbitrary `action`/`details` audit rows (RISK-023). **Decided — CTO ruling (Wave-2, decision #5/#6): PREFER REMOVAL.** Target: 404 for every role incl. admin; audit rows exclusively server-written via `recordAudit()`; GET audit surface unchanged. Doc-first revision (this version); route removal + test flips (TC-AUDIT-008 / TC-RBAC-026) land in the W2-2 code phase. |
+| DCR-8 | Manual audit append erodes trail integrity | `POST /api/audit-logs` (§11.3) let an admin fabricate arbitrary `action`/`details` audit rows (RISK-023). **Decided — CTO ruling (Wave-2, decision #5/#6): PREFER REMOVAL.** Target: 404 for every role incl. admin; audit rows exclusively server-written via `recordAudit()`; GET audit surface unchanged. **Executed — W2-2 (`f6fa52d`)**: route removed; TC-AUDIT-008 / TC-RBAC-026 flipped and asserted in the default smoke suite. |
 
 ## 18. Change history
 
@@ -696,3 +731,4 @@ Aliases: `GET /healthz` = `/health` = `/api/health`; `GET /readyz` = `/ready` = 
 | 1.1.0 | 2026-09-10 | worker-4 + lead | CTO-gate revision (lead-applied): §17 DCR-5 row corrected to register facts (`pending` is the only dead union member; no `approved` value exists); DCR-3 row updated from "needs a decision" to the CTO strict ruling (Wave-2 P0, bundled with DCR-7). |
 | 1.2.0 | 2026-09-10 | worker-5 (W2-2 doc phase) | DCR-8 (CTO: PREFER REMOVAL): §11.3 `POST /api/audit-logs` marked REMOVED (target 404 every role; as-built preserved inline until W2-2 code lands); §2 access-matrix row and endpoint index annotated; §17 DCR-8 row added. GET audit-logs unchanged. |
 | 1.3.0 | 2026-09-10 | worker-4 (W2-1 truth pass) | Aligned to W2-1 strict dual-control (commit 22023eb): §6 state machine redrawn as the strict legal path (create-bypass arc removed; workflow fields server-controlled); §6.2 create defaults (syncToExternal forced false, externalSyncStatus always draft; no sync/audit side effects); §6.3 strip rule + forced non-draft→draft reset with AUD-P01 audit; §6.5–§6.7 state guards (400) + submitter ≠ approver/decider (403, admin included) with WARNING audits and submittedBy/At stamping; §15 guard bodies added; §17 DCR-3 marked RESOLVED. |
+| 1.4.0 | 2026-09-11 | worker-5 (W2-FIX-1 as-built pass) | Aligned to W2-FIX-1 (commit 2c97cc3, codex blockers 1–4): §6.8 NEW — `POST /api/news/:id/withdraw` (state-only synced→draft, content preserved byte-for-byte, 409+currentState precondition, no checker per ratified DCR-9); §6 concurrency & atomicity paragraph (withNewsLock per-item serialization; commitNewsTransition all-or-nothing state+audit(+sync-log) commit; 500 envelope + rollback on audit-write failure); §6.6/§6.7 legacy-submission 409 deny (no submittedBy ⇒ no decision); §6.3/§6.5/§6.7 atomic-commit side-effect notes; §1.4 409/500 rows extended; §2 access matrix (+withdraw; DCR-8 row trued to landed f6fa52d); §14 renumbered (39 indexed operations); §15 withdraw/legacy/atomic-failure bodies; §11.3 + §17 DCR-8 trued to landed f6fa52d (stale "until W2-2" clauses). |

@@ -1,8 +1,8 @@
 # Deliverable 10 — Audit Log Design
 
-**Version:** 1.5.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-5 → Lead review → CTO approval (W2-3 analysis: worker-5)
+**Version:** 1.6.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-11 · **Author:** worker-5 → Lead review → CTO approval (W2-3 analysis + W2-FIX-1 pass: worker-5)
 
-> **Change log:** v1.5.0 (2026-09-10) — **W2-3 as-built flip round (code landed at `4650335`; DCR-8 code landed earlier at `f6fa52d`)**: §9.1/§9.2 flipped from target state to AS-BUILT (AUD-P05 `SYNC_TRIGGER` / AUD-P06 `SYSTEM_EXPORT` / AUD-P07 `ACCESS_DENIED` call sites live; union pruned 3-out/3-in to the net 14-value live writer set); §9.1 Mechanics sentence trued up (Express 4 does **not** route rejected middleware promises to the error handler — the reason requireRole's 403 audit write is try/catch-wrapped, fail-open per the lead review fix folded into `4650335`); §9.1 implementation-reality note extended with that wrap; §5 catalog extended with AUD-12/13/14; §5 AUD-11 / §6 / §4 DCR-8 as-built pins flipped (manual append 404s for every role since `f6fa52d`); §5.1 marked superseded by W2-1 strict dual control; §2 union note and seed note flipped to landed state. v1.4.0 — register ruling round. v1.3.0 — W2-3 rulings (AUD-P07 trim spec-of-record; SYNC_PUBLIC PRUNE). v1.2.0 — W2-3 analysis (§9.1 spec + §9.2 evidence). v1.1.0 — DCR-8 disposition. v1.0.0 — initial as-built draft.
+> **Change log:** v1.6.0 (2026-09-11) — **W2-FIX-1 audit-truth pass (code landed `2c97cc3`; codex REVISE blockers 1–4 closed)**: §9.3 NEW — workflow audits now commit ATOMICALLY with their state change (`commitNewsTransition`: PG single transaction / memory all-or-nothing; audit-write failure ⇒ 500 + state rollback, so the "retry skips the audit" defect is structurally impossible) + per-item transition serialization (blocker 1) + the legacy-submission ACCESS_DENIED denial audit (blocker 2) + the state-only-withdrawal UPDATE row with `prior_status='synced'` (blocker 3); §3 write-path split (`recordAudit` direct vs `commitNewsTransition` atomic); §5 note for the two new call-site shapes (union unchanged at 14 — both reuse existing members); §2 union-note sentence; §10 traceability row. v1.5.0 (2026-09-10) — **W2-3 as-built flip round (code landed at `4650335`; DCR-8 code landed earlier at `f6fa52d`)**: §9.1/§9.2 flipped from target state to AS-BUILT (AUD-P05 `SYNC_TRIGGER` / AUD-P06 `SYSTEM_EXPORT` / AUD-P07 `ACCESS_DENIED` call sites live; union pruned 3-out/3-in to the net 14-value live writer set); §9.1 Mechanics sentence trued up (Express 4 does **not** route rejected middleware promises to the error handler — the reason requireRole's 403 audit write is try/catch-wrapped, fail-open per the lead review fix folded into `4650335`); §9.1 implementation-reality note extended with that wrap; §5 catalog extended with AUD-12/13/14; §5 AUD-11 / §6 / §4 DCR-8 as-built pins flipped (manual append 404s for every role since `f6fa52d`); §5.1 marked superseded by W2-1 strict dual control; §2 union note and seed note flipped to landed state. v1.4.0 — register ruling round. v1.3.0 — W2-3 rulings (AUD-P07 trim spec-of-record; SYNC_PUBLIC PRUNE). v1.2.0 — W2-3 analysis (§9.1 spec + §9.2 evidence). v1.1.0 — DCR-8 disposition. v1.0.0 — initial as-built draft.
 
 > This document describes the audit trail **AS BUILT**. Sources of truth:
 > `server.ts` (`recordAudit()` and every call site; `audit_logs` DDL),
@@ -75,7 +75,10 @@ only writer of `CREATE` / `DELETE` / `SYNC_PUBLIC` — and the **W2-3 prune
 (landed `4650335`, §9.2)** removed those three dead members while §9.1
 added `SYNC_TRIGGER` / `SYSTEM_EXPORT` / `ACCESS_DENIED`. Pre-prune
 databases may still hold legacy rows carrying the removed values
-(free-text column — §9.2 legacy caveat).
+(free-text column — §9.2 legacy caveat). The W2-FIX-1 call sites
+(`2c97cc3`) reuse existing members — `UPDATE` (state-only withdrawal) and
+`ACCESS_DENIED` (legacy-decision denial) — the union is unchanged at 14
+values (§9.3).
 
 Status semantics: `SUCCESS` = the action took effect; `REJECTED` = a checker
 denied publication (the rejection itself succeeded); `WARNING` = security
@@ -92,10 +95,20 @@ signal (failed authentication).
   wire, and no HTTP route could reach one. The `/api` resource-id guard and
   the JSON 404 catch-all mean `PUT/DELETE /api/audit-logs...` cannot resolve
   to any handler.
-- **Write path:** `recordAudit()` (server.ts) constructs the entry, inserts
-  via the repository, and returns it. Call sites are `await`-ed inside their
-  request handlers (upload uses `void recordAudit(...)` — fire-and-forget,
-  the HTTP 201 is not proof of the insert).
+- **Write path (two paths since W2-FIX-1, `2c97cc3`):** `recordAudit()`
+  (server.ts) constructs the entry via `buildAuditEntry()`, inserts via the
+  repository, and returns it — it remains the **direct** write path for
+  non-atomic call sites (auth, users, sync-trigger, export, upload). Every
+  **news workflow transition** (edit-reset, submit, approve, reject,
+  withdraw) instead builds its row with `buildAuditEntry()` and commits it
+  **with the state change in one all-or-nothing unit** via
+  `repo.commitNewsTransition(item, auditEntry, syncLogEntry?)` — PG
+  `BEGIN`/`UPDATE news`/`INSERT audit_logs` (+`INSERT sync_logs` on approve)/
+  `COMMIT` with `ROLLBACK` on any failure; in-memory state+audit
+  back-to-back with prior-item restore. An audit-write failure surfaces the
+  final handler's 500 envelope and leaves the pre-transition state intact
+  (§9.3). Upload keeps `void recordAudit(...)` — fire-and-forget, the HTTP
+  201 is not proof of the insert.
 - **DB-level enforcement `[PLANNED]`:** the table itself is a normal heap — a
   DBA (or SQL injection elsewhere) could UPDATE/DELETE rows. Wave 2 options:
   `REVOKE UPDATE, DELETE ON audit_logs FROM app_role`, a BEFORE UPDATE/DELETE
@@ -161,6 +174,14 @@ Notes:
   row was rewritten to `SYNC_TRIGGER` in the W2-3 prune (`4650335`) — fresh
   databases no longer carry `SYNC_PUBLIC`; pre-prune databases may still hold
   such rows (§9.2 legacy caveat).
+- **W2-FIX-1 call-site shapes (`2c97cc3`; union unchanged — both reuse
+  existing members):** (a) the state-only withdrawal endpoint writes the
+  AUD-P01-shaped `UPDATE`/SUCCESS row with `prior_status='synced'` in
+  `details` (same shape as the W2-1 edit-reset rows; §9.3); (b) a denied
+  approve/reject decision on a legacy no-submitter pending row writes
+  `ACCESS_DENIED`/WARNING against targetResource `News Announcement` — a
+  handler-level decision denial, a fourth call-site class for the member
+  alongside the AUD-P07 middleware 403/401s (§9.3).
 
 ### 5.1 Finding: sync-log-only paths — external publication with no audit entry (DCR-3 corollary)
 
@@ -491,6 +512,70 @@ so old rows read back fine and render with default styling after the
 AdminCMS branches are removed; they simply match no live union value. Treat
 as historical/seed data per §3.
 
+### 9.3 Atomic workflow auditing + legacy-decision denial (W2-FIX-1 — landed `2c97cc3`)
+
+Closes codex REVISE blockers 1–4 (`.omc/artifacts/cto-gate-wave2-verdict.md`;
+full API semantics in Doc 08 §6).
+
+**Blocker 4 — atomicity.** Pre-W2-FIX-1 every workflow handler committed
+state first and called `recordAudit()` after; an audit-insert failure left a
+committed transition with no audit row, and a retry (seeing the new state)
+skipped the audit entirely — a committed withdrawal could permanently lack
+its required AUD-P01 row. As built: `repo.commitNewsTransition(item,
+auditEntry, syncLogEntry?)` (interface `server.ts:174`; in-memory `:312`;
+PG `:1005`) commits the news update, the audit row, and — on the approve
+path — the sync-log row as **one all-or-nothing unit**. PostgreSQL runs
+them in a single transaction (`BEGIN` → `UPDATE news` → `INSERT audit_logs`
+→ (+ `INSERT sync_logs`) → `COMMIT`, `ROLLBACK` on any failure; shared SQL
+consts keep the standalone repo methods byte-identical to the transactional
+path); the in-memory repository writes state then audit back-to-back and
+restores the prior item if the audit write throws. Failure semantics: the
+error bridges through `next(err)` to the final handler's 500 envelope
+(`{"success":false,"error":"Internal server error"}`) with the state
+untouched — **a retry hits the identical pre-transition state and
+re-attempts the full unit, so "the retry skips the audit" is structurally
+impossible.** (Gate consistency: the ratified requireRole try/catch ruling
+authorizes fail-open only for *authorization denials*; it explicitly does
+not authorize unaudited successful workflow changes — this is the
+enforcement of exactly that line.)
+
+**Blocker 1 — serialization.** All six news mutations (create/PUT/submit/
+approve/reject/withdraw) run inside a per-item chained-promise critical
+section (`withNewsLock`, `server.ts:1387–1410`) and re-read the item inside
+it — a concurrent edit is always seen by the state guards, so an
+edit+approve race can never yield `synced`-with-stale-content in either
+interleaving (edit wins → the decision 400s, audited WARNING; decision
+wins → the next PUT forced-resets the approved content to draft, audited
+AUD-P01). Single-process scope: one gateway process per pod (W2-5 note);
+PG mode adds the transaction above.
+
+**Blocker 2 — legacy-decision denial audit.** Approve/reject on a
+`pending_approval` row with no `submittedBy` (pre-migration shape; no API
+path can create it today — every submit stamps) is denied 409 pending a
+fresh submission cycle, and the denial writes an `ACCESS_DENIED`/WARNING
+row — `targetResource: 'News Announcement'`, details `Blocked: decision on
+legacy submission "<title…30>..." with no recorded submitter (pre-migration
+row) — a fresh submission cycle is required before approve/reject.` This is
+a handler-level decision denial — a fourth call-site class for the member
+alongside the AUD-P07 middleware 403/401s — reusing an existing union
+member (no union change).
+
+**Blocker 3 — withdrawal audit.** The state-only withdrawal endpoint
+(Doc 08 §6.8) writes the AUD-P01-shaped `UPDATE`/SUCCESS row with
+`prior_status='synced'` in `details` — the same shape as the W2-1
+edit-reset rows — committed atomically with the transition via
+`commitNewsTransition`. A refused withdrawal (409, not synced) writes
+**no** audit row (no transition occurred).
+
+Verified by smoke §17 (Doc 12, TC-NEWS-013..019): audit-failure rollback
+proofs in memory and PG, the edit+approve concurrency race in memory and
+PG, and the fixture-seeded legacy denial. The two regression hooks —
+`SMOKE_INJECT_AUDIT_FAILURE` (workflow audit write throws inside the atomic
+commit) and `SMOKE_SEED_W2FIX1_FIXTURES` (boot-seeds a legacy no-submitter
+pending row + a live synced row) — are env-gated **and** inert in
+production (`NODE_ENV`-checked); no API path can manufacture the legacy
+shape.
+
 ## 10. Traceability
 
 | Topic here | Requirement refs (scheme per Doc 03/04) | Verified by (Doc 12) |
@@ -501,6 +586,7 @@ as historical/seed data per §3.
 | Append-only §3 | FR-AUDIT-* | TC-AUDIT-007 (no mutation routes) |
 | Coverage gaps §9 | FR-AUDIT-`[PLANNED]` | Wave 2 test additions |
 | W2-3 spec §9.1/§9.2 (ratified P0 tail — **landed `4650335`**; AUD-P07 trim + 3-member prune `CREATE`/`DELETE`/`SYNC_PUBLIC` ruled and executed; `UPDATE` retained) | FR-AUDIT-003 W2-3 extension (Doc 03/04 v1.5.0 — AS-BUILT) — AUD-P05/06/07 | TC-SYNC-004, TC-AUDIT-009/010 (asserted, Doc 12 v1.8.0), TC-SEC-013 (dual flip resolved) |
+| W2-FIX-1 atomicity + legacy-decision denial + withdrawal audit §9.3 (**landed `2c97cc3`**) | FR-NEWS-009 W2-FIX-1 extension + FR-NEWS-010 (Doc 03/04 v1.6.0) | TC-NEWS-013..019 (asserted — smoke §17, Doc 12 v1.9.0) |
 | DCR-8 removal (§5 AUD-11 / §6) | FR-AUDIT-004 `[REMOVED per DCR-8]` (Doc 03 v1.2.0) | TC-AUDIT-008 / TC-RBAC-026 (404 — asserted, Doc 12) |
 
 Exact FR identifiers are enumerated in Doc 03 (SRS); Doc 04 (RTM)
