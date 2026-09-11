@@ -1,0 +1,332 @@
+# Deliverable 18 — UAT Result
+
+**Version:** 0.1.0 · **Status:** **Reviewed** (lead review PASS, 2026-09-11) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+
+> Assembled strictly from archived evidence captured in the W3-4 lane (transcript
+> `.omc/reports/w3-4-uat.log`, probe logs under `.omc/reports/w3-4-uat/`,
+> walkthrough results JSON, screenshot run directories with SHA256 manifests)
+> per Test Plan Doc 12 §9 (evidence capture rules). No number in this document
+> is asserted without a cited record; where archived evidence is absent the
+> item is marked **NOT TESTED** rather than inferred (§5 row UAT-043). Counts
+> are quoted verbatim. UI strings are quoted Thai-first as displayed.
+
+> **Lead review (2026-09-11) — PASS.** Mechanical verification all reconciled:
+> tree scope (only this doc + `tests/uat-visuals.mjs` new), transcript tokens,
+> both run-dir archives re-verified with fresh `shasum -a 256 -c`, both results
+> JSONs (64 rows / 63 PASS + 1 FLAKY; 6 PASS), and the new lane file
+> (node --check, env contract). **All 14 worker judgment calls accepted** —
+> J-14 corrected in-review: `git show` timestamps prove **no mid-lane HEAD
+> move** (`a099586` 12:22:07Z and `e205743` 12:26:48Z both precede lane start
+> 12:27:54Z; the draft's "`a099586`→`e205763`" advance was a dispatch-head
+> misreading plus a typo — §2 and §9 J-14 amended). **Lead rulings**: (a)
+> scripted role proxies satisfy Doc 12 §11 for L6 exit, with the caveat riding
+> to the CTO gate — formal business-nominee sign-off scheduled as a
+> Release-gate item; (b) obs-U1 (UAT-043 NOT TESTED) is S3-class coverage
+> debt, not a defect — an offline-simulation leg (Playwright
+> `context.setOffline`) scheduled before Release-gate review.
+
+---
+
+## 1. Purpose & scope
+
+**Purpose.** Report the executed results of test level **L6 UAT** (Doc 12 §4:
+"Business acceptance per role, Thai-first UI, by (proxy) business users") —
+the six role scenarios **UAT-1..6** of Doc 12 §5 executed on an
+ENV-PROD-MODE server, plus the disposition of every RTM acceptance reference
+**UAT-001..065** (Doc 12 §5.1: **65 references covering 62 distinct ids**),
+and the L6 exit-criteria assessment against Doc 12 §7. Per Doc 12 §10, the
+L6 run produces this document.
+
+**Scenario proxies.** Doc 12 §11 assigns role proxies to "business-side
+nominees arranged by Lead". For this Wave-3 execution the scenarios were run
+as **scripted role proxies** (worker-1 executing the documented §5 scenario
+steps verbatim through the real UI and API as each role) per the W3-4
+dispatch; formal business-nominee sign-off rides to Lead review (§6).
+
+**Out of scope (per Doc 12 §10):** L0–L4 → Doc 17; L5 → Doc 19; remediation
+re-runs → Doc 20.
+
+## 2. Execution environment & provenance
+
+Doc 12 §9.6 (git sha / env-matrix row / run timestamp) and §4 L6 row
+("scripted role scenarios (§5) run on ENV-PROD-MODE with seeded demo data;
+recorded screen captures"). All items quoted from the transcript
+`.omc/reports/w3-4-uat.log`.
+
+| Item | Record (verbatim from the lane transcript) |
+|---|---|
+| Git | `e205743d7396520a70d362c4d45250438276c96b` (`develop`) — clean-tree verification recorded at lane start (working tree: only this lane's new files untracked; `server.ts`, `scripts/smoke-test.mjs`, `tests/e2e-walkthrough.mjs` untouched). The lane ran **entirely at `e205743`**: the dispatch text referenced its authoring-time head `a099586`, which the Doc 20 approval flip (`e205743`, docs-only — PROJECT-STATE + doc 20) superseded 66 s before lane start; no commit landed during the lane window (judgment call J-14, §9 — corrected at lead review) |
+| Build | `npm run build` → **exit 0**; `dist/server.cjs 162543 bytes` (matches the Doc 17 §2 current-head artifact size) |
+| Server | boot #3: `NODE_ENV=production PORT=3223 node dist/server.cjs`, **no `DATABASE_URL`** (in-memory repository — boot `[WARN] NODE_ENV=production without DATABASE_URL` expected per Doc 12 §3), pid 1146, `/healthz` 200 at every lane checkpoint (last: 2026-09-11T13:11Z window) |
+| Env matrix row | ENV-PROD-MODE characteristics on the host: `NODE_ENV=production`, disposable env-only `SESSION_SECRET`/`ADMIN_PASSWORD` (values never printed; no `.env` file read or modified; admin password handed to the server via a mode-600 `/tmp` file deleted at lane end). Doc 12 §4's L6 row demands ENV-PROD-MODE + seeded demo data + recorded captures — it does **not** demand compose/PG; the host-run in-memory prod-mode server satisfies the row (judgment call J-1). PG-only behaviors are cited from Doc 17 L4 records (class C, §3) |
+| Demo data | server boot seeds (demo news/banners/contacts/rooms/documents) + walkthrough-provisioned role users `maker01`/`checker01`/`staff01` (`E2E-Test@2026`) — S0 provisioned all three (retry evidence attached) |
+| Ports | **host :3000 never touched** (operator's unrelated project; verified busy and left alone). Lane used **:3223** exclusively (verified free before bind; released at lane end — §10 teardown tokens). Doc 12 §3's dedicated-port rule (smoke 3210 / e2e 3220) extended with a lane-local port per the dispatch |
+| Lane window | `lane_started_utc=2026-09-11T12:27:54Z` → lane end (§10); tooling node v24.13.1, Playwright 1.63.0, darwin 25.5.0 |
+| Transcript | `.omc/reports/w3-4-uat.log` — header carries git rev, untracked-file list, UTC window, build provenance; every probe family, walkthrough run, visuals run, invalidation, and teardown token is appended in order |
+
+## 3. Execution method & evidence classes
+
+Doc 12 §5 defines the six scenarios as UI journeys; the repo's walkthrough
+(`tests/e2e-walkthrough.mjs`, unmodified) covers most journey steps as
+real-browser assertions. Steps not covered were executed as **scripted API
+probes in the Doc 19 §5 lane-executed style** (every probe logs method +
+path + payload + raw status + untruncated response body; passwords uniformly
+redacted). Each UAT-0nn verdict cites one of four evidence classes:
+
+| Class | Meaning | Record |
+|---|---|---|
+| **W** | Walkthrough row (real-browser UI journey step) | runId **`run-2026-09-11T1243Z-e2e`** — `.omc/reports/e2e-results.json`: **64 rows = 63 PASS / 1 FLAKY / 0 FAIL**, exit 0; 46 screenshots + `MANIFEST.sha256` in `.omc/reports/screenshots/run-2026-09-11T1243Z-e2e/` (`shasum -a 256 -c` → exit 0, re-verified fresh at Doc 18 assembly) |
+| **P** | Lane probe (scripted curl/node, Doc 19 style) | `.omc/reports/w3-4-uat/probe-*.log` — **44 verdicts in the main families: 43 PASS + 1 FAIL** (the FAIL is a probe-script assertion bug, not a product behavior — corrected re-probe `probe-export-shape-corrected.log` → PASS; judgment call J-7), **plus 5 addendum PASS** (§5 rows UAT-028/032) = **48 PASS product-behavior probe verdicts** |
+| **V** | Visual/UI capture leg (`tests/uat-visuals.mjs`, new lane file) | runId **`run-2026-09-11T1255Z-uat`** — `visuals-results.json`: **PASS=6 FAIL=0** (V0 prep + V1..V5), exit 0; 8 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0, re-verified fresh) |
+| **C** | Cited standing-suite record (no re-execution this lane) | Doc 17 (L2/L4) and Doc 19 (L5) archived records — used only where the behavior is environment-bound (PG persistence, prod-boot secret guard, timing) and the standing record already asserts it |
+
+**FLAKY disposition (Doc 12 §9 rule 4):** the single W FLAKY is row `S0`
+("Bootstrap: admin login + role users provisioned via /api/users") with
+embedded retry evidence — `"passed on retry: maker01:exists, checker01:exists,
+staff01:exists"` — the known S0-retry signature recorded across the standing
+gate runs (Doc 17 §3.4). One FLAKY, retry evidence attached; the "two FLAKY
+on the same step = FAIL" rule is not triggered.
+
+## 4. Scenario results (Doc 12 §5)
+
+Full-pass criterion per Doc 12 §5: "the scenario completes with the business
+outcome and no error toast". All six scenarios completed with their
+acceptance criteria observed; verdicts below cite the covering rows.
+
+| Scenario | Role | Verdict | Evidence (class W unless noted) |
+|---|---|---|---|
+| **UAT-1** — log in → read news → find colleague → open policy document → book room → release it; no CMS/Sync nav | staff | **PASS** | B0 login → portal home; B4 news ("ข่าวสารและประกาศ") loads seeded articles; B5 article modal; B9/B10 Directory ("สมุดโทรศัพท์") search by name + department chips; B13 document open (category filter); B11 book → In-Use; B12 release → available; B14 header badge STAFF, CMS/External nav absent; B17 logout. No error toast (suite asserts bilingual error surfaced only where expected, A4). Supplementary: V5 deep-link gate (V), F1 375px no overflow |
+| **UAT-2** — CMS create w/ attachment → draft → edit → submit → pending (amber); maker cannot approve own item | maker | **PASS** | C0 CMS nav; C1 create; C2 image upload → server URL; draft persists (C3 edit preserves fields on the draft); C4 submit → Thai chip รอการอนุมัติ (amber dot); own-approval blocked server-side (P `maker-self-approve-blocked` → **403**, probe-uat2-maker) and no Approve/Reject controls rendered (C5). Supplementary: P full draft/false create contract; V4 External Web Sync preview (V) |
+| **UAT-3** — approval queue → reject w/ Thai reason → resubmitted item → approve; audit tab shows both | checker | **PASS** | D0 queue visible; D2 reject with required reason → ถูกปฏิเสธ; D0a+D1 resubmitted item approved → เผยแพร่แล้ว + sync log entry (✓ approver stamped); D3 Audit Trail tab lists both decisions with correct actors. Supplementary: P reject cycle (Thai reason `'ทบทวนถ้อยคำภาษาไทยอีกครั้งก่อนเผยแพร่'` → `rejected`; edit-after-reject forced reset to draft; resubmit → approve `synced` + `approvedBy`) |
+| **UAT-4** — user lifecycle → self-deactivation blocked → re-activate → sync trigger → export JSON | admin | **PASS** | E0 admin nav; E4 create staff + duplicate 409 inline; E4b deactivate kills login server-side + reactivate restores; self-deactivation refused (P `self-deactivation-blocked` → **400** with clear message, probe-uat4-admin); E6 force sync trigger reports; E7 JSON export downloads; P `system-export-admin` → 200 with **non-zero counts** `{"news":15,"banners":6,"contacts":9,"meeting_rooms":5,"documents":8,"audit_logs":73,"sync_logs":8}` (DCR-1 top-level `tables` shape; corrected re-probe) |
+| **UAT-5** — CMS by URL state; deleted-account login | staff (negative) | **PASS** | V5 staff deep-link `/?view=admin-cms#/cms` → portal chrome renders, `#nav-cms=0`, System Dashboard=0 (view state not URL-addressable; V); A6 deep-link/query params do not bypass auth gate; B14 nav-limited corroboration; deactivated login fails with **generic** error (P `deactivated-login-rejected` → 401, body byte-identical to wrong-password 401 — `generic_error_check: true`, probe-uat5-negative) |
+| **UAT-6** — visit portal logged out | anonymous | **PASS** | A1 `/` shows the login screen (auth gate); V3 login at 375px (V); public surfaces answer anonymous (P: `/api/news` 200 non-empty + search, `/api/banners` 200, `/api/rooms` 200, `/api/tools` 200 — probe-uat6-anonymous); directory/documents/users/audit demand login (P: 401 ×4) |
+
+**Scenario tally: 6/6 PASS · 0 FAIL · 0 FLAKY at scenario level.**
+
+## 5. Per-reference results (RTM UAT-001..065 → Doc 12 §5.1)
+
+62 distinct ids (Doc 12 §5.1: 65 references; **UAT-015/023/047 dual-cited**,
+**UAT-011 reserved** — FR-SES-005 is TC-only, **UAT-049 retired to TC-only**
+per DCR-8, **UAT-050 does not exist**). Verdict rule: PASS only with cited
+evidence; **NOT TESTED** where no executable path exists (never inferred).
+
+| Ref | Verdict | One-line evidence (class) |
+|---|---|---|
+| UAT-001 login | PASS | B0 staff login → portal home; S0 admin login (W) |
+| UAT-002 rate limit | PASS | A5 6th failed attempt → rate-limit message (W) |
+| UAT-003 logout | PASS | B17 staff logout returns to login screen (W) |
+| UAT-004 /me | PASS | `me-self-id` GET /api/auth/me → 200 with user id (P) |
+| UAT-005 timing uniformity | PASS | Doc 19 TC-SEC-009: unknown-user median 208.9 ms vs wrong-password 206.5 ms, ratio 1.01, n=10+10 (C); lane corroboration: deactivated-401 body === wrong-password-401 body (P) |
+| UAT-006 LOGIN_FAILED audit | PASS | `audit_LOGIN_FAILED_rows: 6` with actor/ip/action sample fields (P) |
+| UAT-007 token verify | PASS | smoke §16 tampered-cookie 401 (Doc 17 A.2) (C); valid-token round-trips B0/V5b (W/V) |
+| UAT-008 session persistence | PASS | L4 TC-SYS-002: session cookie survived `restart app` (Doc 17 §3.5) (C) |
+| UAT-009 cookie flags | PASS | `login_setcookie_flags: {"httpOnly":true,"sameSiteLax":true,"secure":true,"maxAge7d":true}` (P; values redacted, booleans only) |
+| UAT-010 isActive gate | PASS | `deactivated-login-rejected` 401 (P) + E4b deactivate kills login server-side (W) |
+| UAT-012 secret guard | PASS | TC-SES-006: prod boot w/o SESSION_SECRET → exit 1 + FATAL banner, `w3r1-p0-gaps.log` (C); lane boot #3 likewise required it |
+| UAT-013 user list | PASS | E4 User Management list renders (W) |
+| UAT-014 create user | PASS | E4 create + duplicate 409 inline (W) + `neg-user-create` 201 (P) |
+| UAT-015 activate/deactivate (+self-block) | PASS | `self-deactivation-blocked` 400 clear message; deactivate→401→reactivate→200 cycle (P) + E4b (W). Dual-cited (FR-USER-003 + NFR-COMP-004) |
+| UAT-016 no user delete | PASS | TC-USER-008: DELETE /api/users/:id → JSON 404 by design, `w3r2-gap-closures.log` (C) |
+| UAT-017 bootstrap | PASS | S0 bootstrap admin + 3 role users (W, FLAKY w/ attached retry evidence — §3); boot `admin_login_smoke_http=200` (transcript) |
+| UAT-018 public news list | PASS | B4 news section loads seeded articles (W) + `anon-news-public` 200 non-empty (P) |
+| UAT-019 news create | PASS | C1 CMS form create (W) + `news-create-maker` 201, `externalSyncStatus='draft'`, `syncToExternal=false` (P) |
+| UAT-020 news update | PASS | C3 edit preserves fields (W) + `maker-edit-rejected-resets-draft` PUT merge → draft (P) |
+| UAT-021 admin news delete | PASS | E5 DELETE with confirmation removes disposable item (W) |
+| UAT-022 submit-approval | PASS | C4 → รอการอนุมัติ (W) + `news-submit-maker` 200 (P) |
+| UAT-023 approve (dual control) | PASS | D1 → เผยแพร่แล้ว + sync log (W) + `maker-self-approve-blocked` 403 / `checker-approve-happy` synced (P). Dual-cited (FR-NEWS-006 + NFR-COMP-001) |
+| UAT-024 reject | PASS | D2 reason-required → ถูกปฏิเสธ (W) + `checker-reject-with-thai-reason` rejected (P) |
+| UAT-025 important alert | PASS | B16 notification bell opens the urgent-alert article (W); alert flag carried on the public list (P `anon-news-public`) |
+| UAT-026 public banners | PASS | `anon-banners-public` 200 (P) |
+| UAT-027 banner create | PASS | C7 hero banner create (W) |
+| UAT-028 banner update | PASS | `banner-update-maker-UAT-028` PUT 200, merge verified (subtitle replaced, title preserved) — addendum probe (P) |
+| UAT-029 banner delete | PASS | `banner-delete-admin` 200 on disposable row (P) |
+| UAT-030 directory search | PASS | B9 search by name (n=1) + B10 department chips (W) |
+| UAT-031 contact create | PASS | C8 Phone Directory create (W) |
+| UAT-032 contact update | PASS | `contact-update-maker-UAT-032` PUT 200, merge verified (position/floor replaced, name/nameEn preserved) — addendum probe (P) |
+| UAT-033 contact delete | PASS | `contact-delete-admin` 200 on disposable row (P) |
+| UAT-034 documents list | PASS | B13 category filter + document open (W) |
+| UAT-035 document register | PASS | C9 register entry (W) + `document-create-disposable` 201 `isNew=true` forced (P) |
+| UAT-036 document delete | PASS | `document-delete-admin` 200 (P) |
+| UAT-037 public rooms | PASS | `anon-rooms-public` 200 (P) |
+| UAT-038 book room | PASS | B11 book → In-Use (W) |
+| UAT-039 release room | PASS | B12 release → available, booking cleared (W) |
+| UAT-040 CMS view gating | PASS | B14 nav-limited + A6 gate (W) + V5 deep-link `#nav-cms=0`, System Dashboard=0 (V) |
+| UAT-041 role-conditional CMS controls | PASS | C5 maker sees no Approve/Reject; C6 no delete/User-Mgmt tab; D4 checker edit allowed / delete forbidden (W) |
+| UAT-042 inline errors/toasts | PASS | C-FR failed save keeps form open with entered data (W) |
+| UAT-043 offline fallback | **NOT TESTED** | No scripted offline-simulation asset exists in any suite (L2–L6; Doc 17 Appendix A records no offline row either). Not a §5 scenario step; recorded as coverage-gap observation obs-U1 (§7), not inferred |
+| UAT-044 session restore | PASS | V5b reload → still authenticated, no login form (V) |
+| UAT-045 public portal components | PASS | `anon-tools-public` 200 (P) + A1/B1 portal chrome and carousel render (W) |
+| UAT-046 audit actor stamping | PASS | D3 correct actors (maker01/checker01) on trail (W) + server-derived actor fields on LOGIN_FAILED samples (P) |
+| UAT-047 audit trail read | PASS | D3 checker reads trail (W) + `audit-logs-admin-read` 200 array (P). Dual-cited (FR-AUDIT-002 + NFR-COMP-002) |
+| UAT-048 audit action types | PASS | `audit_action_union_observed` = `["APPROVE","FILE_UPLOAD","LOGIN","LOGIN_FAILED","LOGOUT","REJECT","SUBMIT_APPROVAL","SYNC_TRIGGER","SYSTEM_EXPORT","UPDATE","USER_ACTIVATE","USER_CREATE","USER_DEACTIVATE"]` — 13 live values incl. the W2-3 additions; pruned members absent (P) |
+| UAT-051 sync status machine | PASS | C1→C4→D1/D2 draft→pending→synced/rejected (W) + P full cycle incl. reject→edit-forced-reset→resubmit→approve (`synced`, `approvedBy`) |
+| UAT-052 sync-log writes | PASS | D1 sync log entry on approve (W) + E9 Sync Logs tab (W) |
+| UAT-053 admin sync-log read | PASS | `sync-logs-admin-read` 200 array (P) + E9 (W) |
+| UAT-054 sync trigger | PASS | E6 trigger runs and reports (W) + `sync-trigger-admin` 200 (P) |
+| UAT-055 External Web Sync preview | PASS | V4 maker view renders simulator heading (V) + B14 staff-side absence (W) |
+| UAT-056 system export | PASS | E7 JSON export downloads (W) + `system-export-admin` 200 DCR-1 top-level `tables` shape, non-zero counts (P, corrected re-probe) |
+| UAT-057 upload + audit | PASS | C2 image upload → server URL (W) + `upload-pdf-maker` URL returned (P) |
+| UAT-058 whitelist/limits | PASS | `upload-exe-rejected` 400 (P) + L2 §11 whitelist/413 matrix (C) |
+| UAT-059 UUID serving | PASS | `uploaded-url-served-anonymously` 200, `x-content-type-options: nosniff`, UUID path (P) |
+| UAT-060 global search | PASS | B8 Ctrl+K opens, finds seeded article, keyboard usable (W) |
+| UAT-061 public news search | PASS | `anon-news-search-public` 200 (`news_search_hits_for_W34-UAT` recorded) (P) |
+| UAT-062 contacts search | PASS | B9 name-field search filters (W) |
+| UAT-063 Thai-first strings | PASS | A2 bilingual login labels + hotline 1258; Thai status chips รอการอนุมัติ / เผยแพร่แล้ว / ถูกปฏิเสธ (C4/D1/D2); V3 mobile login Thai-first verbatim (V) |
+| UAT-064 bilingual fields | PASS | B8 English-title search ("BOT") (W) + `titleEn` carried and returned on created items (P) |
+| UAT-065 Thai dates | PASS | created items return `"publishedAt":"11 ก.ย. 2569"` (Thai-locale, Buddhist era) — verbatim from probe bodies (P) |
+
+**Per-reference tally: 61 PASS · 1 NOT TESTED (UAT-043) · 0 FAIL — 62 distinct
+ids accounted.**
+
+## 6. Exit-criteria assessment (Doc 12 §7 L6 row)
+
+| Criterion (quoted from Doc 12 §7) | Assessment | Evidence |
+|---|---|---|
+| "All 6 UAT scenarios accepted by role proxies" | **MET on executed evidence** — 6/6 scenarios PASS (§4) executed as scripted role proxies on ENV-PROD-MODE with seeded demo data and recorded screen captures (Doc 12 §4 L6 row). **Caveat:** Doc 12 §11 names "business-side nominees arranged by Lead" as the proxy source; this lane's proxies are scripted (per the W3-4 dispatch). Formal nominee sign-off rides to Lead review | §4; W/P/V records |
+| "defects ≥S2 = 0 open" | **MET** — zero product defects found at any severity in the lane; nothing ≥S2 open (§7) | §7 register |
+
+**L6 verdict: PASS (exit criteria met on the executed evidence), conditional
+on Lead acceptance of the scripted-proxy method (§1, judgment call J-2 of the
+dispatch) and disposition of obs-U1 (UAT-043 NOT TESTED — S3-class coverage
+debt, not a defect).**
+
+## 7. Findings register (Doc 12 §8 format)
+
+**Product defects: none (0 findings, S1–S4).** No error toast, wrong status
+transition, boundary escape, or data issue was observed in any scenario,
+probe, or capture leg.
+
+**Coverage-gap observation (non-defect):**
+
+| id | Severity | Observation | Disposition |
+|---|---|---|---|
+| obs-U1 | S3 (coverage debt) | UAT-043 (FR-CMS-004 offline fallback / offline badge) has no scripted offline-simulation asset in any suite L2–L6; reported **NOT TESTED** per Doc 12 §9 rule 3 rather than inferred | Flagged for Lead triage: schedule an offline-simulation leg (e.g. Playwright `context.setOffline`) before Release-gate review; not a §5 scenario step, so L6 exit per §7 is unaffected |
+
+**Lane annotations (verification-methodology notes, retained per
+annotate-not-rewrite; none are product findings):**
+
+| id | Annotation |
+|---|---|
+| L-1 | Walkthrough run 1 (pre-12:43Z) INVALID — a zsh env-prefix scoping bug emptied `E2E_ADMIN_PASSWORD` for the harness; marked INVALID in the transcript, never cited as product evidence. The cited run is the re-executed `run-2026-09-11T1243Z-e2e` |
+| L-2 | Visuals run 1 (`run-2026-09-11T1249Z-uat`) V1 page-shot INVALIDATED — the capture raced the ConfirmDialog 150 ms animate-in fade (pixel profile identical to no-dialog: meanLum 234.5/darkFrac 0.008). Re-captured in run 2 (`…T1255Z-uat`) with a 600 ms settle + visibility bracket + element closeup; run-2 verified four ways (DOM exact-substring assertions, closeup visual, PNG luminance physics: meanLum 129.5/darkFrac 0.093 vs no-dialog 234.5–235.3/0.008–0.009, brightened-crop visual). Two image-model reads of the dimmed full-page shot reported "no dialog" — documented as image-model misreads of a scrimmed page (OCR also reads Thai text approximately); DOM-level assertions govern. Run-1 dir retained as history |
+| L-3 | Probe `system-export-admin` run-1 EXPECT-FAIL was a **probe-script assertion bug** (asserted the pre-DCR-1 `data.tables` wrapper instead of the top-level `tables` shape). Corrected probe re-executed standalone → PASS (`probe-export-shape-corrected.log`); product behavior conformant. Derived verification artifacts (luminance stats, brightened crop) lived in `/tmp` only and never entered the evidence MANIFEST |
+
+## 8. Doc 21 §12 visual closures (required captures)
+
+All three closures captured in run **`run-2026-09-11T1255Z-uat`**
+(`.omc/reports/screenshots/run-2026-09-11T1255Z-uat/`, 8 files +
+`MANIFEST.sha256`, `shasum -a 256 -c` → **exit 0**, re-verified fresh at Doc
+18 assembly). Captured by `tests/uat-visuals.mjs` (new lane file;
+`tests/e2e-walkthrough.mjs` NOT modified — the dispatch's allowed fallback).
+
+| # | Doc 21 §12 requirement | File (sha256 prefix) | Verification |
+|---|---|---|---|
+| 1 | Withdraw confirm dialog "เพิกถอนจากเว็บไซต์สาธารณะ / Withdraw from public web" — maker create → submit → checker approve → withdraw, screenshot BEFORE confirming | `v1-withdraw-confirm-dialog.png` (`0903b9182f2a65a5…`) + element closeup `v1c-withdraw-dialog-closeup.png` (`9be8ad3c20ee2323…`) + post-confirm `v1b-withdrawn-row-draft.png` (`e43cbc762c1807ed…`) | In-script DOM assertions (exact-substring title/item/consequence ร่าง, visibility bracket, working confirm → row returns ร่าง) + closeup + luminance physics + brightened-crop visual (L-2); OCR reads approximate, DOM governs |
+| 2 | NEW badge close-up on a documents card | `v2-new-badge-documents-card.png` (`86069503472bc51c…`) | Badge visibility asserted in-script on a freshly registered card (`isNew` forced server-side); image read confirms the NEW pill top-right of the title line; timestamp suffix ties the frame to run-2 |
+| 3 | Login screen at 375px mobile | `v3-login-mobile-375.png` (`2f1aec80f91e45b5…`) | In-script overflow assertion (scrollWidth−clientWidth = 0 px); image read confirms centered, no clipping, Thai-first labels verbatim (ชื่อผู้ใช้งาน / Username · รหัสผ่าน / Password · เข้าสู่ระบบ / Sign in), hotline 1258 |
+
+Extra UI legs captured in the same run (supporting §5 rows): `v4-maker-external-web-sync.png` (UAT-055), `v5-staff-deeplink-no-cms.png` + `v5b-session-restore-after-reload.png` (UAT-040/044).
+
+## 9. Worker judgment calls (flagged for Lead review)
+
+1. **Host-run prod-mode server instead of compose** — Doc 12 §4's L6 row
+   demands ENV-PROD-MODE + seeded demo data + recorded captures, not compose
+   specifically; host-run `NODE_ENV=production` in-memory satisfies it (the
+   §3 in-memory WARN is the documented prod-boot-without-DATABASE_URL path).
+2. **No PG run** — the L6 row demands no PG behavior; PG-bound ids cited from
+   standing L4 records (UAT-008 → TC-SYS-002).
+3. **UAT-6 surface interpretation** — "public marketing surfaces" exist as
+   unauthenticated data endpoints (`/api/news`, `/api/banners`, `/api/rooms`,
+   `/api/tools` → 200 anonymous) consumed by the authenticated portal; the
+   anonymous UI is the login screen; directory/documents/users/audit demand
+   login (401). No unauthenticated portal UI exists by design.
+4. **UAT-043 NOT TESTED** — no offline-simulation asset exists anywhere;
+   reported honestly (obs-U1) rather than inferred.
+5. **Walkthrough run-1 invalidation** (L-1) — harness env bug, re-run valid;
+   invalid run never cited.
+6. **Visuals V1 anomaly handling** (L-2) — run-1 fade-race invalidation,
+   run-2 re-capture with settle fix, four-way verification, image-model
+   misreads documented as lane annotation; derived verification artifacts
+   kept out of the evidence MANIFEST.
+7. **Probe export-shape correction** (L-3) — probe-script bug, corrected
+   re-probe PASS; the original FAIL verdict reported, not hidden.
+8. **Secrets discipline** — passwords redacted («redacted») in every logged
+   payload; cookie flags recorded as booleans only; admin password handed to
+   the server via mode-600 `/tmp` file, deleted and verified gone at lane
+   end; root `.env` never read/printed/modified.
+9. **runId suffix `-uat` + lane-scoped paths** — visuals captures write
+   `run-…-uat` dirs (distinct from `-e2e` runs); probe/result artifacts under
+   `.omc/reports/w3-4-uat/` so no standing-suite artifact is clobbered.
+10. **Disposable residue** — lane uploads wrote to gitignored
+    `uploads-w34-uat/`; the banner/contact addendum rows remain only on the
+    disposable in-memory server, destroyed at lane end.
+11. **S0 FLAKY** treated per Doc 12 §9 rule 4 with attached retry evidence
+    (known signature, single occurrence).
+12. **UAT-017 verdict source** — carried by S0's attached retry evidence plus
+    the boot-time admin login token (`admin_login_smoke_http=200`).
+13. **Addendum probes** — UAT-028/032 were initially unevidenced; rather than
+    reporting NOT TESTED, two merge-semantics probes were executed while the
+    lane server was still up (logged in the same style, exit 0).
+14. **Dispatch-head supersession (corrected at lead review)** — the draft
+    recorded a mid-lane advance `a099586`→`e205763`; in fact `git show`
+    timestamps place both commits **before** lane start (`a099586` 12:22:07Z,
+    `e205743` 12:26:48Z vs `lane_started_utc` 12:27:54Z): the dispatch text
+    referenced its authoring-time head `a099586`, which the Doc 20 approval
+    flip superseded before the worker's first command. The lane ran entirely
+    at `e205743`, clean tree; no source file was ever in question.
+
+## 10. Evidence index
+
+All paths relative to repo root; untracked lane artifacts — the Lead commits
+this document together with the lane's evidence set per the W3-4 dispatch.
+
+**Lane transcript & provenance**
+
+- `.omc/reports/w3-4-uat.log` — the lane transcript: header (git rev
+  `e205743…`, untracked list, UTC window, build exit 0 + 162543 bytes), boot
+  records, walkthrough run(s), probe families, visuals runs + V1
+  invalidation/re-capture, post-run visual verification annotations,
+  addendum probes, teardown tokens (`PORT_3223_RELEASED=OK`, password-file
+  deletion, lane end UTC).
+- `.omc/reports/w3-4-uat/server-boot.log` — boot #3 server output (prod-mode
+  banner, in-memory WARN, healthz).
+
+**Walkthrough (class W)**
+
+- `.omc/reports/w3-4-uat/e2e-results.json` — runId
+  `run-2026-09-11T1243Z-e2e`, 64 rows, counts `{"flaky":1,"pass":63}`,
+  0 FAIL, exit 0 (row ids: S0, A1–A6, B0–B17, C0–C12, C-FR, C-API, D0a,
+  D0–D5, E0–E10, E-API, E-API2, F1–F3).
+- `.omc/reports/screenshots/run-2026-09-11T1243Z-e2e/` — 46 PNGs +
+  `MANIFEST.sha256`; `shasum -a 256 -c` → exit 0 (fresh re-verification at
+  Doc 18 assembly).
+
+**Probes (class P)** — `.omc/reports/w3-4-uat/`
+
+- `probes.mjs` + `probe-uat4-admin.log` (12 verdicts: 11 PASS + export-shape
+  probe-bug FAIL), `probe-uat2-maker.log` (10 PASS),
+  `probe-uat5-negative.log` (10 PASS + cookie-flag/generic-error SUMMARYs),
+  `probe-uat6-anonymous.log` (9 PASS), `probe-uat2-uploads.log` (3 logged
+  probes, all expectations met), `probe-export-shape-corrected.log` (1 PASS).
+- `probes-updates.mjs` + `probe-uat2-updates.log` (addendum: 5 PASS —
+  UAT-028/032 merge semantics + maker-DELETE boundary 403).
+
+**Visuals (class V)**
+
+- `tests/uat-visuals.mjs` — new lane file (the only repo code change of the
+  lane; `tests/e2e-walkthrough.mjs` untouched).
+- `.omc/reports/w3-4-uat/visuals-results.json` — runId
+  `run-2026-09-11T1255Z-uat`, PASS=6 FAIL=0, exit 0.
+- `.omc/reports/screenshots/run-2026-09-11T1255Z-uat/` — 8 PNGs +
+  `MANIFEST.sha256` (exit 0, fresh). §8 closures cited from here.
+- `.omc/reports/screenshots/run-2026-09-11T1249Z-uat/` — run 1, retained as
+  history (V1 page-shot invalidated — L-2; remaining files valid captures of
+  their legs).
+
+**Cited standing records (class C)**
+
+- Doc 17 §3.3/§3.5 + Appendix A (smoke §16 tampered-cookie; TC-SYS-002;
+  TC-USER-008 `w3r2-gap-closures.log`; TC-SES-006 `w3r1-p0-gaps.log`; smoke
+  §11 upload matrix).
+- Doc 19 §TC-SEC-009 row (`tc-sec-009.log`, timing ratio 1.01).
