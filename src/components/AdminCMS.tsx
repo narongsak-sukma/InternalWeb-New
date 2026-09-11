@@ -1072,7 +1072,8 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
 
   // DCR-9: the only row-level public-web action — withdraw a live item. Opens
   // the confirm dialog naming the consequence (doc 11 §5.8); the App handler
-  // rides the existing PUT forced-reset semantics (synced → draft, AUD-P01).
+  // calls the dedicated state-only withdraw endpoint (W2-FIX-1: synced →
+  // draft, AUD-P01, content preserved).
   const handleWithdrawRow = async (id: string) => {
     try {
       await onWithdrawFromPublic(id);

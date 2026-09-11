@@ -38,7 +38,7 @@ import { ArticleDetailModal } from './components/ArticleDetailModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { BrandLogo } from './components/BrandLogo';
 import { LoginPage } from './components/LoginPage';
-import { api, isOffline, subscribeOffline } from './api';
+import { api, ApiError, isOffline, subscribeOffline } from './api';
 import { useAuth, roleAtLeast } from './auth/AuthContext';
 
 import {
@@ -276,21 +276,33 @@ export default function App() {
     showToast(`Removed announcement: ${target?.title.substring(0, 24)}...`);
   };
 
-  // DCR-9: withdraw a live (synced) item from the public site. Rides the
-  // existing audited PUT semantics — an unchanged-content PUT makes the server
-  // fire its forced non-draft→draft reset (priorStatus 'synced' → draft, stamps
-  // cleared, syncToExternal false, AUD-P01 audit row). State and the toast
-  // derive from the SERVER-returned item (FR-CMS-003 contract fix) — never a
-  // fabricated publish claim or a client-side SyncLog row.
+  // DCR-9 / W2-FIX-1 (codex blocker 3): withdraw a live (synced) item from the
+  // public site via the DEDICATED state-only endpoint. The old flow PUT the
+  // whole cached item, so a stale browser snapshot silently overwrote any
+  // concurrent edit (and a non-synced server state produced no AUD-P01 row).
+  // The endpoint carries no payload: the server withdraws its CURRENT content
+  // atomically (synced → draft, stamps cleared, syncToExternal false, AUD-P01)
+  // and returns the post-transition item — state and toast derive from that
+  // server response, never from the local cache.
   const handleWithdrawFromPublic = async (id: string) => {
-    const item = news.find((n) => n.id === id);
-    if (!item) return;
-
     let withdrawn: NewsItem;
     try {
-      withdrawn = await api.updateNews(id, item);
+      withdrawn = await api.withdrawNews(id);
     } catch (err) {
-      showToast(`Withdraw failed: ${errMessage(err)}`, 'error');
+      // 409 = the server state moved on (already withdrawn / rejected /
+      // pending). Refresh the list to server truth and surface its Thai-first
+      // explanation verbatim.
+      if (err instanceof ApiError && err.status === 409) {
+        try {
+          const fresh = await api.getNews();
+          if (fresh && fresh.length > 0) setNews(fresh);
+        } catch {
+          /* best-effort refresh; the toast below still explains the refusal */
+        }
+        showToast(err.message, 'error');
+      } else {
+        showToast(`Withdraw failed: ${errMessage(err)}`, 'error');
+      }
       throw err;
     }
     setNews((prev) => prev.map((n) => (n.id === withdrawn.id ? withdrawn : n)));

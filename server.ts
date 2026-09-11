@@ -163,6 +163,15 @@ interface Repository {
   findNews(id: string): Promise<NewsItem | null>;
   insertNews(item: NewsItem): Promise<void>;
   saveNews(item: NewsItem): Promise<void>;
+  /**
+   * W2-FIX-1 (codex blockers 1/4): commit a news workflow transition and its
+   * audit row (plus the approve-path sync-log row) as ONE all-or-nothing
+   * unit. PostgreSQL mode runs the writes in a single transaction; in-memory
+   * mode restores the prior item if the audit write fails. Callers MUST hold
+   * the per-item workflow lock (withNewsLock) and re-read the item inside it
+   * so the transition applies to current server state.
+   */
+  commitNewsTransition(item: NewsItem, auditEntry: AuditLog, syncLogEntry?: SyncLog): Promise<void>;
   deleteNews(id: string): Promise<boolean>;
 
   listBanners(): Promise<BannerSlide[]>;
@@ -299,6 +308,31 @@ class InMemoryRepository implements Repository {
     const idx = this.news.findIndex((n) => n.id === item.id);
     if (idx === -1) this.news.unshift(item);
     else this.news[idx] = item;
+  }
+  async commitNewsTransition(item: NewsItem, auditEntry: AuditLog, syncLogEntry?: SyncLog): Promise<void> {
+    // State first, then audit/sync-log — all-or-nothing (W2-FIX-1 blocker 4):
+    // if the audit write fails, the prior item is restored so a retry hits the
+    // SAME pre-transition state (it can never silently skip the audit row).
+    const idx = this.news.findIndex((n) => n.id === item.id);
+    const prior = idx === -1 ? null : this.news[idx];
+    if (idx === -1) this.news.unshift(item);
+    else this.news[idx] = item;
+    try {
+      if (AUDIT_FAILURE_INJECTION) {
+        throw new Error('[TEST HOOK] injected audit-write failure (SMOKE_INJECT_AUDIT_FAILURE)');
+      }
+      this.auditLogs.unshift(auditEntry);
+      if (this.auditLogs.length > 5000) this.auditLogs.length = 5000;
+      if (syncLogEntry) this.syncLogs.unshift(syncLogEntry);
+    } catch (err) {
+      if (prior) {
+        const ri = this.news.findIndex((n) => n.id === prior.id);
+        if (ri !== -1) this.news[ri] = prior;
+      } else {
+        this.news = this.news.filter((n) => n.id !== item.id);
+      }
+      throw err;
+    }
   }
   async deleteNews(id: string): Promise<boolean> {
     const before = this.news.length;
@@ -749,6 +783,43 @@ function userFromRow(row: PgRow): User {
   };
 }
 
+// W2-FIX-1 (codex blocker 4): shared statement text + value tuples so the
+// standalone repo methods and the transactional commitNewsTransition execute
+// byte-identical SQL — the atomic path can never drift from saveNews et al.
+const NEWS_UPDATE_SQL = `UPDATE news SET title = $2, title_en = $3, summary = $4, content = $5, category = $6, category_label = $7,
+  badge = $8, badge_color = $9, image_url = $10, published_at = $11, read_time = $12, author = $13,
+  department = $14, is_important_alert = $15, views = $16, sync_to_external = $17, external_sync_status = $18,
+  external_category = $19, attachment_url = $20, attachment_name = $21, approved_by = $22, approved_at = $23,
+  submitted_by = $24, submitted_at = $25
+ WHERE id = $1`;
+
+function newsUpdateValues(item: NewsItem): unknown[] {
+  return [
+    item.id, item.title, item.titleEn ?? null, item.summary, item.content, item.category, item.categoryLabel,
+    item.badge ?? null, item.badgeColor ?? null, item.imageUrl ?? null, item.publishedAt, item.readTime ?? null,
+    item.author, item.department, item.isImportantAlert ?? false, item.views ?? 0, item.syncToExternal ?? false,
+    item.externalSyncStatus ?? null, item.externalCategory ?? null, item.attachmentUrl ?? null,
+    item.attachmentName ?? null, item.approvedBy ?? null, item.approvedAt ?? null,
+    item.submittedBy ?? null, item.submittedAt ?? null,
+  ];
+}
+
+const AUDIT_INSERT_SQL = `INSERT INTO audit_logs (id, timestamp, actor, actor_role, action, target_resource, resource_id, details, ip_address, status)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+  ON CONFLICT (id) DO NOTHING`;
+
+function auditInsertValues(item: AuditLog): unknown[] {
+  return [item.id, item.timestamp, item.actor, item.actorRole, item.action, item.targetResource, item.resourceId, item.details, item.ipAddress ?? null, item.status];
+}
+
+const SYNCLOG_INSERT_SQL = `INSERT INTO sync_logs (id, timestamp, item_id, item_title, action, status, target_endpoint, synced_by)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+  ON CONFLICT (id) DO NOTHING`;
+
+function syncLogInsertValues(item: SyncLog): unknown[] {
+  return [item.id, item.timestamp, item.itemId, item.itemTitle, item.action, item.status, item.targetEndpoint, item.syncedBy];
+}
+
 class PostgresRepository implements Repository {
   readonly mode = 'postgres' as const;
   private pool: Pool;
@@ -929,22 +1000,30 @@ class PostgresRepository implements Repository {
     );
   }
   async saveNews(item: NewsItem): Promise<void> {
-    await this.pool.query(
-      `UPDATE news SET title = $2, title_en = $3, summary = $4, content = $5, category = $6, category_label = $7,
-        badge = $8, badge_color = $9, image_url = $10, published_at = $11, read_time = $12, author = $13,
-        department = $14, is_important_alert = $15, views = $16, sync_to_external = $17, external_sync_status = $18,
-        external_category = $19, attachment_url = $20, attachment_name = $21, approved_by = $22, approved_at = $23,
-        submitted_by = $24, submitted_at = $25
-       WHERE id = $1`,
-      [
-        item.id, item.title, item.titleEn ?? null, item.summary, item.content, item.category, item.categoryLabel,
-        item.badge ?? null, item.badgeColor ?? null, item.imageUrl ?? null, item.publishedAt, item.readTime ?? null,
-        item.author, item.department, item.isImportantAlert ?? false, item.views ?? 0, item.syncToExternal ?? false,
-        item.externalSyncStatus ?? null, item.externalCategory ?? null, item.attachmentUrl ?? null,
-        item.attachmentName ?? null, item.approvedBy ?? null, item.approvedAt ?? null,
-        item.submittedBy ?? null, item.submittedAt ?? null,
-      ]
-    );
+    await this.pool.query(NEWS_UPDATE_SQL, newsUpdateValues(item));
+  }
+  async commitNewsTransition(item: NewsItem, auditEntry: AuditLog, syncLogEntry?: SyncLog): Promise<void> {
+    // One transaction: UPDATE news → INSERT audit (+ sync log) → COMMIT; ANY
+    // failure rolls back BOTH (W2-FIX-1 blocker 4) — a committed transition
+    // without its audit row is impossible, and vice versa.
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(NEWS_UPDATE_SQL, newsUpdateValues(item));
+      if (AUDIT_FAILURE_INJECTION) {
+        throw new Error('[TEST HOOK] injected audit-write failure (SMOKE_INJECT_AUDIT_FAILURE)');
+      }
+      await client.query(AUDIT_INSERT_SQL, auditInsertValues(auditEntry));
+      if (syncLogEntry) await client.query(SYNCLOG_INSERT_SQL, syncLogInsertValues(syncLogEntry));
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {
+        /* connection-level failure already aborts the tx */
+      });
+      throw err;
+    } finally {
+      client.release();
+    }
   }
   async deleteNews(id: string): Promise<boolean> {
     const result = await this.pool.query('DELETE FROM news WHERE id = $1', [id]);
@@ -1050,12 +1129,7 @@ class PostgresRepository implements Repository {
     return result.rows.map(syncLogFromRow);
   }
   async insertSyncLog(item: SyncLog): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO sync_logs (id, timestamp, item_id, item_title, action, status, target_endpoint, synced_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (id) DO NOTHING`,
-      [item.id, item.timestamp, item.itemId, item.itemTitle, item.action, item.status, item.targetEndpoint, item.syncedBy]
-    );
+    await this.pool.query(SYNCLOG_INSERT_SQL, syncLogInsertValues(item));
   }
 
   async listAuditLogs(): Promise<AuditLog[]> {
@@ -1063,12 +1137,7 @@ class PostgresRepository implements Repository {
     return result.rows.map(auditLogFromRow);
   }
   async insertAuditLog(item: AuditLog): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO audit_logs (id, timestamp, actor, actor_role, action, target_resource, resource_id, details, ip_address, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (id) DO NOTHING`,
-      [item.id, item.timestamp, item.actor, item.actorRole, item.action, item.targetResource, item.resourceId, item.details, item.ipAddress ?? null, item.status]
-    );
+    await this.pool.query(AUDIT_INSERT_SQL, auditInsertValues(item));
   }
 }
 
@@ -1099,6 +1168,20 @@ if (IS_PRODUCTION && !process.env.DATABASE_URL) {
       'Data and sessions will be lost on restart / pod reschedule. Set DATABASE_URL for production use.'
   );
 }
+
+// ---- W2-FIX-1 test-only hooks (codex fix-cycle regression coverage) ----
+// Both are opt-in via env var AND inert in production (same guard style as
+// the dev-only paths above): a real deployment never sets SMOKE_* vars, and
+// the NODE_ENV check keeps the hooks dead even if one leaks in.
+// - SMOKE_INJECT_AUDIT_FAILURE=1: the atomic workflow-transition audit write
+//   throws, proving state+audit commit/rollback together (blocker 4).
+// - SMOKE_SEED_W2FIX1_FIXTURES=1: boot-seed two regression fixture rows — a
+//   legacy pending submission (no submitter identity, blocker 2) and a live
+//   synced item (withdrawal path, blocker 3).
+const AUDIT_FAILURE_INJECTION =
+  process.env.SMOKE_INJECT_AUDIT_FAILURE === '1' && !IS_PRODUCTION;
+const SEED_W2FIX1_FIXTURES =
+  process.env.SMOKE_SEED_W2FIX1_FIXTURES === '1' && !IS_PRODUCTION;
 
 function toSafeUser(user: User): SafeUser {
   const { passwordHash: _passwordHash, ...safe } = user;
@@ -1304,6 +1387,31 @@ function stripNewsWorkflowFields(body: Record<string, unknown> | undefined): voi
   }
 }
 
+// W2-FIX-1 (codex blocker 1): per-item async critical section for EVERY news
+// workflow mutation (create, PUT, submit, approve, reject, withdraw). A
+// chained-promise mutex keyed by item id: concurrent requests for the same
+// item serialize, and each one re-reads the item INSIDE the lock — a
+// concurrent edit commits first and IS seen by the state guards, so
+// "edit commits between read and approve" can never yield synced-with-
+// stale-content (the edit wins → approve 400s; approve wins → the next PUT
+// forced-resets the approved content back to draft). No lost update in any
+// interleaving. Single-process scope: the gateway runs one process per pod
+// (W2-5 note); PG mode adds the commitNewsTransition transaction.
+const newsWorkflowLocks = new Map<string, Promise<void>>();
+
+function withNewsLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const prev = newsWorkflowLocks.get(id) ?? Promise.resolve();
+  const run = prev.then(fn);
+  // The tail future callers chain onto never rejects — one failed mutation
+  // must not poison the lock for the next requester.
+  const tail = run.then(() => undefined, () => undefined);
+  newsWorkflowLocks.set(id, tail);
+  void tail.then(() => {
+    if (newsWorkflowLocks.get(id) === tail) newsWorkflowLocks.delete(id);
+  });
+  return run;
+}
+
 // Login rate limiting: 5 failed attempts per minute per IP (D1), counted in
 // the ACTIVE repository (W2-5, RISK-010). The store adapter below delegates
 // to `repo` at request time — the module-level default instance serves dev
@@ -1379,7 +1487,7 @@ const loginLimiter = rateLimit({
 
 // Server-side audit trail helper — the actor always comes from the authenticated
 // session (or the attempted username for failed logins), never from client input.
-async function recordAudit(entry: {
+type AuditEntryInput = {
   actor: string;
   actorRole: string;
   action: AuditLog['action'];
@@ -1388,13 +1496,23 @@ async function recordAudit(entry: {
   details: string;
   ipAddress?: string;
   status: AuditLog['status'];
-}): Promise<AuditLog> {
-  const auditEntry: AuditLog = {
+};
+
+// Pure construction — no store write. W2-FIX-1: the atomic workflow
+// transitions build their audit row with this and hand it to
+// repo.commitNewsTransition so state + audit commit (or roll back) together;
+// recordAudit remains the direct write path for non-atomic call sites.
+function buildAuditEntry(entry: AuditEntryInput): AuditLog {
+  return {
     id: `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
     ...entry,
     ipAddress: entry.ipAddress ?? undefined,
   };
+}
+
+async function recordAudit(entry: AuditEntryInput): Promise<AuditLog> {
+  const auditEntry = buildAuditEntry(entry);
   await repo.insertAuditLog(auditEntry);
   return auditEntry;
 }
@@ -1506,7 +1624,7 @@ app.get('/api/news', async (req, res) => {
   res.json({ data: filtered, total: filtered.length });
 });
 
-app.post('/api/news', requireAuth, requireRole('maker', 'admin'), async (req, res) => {
+app.post('/api/news', requireAuth, requireRole('maker', 'admin'), async (req, res, next) => {
   // FR-NEWS-009: workflow fields are server-controlled — a create can never
   // yield 'synced' regardless of role or payload (strict dual-control ruling).
   stripNewsWorkflowFields(req.body);
@@ -1534,7 +1652,15 @@ app.post('/api/news', requireAuth, requireRole('maker', 'admin'), async (req, re
     attachmentUrl: req.body.attachmentUrl,
   };
 
-  await repo.insertNews(newItem);
+  // W2-FIX-1: the workflow mutation serializes per item id (create included —
+  // a client-supplied id could collide with a concurrent PUT on that id).
+  try {
+    await withNewsLock(newItem.id, async () => {
+      await repo.insertNews(newItem);
+    });
+  } catch (err) {
+    return next(err);
+  }
 
   // No sync log on create: nothing has left the building. A sync_logs row is
   // written only by the checker approve endpoint (the sole path to 'synced').
@@ -1542,65 +1668,74 @@ app.post('/api/news', requireAuth, requireRole('maker', 'admin'), async (req, re
   res.status(201).json({ success: true, data: newItem });
 });
 
-app.put('/api/news/:id', requireAuth, requireRole('maker', 'admin'), requireResourceId, async (req, res) => {
+app.put('/api/news/:id', requireAuth, requireRole('maker', 'admin'), requireResourceId, async (req, res, next) => {
   const { id } = req.params;
-  const existing = await repo.findNews(id);
-  if (!existing) {
-    return res.status(404).json({ error: 'News item not found' });
-  }
+  // W2-FIX-1: the mutation runs inside the per-item critical section and
+  // re-reads the item there — the forced reset applies to the CURRENT server
+  // content, never a pre-lock snapshot (no lost concurrent edit).
+  try {
+    await withNewsLock(id, async () => {
+      const existing = await repo.findNews(id);
+      if (!existing) {
+        return res.status(404).json({ error: 'News item not found' });
+      }
 
-  // FR-NEWS-009: workflow fields are server-controlled — externalSyncStatus,
-  // approvedBy/approvedAt and syncToExternal can never be set via the body.
-  stripNewsWorkflowFields(req.body);
+      // FR-NEWS-009: workflow fields are server-controlled — externalSyncStatus,
+      // approvedBy/approvedAt and syncToExternal can never be set via the body.
+      stripNewsWorkflowFields(req.body);
 
-  const priorStatus = existing.externalSyncStatus;
-  // Content change ⇒ draft (FR-NEWS-009). Editing an item in ANY non-draft
-  // workflow state returns it to 'draft': a pending item must not be mutated
-  // while a checker reviews content they may never see again (TOCTOU), and a
-  // live item must not keep modified content public under a stale approval.
-  const invalidatesApproval =
-    priorStatus === 'pending_approval' || priorStatus === 'synced' || priorStatus === 'rejected';
-  const updated: NewsItem = {
-    ...existing,
-    ...req.body,
-    id, // protect ID
-  };
+      const priorStatus = existing.externalSyncStatus;
+      // Content change ⇒ draft (FR-NEWS-009). Editing an item in ANY non-draft
+      // workflow state returns it to 'draft': a pending item must not be mutated
+      // while a checker reviews content they may never see again (TOCTOU), and a
+      // live item must not keep modified content public under a stale approval.
+      const invalidatesApproval =
+        priorStatus === 'pending_approval' || priorStatus === 'synced' || priorStatus === 'rejected';
+      const updated: NewsItem = {
+        ...existing,
+        ...req.body,
+        id, // protect ID
+      };
 
-  // The forced reset clears the prior decision cycle's stamps and drops the
-  // item out of the live public set (syncToExternal) — the only legal path is
-  // draft -> pending_approval -> synced|rejected, and only checker approve
-  // makes content live again.
-  if (invalidatesApproval) {
-    updated.externalSyncStatus = 'draft';
-    updated.syncToExternal = false;
-    updated.approvedBy = undefined;
-    updated.approvedAt = undefined;
-    updated.submittedBy = undefined;
-    updated.submittedAt = undefined;
-  }
+      // The forced reset clears the prior decision cycle's stamps and drops the
+      // item out of the live public set (syncToExternal) — the only legal path is
+      // draft -> pending_approval -> synced|rejected, and only checker approve
+      // makes content live again.
+      if (invalidatesApproval) {
+        updated.externalSyncStatus = 'draft';
+        updated.syncToExternal = false;
+        updated.approvedBy = undefined;
+        updated.approvedAt = undefined;
+        updated.submittedBy = undefined;
+        updated.submittedAt = undefined;
+      }
 
-  await repo.saveNews(updated);
+      if (invalidatesApproval) {
+        // Forced transition audit (AUD-P01) commits WITH the state change —
+        // one all-or-nothing unit (W2-FIX-1 blocker 4).
+        const auditEntry = buildAuditEntry({
+          actor: req.user!.username,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'UPDATE',
+          targetResource: 'News Announcement',
+          resourceId: updated.id,
+          details: `Edit of ${priorStatus} item "${updated.title.substring(0, 30)}..." reset externalSyncStatus to draft (forced transition; approval and submission stamps cleared, item dropped from the live sync set until re-approval).`,
+          ipAddress: req.ip,
+          status: 'SUCCESS',
+        });
+        await repo.commitNewsTransition(updated, auditEntry);
+      } else {
+        await repo.saveNews(updated);
+      }
 
-  // Forced transition audit (AUD-P01): a <state>->draft reset is a
-  // workflow-state change made outside the approval endpoints, so it is
-  // recorded with the reason in details.
-  if (invalidatesApproval) {
-    await recordAudit({
-      actor: req.user!.username,
-      actorRole: ROLE_LABELS[req.user!.role],
-      action: 'UPDATE',
-      targetResource: 'News Announcement',
-      resourceId: updated.id,
-      details: `Edit of ${priorStatus} item "${updated.title.substring(0, 30)}..." reset externalSyncStatus to draft (forced transition; approval and submission stamps cleared, item dropped from the live sync set until re-approval).`,
-      ipAddress: req.ip,
-      status: 'SUCCESS',
+      // No sync log on update: PUT can no longer reach syncToExternal=true —
+      // the flag flips only via the checker approve endpoint.
+
+      res.json({ success: true, data: updated });
     });
+  } catch (err) {
+    next(err);
   }
-
-  // No sync log on update: PUT can no longer reach syncToExternal=true —
-  // the flag flips only via the checker approve endpoint.
-
-  res.json({ success: true, data: updated });
 });
 
 app.delete('/api/news/:id', requireAuth, requireRole('admin'), requireResourceId, async (req, res) => {
@@ -1625,175 +1760,292 @@ app.delete('/api/news/:id', requireAuth, requireRole('admin'), requireResourceId
 });
 
 // Maker-Checker Dual Approval Endpoints (BOT Governance)
-app.post('/api/news/:id/submit-approval', requireAuth, requireRole('maker', 'admin'), requireResourceId, async (req, res) => {
+app.post('/api/news/:id/submit-approval', requireAuth, requireRole('maker', 'admin'), requireResourceId, async (req, res, next) => {
   const { id } = req.params;
-  const item = await repo.findNews(id);
-  if (!item) return res.status(404).json({ error: 'News item not found' });
+  try {
+    await withNewsLock(id, async () => {
+      const item = await repo.findNews(id);
+      if (!item) return res.status(404).json({ error: 'News item not found' });
 
-  // FR-NEWS-009: submit-approval is legal from 'draft' only. A rejected item
-  // must be edited first (the edit resets it to draft); a synced item is
-  // already live; a pending item is already in review.
-  if (item.externalSyncStatus !== 'draft') {
-    await recordAudit({
-      actor: req.user!.username,
-      actorRole: ROLE_LABELS[req.user!.role],
-      action: 'SUBMIT_APPROVAL',
-      targetResource: 'News Announcement',
-      resourceId: item.id,
-      details: `Blocked: submit-approval attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — only draft items can be submitted.`,
-      ipAddress: req.ip,
-      status: 'WARNING',
+      // FR-NEWS-009: submit-approval is legal from 'draft' only. A rejected item
+      // must be edited first (the edit resets it to draft); a synced item is
+      // already live; a pending item is already in review.
+      if (item.externalSyncStatus !== 'draft') {
+        await recordAudit({
+          actor: req.user!.username,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'SUBMIT_APPROVAL',
+          targetResource: 'News Announcement',
+          resourceId: item.id,
+          details: `Blocked: submit-approval attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — only draft items can be submitted.`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+        return res.status(400).json({ success: false, error: 'Only draft news items can be submitted for approval' });
+      }
+
+      // W2-FIX-1: the next state is a NEW object — the stored item is never
+      // mutated in place — and state + audit commit as one atomic unit.
+      const next: NewsItem = {
+        ...item,
+        externalSyncStatus: 'pending_approval',
+        syncToExternal: false, // Not live until approved by Checker
+        // Record WHO submitted so approve/reject can bar self-approval (FR-NEWS-009)
+        submittedBy: req.user!.id,
+        submittedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      };
+
+      const auditEntry = buildAuditEntry({
+        actor: req.user!.username,
+        actorRole: ROLE_LABELS[req.user!.role],
+        action: 'SUBMIT_APPROVAL',
+        targetResource: 'News Announcement',
+        resourceId: next.id,
+        details: `Submitted by ${req.user!.username} (id: ${req.user!.id}): "${next.title.substring(0, 30)}..." for dual-control checker review before public publishing.`,
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+      await repo.commitNewsTransition(next, auditEntry);
+
+      res.json({ success: true, data: next, audit: auditEntry });
     });
-    return res.status(400).json({ success: false, error: 'Only draft news items can be submitted for approval' });
+  } catch (err) {
+    next(err);
   }
-
-  item.externalSyncStatus = 'pending_approval';
-  item.syncToExternal = false; // Not live until approved by Checker
-  // Record WHO submitted so approve/reject can bar self-approval (FR-NEWS-009)
-  item.submittedBy = req.user!.id;
-  item.submittedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  await repo.saveNews(item);
-
-  const auditEntry = await recordAudit({
-    actor: req.user!.username,
-    actorRole: ROLE_LABELS[req.user!.role],
-    action: 'SUBMIT_APPROVAL',
-    targetResource: 'News Announcement',
-    resourceId: item.id,
-    details: `Submitted by ${req.user!.username} (id: ${req.user!.id}): "${item.title.substring(0, 30)}..." for dual-control checker review before public publishing.`,
-    ipAddress: req.ip,
-    status: 'SUCCESS',
-  });
-
-  res.json({ success: true, data: item, audit: auditEntry });
 });
 
-app.post('/api/news/:id/approve', requireAuth, requireRole('checker', 'admin'), requireResourceId, async (req, res) => {
+app.post('/api/news/:id/approve', requireAuth, requireRole('checker', 'admin'), requireResourceId, async (req, res, next) => {
   const { id } = req.params;
-  const item = await repo.findNews(id);
-  if (!item) return res.status(404).json({ error: 'News item not found' });
+  try {
+    await withNewsLock(id, async () => {
+      const item = await repo.findNews(id);
+      if (!item) return res.status(404).json({ error: 'News item not found' });
 
-  const checkerName = req.user!.username;
+      const checkerName = req.user!.username;
 
-  // FR-NEWS-009: approve is legal only from 'pending_approval' — a checker
-  // cannot approve a draft (or re-approve a synced/rejected item).
-  if (item.externalSyncStatus !== 'pending_approval') {
-    await recordAudit({
-      actor: checkerName,
-      actorRole: ROLE_LABELS[req.user!.role],
-      action: 'APPROVE',
-      targetResource: 'News Announcement',
-      resourceId: item.id,
-      details: `Blocked: approve attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — requires pending_approval.`,
-      ipAddress: req.ip,
-      status: 'WARNING',
+      // FR-NEWS-009: approve is legal only from 'pending_approval' — a checker
+      // cannot approve a draft (or re-approve a synced/rejected item).
+      if (item.externalSyncStatus !== 'pending_approval') {
+        await recordAudit({
+          actor: checkerName,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'APPROVE',
+          targetResource: 'News Announcement',
+          resourceId: item.id,
+          details: `Blocked: approve attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — requires pending_approval.`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+        return res.status(400).json({ success: false, error: 'Only news items pending approval can be approved' });
+      }
+
+      // W2-FIX-1 (codex blocker 2): legacy pre-migration submissions carry no
+      // submitter identity — the self-decision guard below would be vacuous,
+      // so the original (admin) submitter could decide their own item. Deny
+      // the decision; a fresh submission cycle stamps a verified submitter.
+      if (!item.submittedBy) {
+        await recordAudit({
+          actor: checkerName,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'ACCESS_DENIED',
+          targetResource: 'News Announcement',
+          resourceId: item.id,
+          details: `Blocked: decision on legacy submission "${item.title.substring(0, 30)}..." with no recorded submitter (pre-migration row) — a fresh submission cycle is required before approve/reject.`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+        return res.status(409).json({ success: false, error: 'รายการนี้ถูกส่งก่อนการย้ายระบบ กรุณาให้ผู้สร้างส่งคำขออนุมัติใหม่ / Legacy submission requires a fresh submission cycle' });
+      }
+
+      // FR-NEWS-009: the submitter may never approve their own submission — for
+      // every role, admin included (strict dual-control ruling).
+      if (item.submittedBy === req.user!.id) {
+        await recordAudit({
+          actor: checkerName,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'APPROVE',
+          targetResource: 'News Announcement',
+          resourceId: item.id,
+          details: `Blocked: self-approval attempt — ${checkerName} submitted this item and cannot approve it.`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+        return res.status(403).json({ success: false, error: 'Self-approval is not allowed: the submitter cannot approve their own item' });
+      }
+
+      // W2-FIX-1: next state built (never in-place mutation); state + audit +
+      // sync log commit as ONE all-or-nothing unit (blocker 4).
+      const next: NewsItem = {
+        ...item,
+        externalSyncStatus: 'synced',
+        syncToExternal: true,
+        approvedBy: checkerName,
+        approvedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      };
+
+      const auditEntry = buildAuditEntry({
+        actor: checkerName,
+        actorRole: ROLE_LABELS[req.user!.role],
+        action: 'APPROVE',
+        targetResource: 'News Announcement',
+        resourceId: next.id,
+        details: `Approved public synchronization to www.kbjcapital.co.th for "${next.title.substring(0, 30)}..." (submitted by id: ${next.submittedBy ?? 'unknown'}).`,
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+
+      const syncLogEntry: SyncLog = {
+        id: `sync-${Date.now()}`,
+        timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        itemId: next.id,
+        itemTitle: next.title,
+        action: 'CREATE',
+        status: 'SUCCESS',
+        targetEndpoint: 'api.kbjcapital.co.th/v1/public/news',
+        syncedBy: checkerName,
+      };
+      await repo.commitNewsTransition(next, auditEntry, syncLogEntry);
+
+      res.json({ success: true, data: next, audit: auditEntry });
     });
-    return res.status(400).json({ success: false, error: 'Only news items pending approval can be approved' });
+  } catch (err) {
+    next(err);
   }
-
-  // FR-NEWS-009: the submitter may never approve their own submission — for
-  // every role, admin included (strict dual-control ruling).
-  if (item.submittedBy && item.submittedBy === req.user!.id) {
-    await recordAudit({
-      actor: checkerName,
-      actorRole: ROLE_LABELS[req.user!.role],
-      action: 'APPROVE',
-      targetResource: 'News Announcement',
-      resourceId: item.id,
-      details: `Blocked: self-approval attempt — ${checkerName} submitted this item and cannot approve it.`,
-      ipAddress: req.ip,
-      status: 'WARNING',
-    });
-    return res.status(403).json({ success: false, error: 'Self-approval is not allowed: the submitter cannot approve their own item' });
-  }
-
-  item.externalSyncStatus = 'synced';
-  item.syncToExternal = true;
-  item.approvedBy = checkerName;
-  item.approvedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  await repo.saveNews(item);
-
-  const auditEntry = await recordAudit({
-    actor: checkerName,
-    actorRole: ROLE_LABELS[req.user!.role],
-    action: 'APPROVE',
-    targetResource: 'News Announcement',
-    resourceId: item.id,
-    details: `Approved public synchronization to www.kbjcapital.co.th for "${item.title.substring(0, 30)}..." (submitted by id: ${item.submittedBy ?? 'unknown'}).`,
-    ipAddress: req.ip,
-    status: 'SUCCESS',
-  });
-
-  await repo.insertSyncLog({
-    id: `sync-${Date.now()}`,
-    timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-    itemId: item.id,
-    itemTitle: item.title,
-    action: 'CREATE',
-    status: 'SUCCESS',
-    targetEndpoint: 'api.kbjcapital.co.th/v1/public/news',
-    syncedBy: checkerName,
-  });
-
-  res.json({ success: true, data: item, audit: auditEntry });
 });
 
-app.post('/api/news/:id/reject', requireAuth, requireRole('checker', 'admin'), requireResourceId, async (req, res) => {
+app.post('/api/news/:id/reject', requireAuth, requireRole('checker', 'admin'), requireResourceId, async (req, res, next) => {
   const { id } = req.params;
-  const item = await repo.findNews(id);
-  if (!item) return res.status(404).json({ error: 'News item not found' });
+  try {
+    await withNewsLock(id, async () => {
+      const item = await repo.findNews(id);
+      if (!item) return res.status(404).json({ error: 'News item not found' });
 
-  const checkerName = req.user!.username;
+      const checkerName = req.user!.username;
 
-  // FR-NEWS-009: reject is legal only from 'pending_approval'.
-  if (item.externalSyncStatus !== 'pending_approval') {
-    await recordAudit({
-      actor: checkerName,
-      actorRole: ROLE_LABELS[req.user!.role],
-      action: 'REJECT',
-      targetResource: 'News Announcement',
-      resourceId: item.id,
-      details: `Blocked: reject attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — requires pending_approval.`,
-      ipAddress: req.ip,
-      status: 'WARNING',
+      // FR-NEWS-009: reject is legal only from 'pending_approval'.
+      if (item.externalSyncStatus !== 'pending_approval') {
+        await recordAudit({
+          actor: checkerName,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'REJECT',
+          targetResource: 'News Announcement',
+          resourceId: item.id,
+          details: `Blocked: reject attempted on item "${item.title.substring(0, 30)}..." in state '${item.externalSyncStatus ?? 'none'}' — requires pending_approval.`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+        return res.status(400).json({ success: false, error: 'Only news items pending approval can be rejected' });
+      }
+
+      // W2-FIX-1 (codex blocker 2): same legacy-submission deny as approve —
+      // no verified submitter identity, no decision (fresh cycle required).
+      if (!item.submittedBy) {
+        await recordAudit({
+          actor: checkerName,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'ACCESS_DENIED',
+          targetResource: 'News Announcement',
+          resourceId: item.id,
+          details: `Blocked: decision on legacy submission "${item.title.substring(0, 30)}..." with no recorded submitter (pre-migration row) — a fresh submission cycle is required before approve/reject.`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+        return res.status(409).json({ success: false, error: 'รายการนี้ถูกส่งก่อนการย้ายระบบ กรุณาให้ผู้สร้างส่งคำขออนุมัติใหม่ / Legacy submission requires a fresh submission cycle' });
+      }
+
+      // FR-NEWS-009: the submitter may never decide their own submission — for
+      // every role, admin included (strict dual-control ruling).
+      if (item.submittedBy === req.user!.id) {
+        await recordAudit({
+          actor: checkerName,
+          actorRole: ROLE_LABELS[req.user!.role],
+          action: 'REJECT',
+          targetResource: 'News Announcement',
+          resourceId: item.id,
+          details: `Blocked: self-rejection attempt — ${checkerName} submitted this item and cannot reject it.`,
+          ipAddress: req.ip,
+          status: 'WARNING',
+        });
+        return res.status(403).json({ success: false, error: 'Self-decision is not allowed: the submitter cannot reject their own item' });
+      }
+
+      const reason = req.body.reason || 'Content revised or missing mandatory regulatory wording.';
+      const next: NewsItem = {
+        ...item,
+        externalSyncStatus: 'rejected',
+        syncToExternal: false,
+        approvedBy: `Rejected by ${checkerName}: ${reason}`,
+      };
+
+      const auditEntry = buildAuditEntry({
+        actor: checkerName,
+        actorRole: ROLE_LABELS[req.user!.role],
+        action: 'REJECT',
+        targetResource: 'News Announcement',
+        resourceId: next.id,
+        details: `Rejected approval for "${next.title.substring(0, 30)}...". Reason: ${reason}`,
+        ipAddress: req.ip,
+        status: 'REJECTED',
+      });
+      await repo.commitNewsTransition(next, auditEntry);
+
+      res.json({ success: true, data: next, audit: auditEntry });
     });
-    return res.status(400).json({ success: false, error: 'Only news items pending approval can be rejected' });
+  } catch (err) {
+    next(err);
   }
+});
 
-  // FR-NEWS-009: the submitter may never decide their own submission — for
-  // every role, admin included (strict dual-control ruling).
-  if (item.submittedBy && item.submittedBy === req.user!.id) {
-    await recordAudit({
-      actor: checkerName,
-      actorRole: ROLE_LABELS[req.user!.role],
-      action: 'REJECT',
-      targetResource: 'News Announcement',
-      resourceId: item.id,
-      details: `Blocked: self-rejection attempt — ${checkerName} submitted this item and cannot reject it.`,
-      ipAddress: req.ip,
-      status: 'WARNING',
+// W2-FIX-1 (codex blocker 3): state-only withdrawal of a live item. Rides the
+// DCR-9 ratified policy — withdrawal needs NO checker (the safe direction:
+// un-publish) — but unlike the old PUT-based action it carries NO client
+// payload: the server's CURRENT content is preserved byte-for-byte, so a
+// stale browser snapshot can never overwrite a concurrent maker's edits.
+// Precondition synced (else 409); success is synced→draft + stamps cleared +
+// syncToExternal:false + AUD-P01, committed atomically with the audit row.
+app.post('/api/news/:id/withdraw', requireAuth, requireRole('maker', 'admin'), requireResourceId, async (req, res, next) => {
+  const { id } = req.params;
+  try {
+    await withNewsLock(id, async () => {
+      const item = await repo.findNews(id);
+      if (!item) return res.status(404).json({ error: 'News item not found' });
+
+      // The request body is deliberately ignored — withdrawal is state-only.
+      if (item.externalSyncStatus !== 'synced') {
+        return res.status(409).json({
+          success: false,
+          error: 'ประกาศไม่ได้อยู่ในสถานะเผยแพร่ / Item is not live on the public web',
+          currentState: item.externalSyncStatus ?? 'none',
+        });
+      }
+
+      const next: NewsItem = {
+        ...item, // content preserved byte-for-byte — only workflow fields move
+        externalSyncStatus: 'draft',
+        syncToExternal: false,
+        approvedBy: undefined,
+        approvedAt: undefined,
+        submittedBy: undefined,
+        submittedAt: undefined,
+      };
+
+      const auditEntry = buildAuditEntry({
+        actor: req.user!.username,
+        actorRole: ROLE_LABELS[req.user!.role],
+        action: 'UPDATE',
+        targetResource: 'News Announcement',
+        resourceId: next.id,
+        details: `Withdrawal from public web: synced item "${next.title.substring(0, 30)}..." withdrawn to draft (state-only transition; prior_status='synced'; content preserved; approval and submission stamps cleared, syncToExternal=false until re-approval).`,
+        ipAddress: req.ip,
+        status: 'SUCCESS',
+      });
+      await repo.commitNewsTransition(next, auditEntry);
+
+      res.json({ success: true, data: next, audit: auditEntry });
     });
-    return res.status(403).json({ success: false, error: 'Self-decision is not allowed: the submitter cannot reject their own item' });
+  } catch (err) {
+    next(err);
   }
-
-  const reason = req.body.reason || 'Content revised or missing mandatory regulatory wording.';
-  item.externalSyncStatus = 'rejected';
-  item.syncToExternal = false;
-  item.approvedBy = `Rejected by ${checkerName}: ${reason}`;
-  await repo.saveNews(item);
-
-  const auditEntry = await recordAudit({
-    actor: checkerName,
-    actorRole: ROLE_LABELS[req.user!.role],
-    action: 'REJECT',
-    targetResource: 'News Announcement',
-    resourceId: item.id,
-    details: `Rejected approval for "${item.title.substring(0, 30)}...". Reason: ${reason}`,
-    ipAddress: req.ip,
-    status: 'REJECTED',
-  });
-
-  res.json({ success: true, data: item, audit: auditEntry });
 });
 
 // 2. Banner Slides API
@@ -2364,6 +2616,9 @@ app.get('/api/openapi.json', (req, res) => {
       '/api/news/{id}/reject': {
         post: { summary: 'Checker rejects news publication with reason (checker or admin)', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Rejected' } } },
       },
+      '/api/news/{id}/withdraw': {
+        post: { summary: 'Withdraw a live (synced) item from the public web — state-only, server content preserved byte-for-byte, no checker required (maker or admin; 409 with currentState when not synced)', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Withdrawn to draft (AUD-P01 row committed atomically)' }, '409': { description: 'Item is not live on the public web' } } },
+      },
       '/api/banners': {
         get: { summary: 'List carousel banners' },
         post: { summary: 'Add promotional banner (maker or admin)', security: [{ cookieAuth: [] }], responses: { '201': { description: 'Created' } } },
@@ -2540,6 +2795,72 @@ async function bootstrapUsers(): Promise<void> {
   }
 }
 
+// W2-FIX-1 (codex fix-cycle): boot-time regression fixtures for the spawned
+// smoke-test servers only (SMOKE_SEED_W2FIX1_FIXTURES=1, non-production).
+//   - w2fix1-legacy-pending: a pre-migration pending submission with NO
+//     submitter identity (blocker 2) — approve/reject must deny it with 409
+//     until a fresh submission cycle stamps a verified submitter.
+//   - w2fix1-live-synced: a live item (blocker 3) for the state-only
+//     withdrawal path and the audit-failure rollback probe.
+// No API path can manufacture the legacy shape (every submit stamps
+// submittedBy), hence the boot-time seed. Re-written on every boot so
+// repeated runs start from identical fixture state.
+async function seedW2Fix1Fixtures(): Promise<void> {
+  const legacyPending: NewsItem = {
+    id: 'w2fix1-legacy-pending',
+    title: '[W2-FIX-1] Legacy pending submission (no submitter identity)',
+    titleEn: '',
+    summary: 'Fixture: pre-migration row left in pending_approval by the additive W2-1 migration.',
+    content: 'Fixture body — decisions on this row must be denied until a fresh submission cycle stamps a verified submitter.',
+    category: 'kbj-news',
+    categoryLabel: 'News',
+    badge: 'News',
+    badgeColor: 'orange',
+    imageUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=1000&q=80',
+    publishedAt: '2026-09-10',
+    readTime: '3 นาที',
+    author: 'Regression Fixture',
+    department: 'QA',
+    isImportantAlert: false,
+    views: 0,
+    externalSyncStatus: 'pending_approval',
+    syncToExternal: false,
+    externalCategory: 'press-release',
+    // submittedBy / submittedAt intentionally ABSENT — the legacy shape under
+    // test (blocker 2).
+  };
+  const liveSynced: NewsItem = {
+    id: 'w2fix1-live-synced',
+    title: '[W2-FIX-1] Live synced item (withdrawal fixture)',
+    titleEn: '',
+    summary: 'Fixture: a live public item for the state-only withdrawal regression.',
+    content: 'Fixture body — withdrawal must preserve this content byte-for-byte while returning the item to draft.',
+    category: 'kbj-news',
+    categoryLabel: 'News',
+    badge: 'News',
+    badgeColor: 'orange',
+    imageUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=1000&q=80',
+    publishedAt: '2026-09-10',
+    readTime: '3 นาที',
+    author: 'Regression Fixture',
+    department: 'QA',
+    isImportantAlert: false,
+    views: 0,
+    externalSyncStatus: 'synced',
+    syncToExternal: true,
+    externalCategory: 'press-release',
+    approvedBy: 'fixture-checker',
+    approvedAt: '2026-09-10 00:00:00',
+    submittedBy: 'fixture-maker',
+    submittedAt: '2026-09-10 00:00:00',
+  };
+  for (const item of [legacyPending, liveSynced]) {
+    if (await repo.findNews(item.id)) await repo.saveNews(item);
+    else await repo.insertNews(item);
+  }
+  console.log('[W2-FIX-1] Regression fixtures seeded: w2fix1-legacy-pending (pending_approval, no submitter), w2fix1-live-synced (synced).');
+}
+
 // ==========================================
 // VITE MIDDLEWARE & SERVER INITIALIZATION
 // ==========================================
@@ -2592,6 +2913,10 @@ async function startServer() {
   // Ensure the bootstrap admin exists before the port opens, so no login can
   // race user creation at boot.
   await bootstrapUsers();
+
+  // W2-FIX-1 regression fixtures — spawned smoke-test servers only (the hook
+  // const is inert unless SMOKE_SEED_W2FIX1_FIXTURES=1 and non-production).
+  if (SEED_W2FIX1_FIXTURES) await seedW2Fix1Fixtures();
 
   const server = app.listen(PORT, HOST, () => {
     console.log(`====================================================`);

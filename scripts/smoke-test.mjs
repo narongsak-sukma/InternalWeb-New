@@ -33,6 +33,13 @@
  *       authoritative budget, and the fail-open WARNING path. Requires the
  *       repo `pg` dependency (present in production installs); the default
  *       run stays zero-dependency.
+ *     → also opt-in for section 17: two further PG-mode servers (ports
+ *       3214/3215) exercise the W2-FIX-1 transaction COMMIT and ROLLBACK
+ *       paths plus the concurrency race against real PostgreSQL.
+ *   Section 17 (W2-FIX-1) always runs: it spawns its own NODE_ENV=test
+ *   servers (ports 3212/3213) that set SMOKE_SEED_W2FIX1_FIXTURES /
+ *   SMOKE_INJECT_AUDIT_FAILURE — the hooks are non-production-guarded, so the
+ *   main NODE_ENV=production server can never carry them.
  *
  * Requires Node >= 18.14 (global fetch, FormData, Blob, Headers.getSetCookie).
  * No npm dependencies.
@@ -1498,6 +1505,431 @@ async function runW23AuditSuite() {
 }
 
 // ---------------------------------------------------------------------------
+// Section 17 (W2-FIX-1, codex fix-cycle blockers 1-4): atomic workflow
+// transitions, legacy-submission deny, state-only withdrawal, and
+// audit-failure rollback. Runs on its OWN spawned servers because the two
+// test hooks are non-production-guarded while the main server runs
+// NODE_ENV=production:
+//   :3212 - SMOKE_SEED_W2FIX1_FIXTURES=1 (legacy pending + live synced rows)
+//   :3213 - SMOKE_SEED_W2FIX1_FIXTURES=1 + SMOKE_INJECT_AUDIT_FAILURE=1
+//           (every commitNewsTransition audit write throws → rollback proof)
+//   :3214 - PostgreSQL + injection (opt-in, needs SMOKE_DATABASE_URL):
+//           proves the real BEGIN→…→ROLLBACK path leaves state untouched
+//   :3215 - PostgreSQL, clean (opt-in): the COMMIT path + the concurrency
+//           race against the transactional PG implementation
+// The spawned servers run NODE_ENV=test, so startServer() also mounts the
+// Vite dev middleware — harmless here: every /api route is registered before
+// that mount, and none of these checks touch non-API paths. Non-production
+// boot also creates the demo maker/checker accounts the checks log in as.
+// These servers carry their own login budgets, so running after section 14
+// (which saturates the MAIN server's budget) is safe.
+// ---------------------------------------------------------------------------
+
+const W2FIX1_PORT = Number(process.env.SMOKE_W2FIX1_PORT || 3212);
+const W2FIX1_INJECT_PORT = Number(process.env.SMOKE_W2FIX1_INJECT_PORT || 3213);
+const W2FIX1_PG_PORT = Number(process.env.SMOKE_W2FIX1_PG_PORT || 3214);
+const W2FIX1_PG_CLEAN_PORT = Number(process.env.SMOKE_W2FIX1_PG_CLEAN_PORT || 3215);
+
+async function runW2Fix1Suite() {
+  section('17. W2-FIX-1 regression: atomic transitions, legacy deny, state-only withdrawal, audit-failure rollback');
+
+  const spawned = [];
+
+  const killSpawned = async () => {
+    for (const { child: c } of spawned) {
+      const exited = new Promise((resolve) => {
+        if (c.exitCode !== null || c.signalCode !== null) resolve();
+        else c.once('exit', resolve);
+      });
+      try { c.kill(); } catch { /* already gone */ }
+      const forceTimer = setTimeout(() => {
+        try { c.kill('SIGKILL'); } catch { /* best effort */ }
+      }, 3000);
+      await Promise.race([exited, sleep(8000)]);
+      clearTimeout(forceTimer);
+    }
+  };
+
+  // Spawns an aux server with the given env overrides and health-waits.
+  const spawnAux = async (port, overrides, label) => {
+    const cmdSpec = serverCommand();
+    assert(cmdSpec, `no runnable server target for the ${label} instance`);
+    const logLines = [];
+    const push = (line) => {
+      logLines.push(line);
+      if (logLines.length > 500) logLines.shift();
+      if (VERBOSE) process.stdout.write(`[${label}] ${line}\n`);
+    };
+    const aux = spawn(cmdSpec.cmd, cmdSpec.args, {
+      cwd: ROOT,
+      env: buildChildEnv({
+        NODE_ENV: 'test', // activates the SMOKE_* hooks + demo accounts
+        PORT: String(port),
+        UPLOAD_DIR: './uploads-test-w2fix1',
+        ...overrides,
+      }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    spawned.push({ child: aux, logLines });
+    aux.stdout.setEncoding('utf8');
+    aux.stderr.setEncoding('utf8');
+    aux.stdout.on('data', (chunk) => chunk.split(/\r?\n/).forEach(push));
+    aux.stderr.on('data', (chunk) => chunk.split(/\r?\n/).forEach(push));
+    const base = `http://127.0.0.1:${port}`;
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const exited = aux.exitCode !== null ? { code: aux.exitCode, signal: aux.signalCode } : null;
+      if (exited) {
+        throw new Error(`${label} server exited during boot (code=${exited.code} signal=${exited.signal}); last logs: ${logLines.slice(-10).join(' | ')}`);
+      }
+      try {
+        const res = await fetch(`${base}/healthz`, { signal: AbortSignal.timeout(2000) });
+        if (res.status === 200) break;
+      } catch { /* not up yet */ }
+      if (Date.now() > deadline) {
+        throw new Error(`${label} /healthz not reachable on :${port} within 30s; last logs: ${logLines.slice(-10).join(' | ')}`);
+      }
+      await sleep(300);
+    }
+    return base;
+  };
+
+  const reqAt = async (base, method, pathname, opts = {}) => {
+    const { json, cookie, timeoutMs = 20000 } = opts;
+    const headers = {};
+    if (cookie) headers.cookie = cookie;
+    let body;
+    if (json !== undefined) {
+      headers['content-type'] = 'application/json';
+      body = JSON.stringify(json);
+    }
+    const res = await fetch(base + pathname, {
+      method,
+      headers,
+      body,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await res.text();
+    const setCookies =
+      typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
+    return { status: res.status, text, json: safeJson(text), setCookies };
+  };
+
+  const loginAt = async (base, username, password) => {
+    const r = await reqAt(base, 'POST', '/api/auth/login', { json: { username, password } });
+    assert(r.status === 200, `login "${username}" on ${base} failed (${r.status}): ${r.text.slice(0, 160)}`);
+    const session = extractSessionCookie(r.setCookies);
+    assert(session, `no ${SESSION_COOKIE} Set-Cookie from login on ${base}: ${r.text.slice(0, 160)}`);
+    return `${SESSION_COOKIE}=${session.value}`;
+  };
+
+  const findNewsAt = async (base, id) => {
+    const r = await reqAt(base, 'GET', '/api/news');
+    expectStatus(r, 200, `GET /api/news on ${base}`);
+    const item = (r.json.data || []).find((n) => n.id === id);
+    assert(item, `news item "${id}" not found on ${base}`);
+    return item;
+  };
+
+  const auditRowsAt = async (base, cookie, resourceId) => {
+    const r = await reqAt(base, 'GET', '/api/audit-logs', { cookie });
+    expectStatus(r, 200, `GET /api/audit-logs on ${base}`);
+    return (r.json.data || []).filter((e) => String(e.resourceId) === resourceId);
+  };
+
+  // All content fields must survive a withdrawal byte-for-byte: compare the
+  // JSON fingerprint of everything EXCEPT the workflow fields.
+  const WORKFLOW_KEYS = new Set(['externalSyncStatus', 'syncToExternal', 'approvedBy', 'approvedAt', 'submittedBy', 'submittedAt']);
+  const contentFingerprint = (item) =>
+    JSON.stringify(Object.keys(item).filter((k) => !WORKFLOW_KEYS.has(k)).sort().reduce((acc, k) => { acc[k] = item[k]; return acc; }, {}));
+
+  let fixtureBase = null;
+  let injectBase = null;
+  let pgBase = null;
+
+  try {
+    // ---- server A (:3212) — fixtures, legacy deny, withdrawal, race ----
+    await check('W2-FIX-1 fixture server boots with the two regression rows (NODE_ENV=test, SMOKE_SEED_W2FIX1_FIXTURES=1)', async () => {
+      fixtureBase = await spawnAux(W2FIX1_PORT, { SMOKE_SEED_W2FIX1_FIXTURES: '1' }, 'w2fix1-fixture');
+      const legacy = await findNewsAt(fixtureBase, 'w2fix1-legacy-pending');
+      assert(legacy.externalSyncStatus === 'pending_approval',
+        `legacy fixture must be pending_approval, got "${legacy.externalSyncStatus}"`);
+      assert(legacy.submittedBy === undefined || legacy.submittedBy === null,
+        `legacy fixture must carry NO submitter identity, got submittedBy="${legacy.submittedBy}"`);
+      const live = await findNewsAt(fixtureBase, 'w2fix1-live-synced');
+      assert(live.externalSyncStatus === 'synced' && live.syncToExternal === true,
+        `live fixture must be synced + syncToExternal, got ${live.externalSyncStatus}/${live.syncToExternal}`);
+      return `healthy on :${W2FIX1_PORT}; legacy-pending (no submitter) + live-synced seeded`;
+    });
+
+    if (fixtureBase) {
+      const admin = await loginAt(fixtureBase, ADMIN_USERNAME, ADMIN_PASSWORD);
+      const checker = await loginAt(fixtureBase, 'checker', 'Checker@KBJ2026!');
+      const maker = await loginAt(fixtureBase, 'maker', 'Maker@KBJ2026!');
+
+      await check('blocker 2 (approve): legacy pending without submittedBy is DENIED 409, state + audit enforced', async () => {
+        const r = await reqAt(fixtureBase, 'POST', '/api/news/w2fix1-legacy-pending/approve', { cookie: checker });
+        expectStatus(r, 409, 'POST approve on legacy pending');
+        assert(r.json && r.json.success === false, `expected {success:false}, got: ${r.text.slice(0, 160)}`);
+        assert(String(r.json.error || '').includes('Legacy submission requires a fresh submission cycle'),
+          `409 must carry the Thai-first fresh-cycle message, got: ${r.text.slice(0, 160)}`);
+        const after = await findNewsAt(fixtureBase, 'w2fix1-legacy-pending');
+        assert(after.externalSyncStatus === 'pending_approval',
+          `state must be unchanged after the denied approve, got "${after.externalSyncStatus}"`);
+        const denial = (await auditRowsAt(fixtureBase, admin, 'w2fix1-legacy-pending'))
+          .find((e) => String(e.action).toUpperCase() === 'ACCESS_DENIED');
+        assert(denial, 'expected an ACCESS_DENIED audit row for the denied legacy decision');
+        assert(String(denial.status).toUpperCase() === 'WARNING', `denial audit status must be WARNING, got "${denial.status}"`);
+        return '409 + state unchanged + ACCESS_DENIED/WARNING audit row';
+      });
+
+      await check('blocker 2 (reject): same legacy deny on the reject path (admin deciding)', async () => {
+        const r = await reqAt(fixtureBase, 'POST', '/api/news/w2fix1-legacy-pending/reject', { cookie: admin, json: { reason: 'try reject legacy' } });
+        expectStatus(r, 409, 'POST reject on legacy pending');
+        assert(String((r.json && r.json.error) || '').includes('Legacy submission requires a fresh submission cycle'),
+          `409 must carry the fresh-cycle message, got: ${r.text.slice(0, 160)}`);
+        const after = await findNewsAt(fixtureBase, 'w2fix1-legacy-pending');
+        assert(after.externalSyncStatus === 'pending_approval',
+          `state must be unchanged after the denied reject, got "${after.externalSyncStatus}"`);
+        return '409 + state unchanged';
+      });
+
+      await check('blocker 3 (precondition): withdraw on a NON-synced item returns 409, no state change, no AUD-P01', async () => {
+        const beforeRows = (await auditRowsAt(fixtureBase, admin, 'w2fix1-legacy-pending'))
+          .filter((e) => String(e.action).toUpperCase() === 'UPDATE');
+        const r = await reqAt(fixtureBase, 'POST', '/api/news/w2fix1-legacy-pending/withdraw', { cookie: maker });
+        expectStatus(r, 409, 'POST withdraw on pending item');
+        assert(r.json && r.json.success === false, `expected {success:false}, got: ${r.text.slice(0, 160)}`);
+        assert(String(r.json.error || '').includes('Item is not live on the public web'),
+          `409 must carry the Thai-first not-live message, got: ${r.text.slice(0, 160)}`);
+        assert(r.json.currentState === 'pending_approval',
+          `409 must expose currentState, got: ${JSON.stringify(r.json.currentState)}`);
+        const after = await findNewsAt(fixtureBase, 'w2fix1-legacy-pending');
+        assert(after.externalSyncStatus === 'pending_approval', `state must be unchanged, got "${after.externalSyncStatus}"`);
+        const afterRows = (await auditRowsAt(fixtureBase, admin, 'w2fix1-legacy-pending'))
+          .filter((e) => String(e.action).toUpperCase() === 'UPDATE');
+        assert(afterRows.length === beforeRows.length,
+          `no AUD-P01 row may appear on a refused withdrawal (${beforeRows.length} -> ${afterRows.length})`);
+        return '409 + currentState + no transition audit';
+      });
+
+      await check('blocker 3 (happy path): withdraw synced -> draft, content byte-for-byte, stamps cleared, AUD-P01 prior_status=synced', async () => {
+        const pre = await findNewsAt(fixtureBase, 'w2fix1-live-synced');
+        const fingerprint = contentFingerprint(pre);
+        const r = await reqAt(fixtureBase, 'POST', '/api/news/w2fix1-live-synced/withdraw', { cookie: maker });
+        expectStatus(r, 200, 'POST withdraw on synced item');
+        const data = r.json && r.json.data;
+        assert(data, `expected {success:true, data:item}, got: ${r.text.slice(0, 160)}`);
+        assert(data.externalSyncStatus === 'draft', `post-withdraw status must be draft, got "${data.externalSyncStatus}"`);
+        assert(data.syncToExternal === false, `syncToExternal must be false, got ${data.syncToExternal}`);
+        for (const stamp of ['approvedBy', 'approvedAt', 'submittedBy', 'submittedAt']) {
+          assert(data[stamp] === undefined || data[stamp] === null, `stamp ${stamp} must be cleared, got "${data[stamp]}"`);
+        }
+        assert(contentFingerprint(data) === fingerprint,
+          'ALL content fields must be preserved byte-for-byte across the withdrawal');
+        const after = await findNewsAt(fixtureBase, 'w2fix1-live-synced');
+        assert(after.externalSyncStatus === 'draft' && after.syncToExternal === false,
+          `persisted state must be draft/not-live, got ${after.externalSyncStatus}/${after.syncToExternal}`);
+        assert(contentFingerprint(after) === fingerprint, 'persisted content must match the pre-withdraw snapshot');
+        const row = (await auditRowsAt(fixtureBase, admin, 'w2fix1-live-synced'))
+          .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('Withdrawal from public web'));
+        assert(row, 'expected the withdrawal AUD-P01 UPDATE audit row');
+        assert(String(row.details).includes("prior_status='synced'"),
+          `AUD-P01 details must record prior_status='synced', got: "${row.details}"`);
+        return 'draft + content preserved + stamps cleared + AUD-P01 (prior_status=synced)';
+      });
+
+      await check('blocker 1 (race): concurrent edit + approve can never yield synced-with-stale-content', async () => {
+        const raceId = `news-w2fix1-race-${Date.now()}`;
+        const editedTitle = `W2-FIX-1 race edited ${Date.now()}`;
+        const create = await reqAt(fixtureBase, 'POST', '/api/news', {
+          cookie: maker,
+          json: { id: raceId, title: 'W2-FIX-1 race base', summary: 'race base', content: 'race base body' },
+        });
+        expectStatus(create, 201, 'POST /api/news (race fixture)');
+        const sub = await reqAt(fixtureBase, 'POST', `/api/news/${raceId}/submit-approval`, { cookie: maker });
+        expectStatus(sub, 200, 'POST submit-approval (race fixture)');
+
+        // Fire both mutations CONCURRENTLY on a pending item. The per-item
+        // lock serializes them in either order; the invariant must hold in
+        // BOTH: the final state is draft carrying the EDITED content —
+        // never the approved stale snapshot, never a lost edit.
+        const [putRes, approveRes] = await Promise.all([
+          reqAt(fixtureBase, 'PUT', `/api/news/${raceId}`, { cookie: maker, json: { title: editedTitle, summary: 'race edited' } }),
+          reqAt(fixtureBase, 'POST', `/api/news/${raceId}/approve`, { cookie: checker }),
+        ]);
+        assert(putRes.status === 200,
+          `the edit PUT must succeed in either interleaving, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+        assert([200, 400].includes(approveRes.status),
+          `approve must be 200 (won the lock) or 400 (edit committed first), got ${approveRes.status}: ${approveRes.text.slice(0, 160)}`);
+        const after = await findNewsAt(fixtureBase, raceId);
+        assert(after.externalSyncStatus === 'draft',
+          `final state must be draft in either interleaving, got "${after.externalSyncStatus}"`);
+        assert(after.title === editedTitle,
+          `final content must be the EDITED snapshot (no stale sync), got "${after.title}"`);
+        const reset = (await auditRowsAt(fixtureBase, admin, raceId))
+          .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('reset externalSyncStatus to draft'));
+        assert(reset, 'the interleaving that saw a non-draft state must have audited the forced reset (AUD-P01)');
+        return `approve=${approveRes.status}; final=draft with edited content + AUD-P01 reset row`;
+      });
+    }
+
+    // ---- server B (:3213) — audit-failure injection (rollback proof) ----
+    await check('W2-FIX-1 injection server boots (SMOKE_INJECT_AUDIT_FAILURE=1: every workflow audit write fails)', async () => {
+      injectBase = await spawnAux(
+        W2FIX1_INJECT_PORT,
+        { SMOKE_SEED_W2FIX1_FIXTURES: '1', SMOKE_INJECT_AUDIT_FAILURE: '1' },
+        'w2fix1-inject',
+      );
+      const live = await findNewsAt(injectBase, 'w2fix1-live-synced');
+      assert(live.externalSyncStatus === 'synced', `live fixture must start synced, got "${live.externalSyncStatus}"`);
+      return `healthy on :${W2FIX1_INJECT_PORT}; audit writes now throw inside the atomic commit`;
+    });
+
+    if (injectBase) {
+      const admin = await loginAt(injectBase, ADMIN_USERNAME, ADMIN_PASSWORD);
+      const maker = await loginAt(injectBase, 'maker', 'Maker@KBJ2026!');
+
+      await check('blocker 4 (submit): audit-write failure -> 500 envelope AND state rolled back (still draft)', async () => {
+        const submitId = `news-w2fix1-inject-submit-${Date.now()}`;
+        const create = await reqAt(injectBase, 'POST', '/api/news', {
+          cookie: maker,
+          json: { id: submitId, title: 'W2-FIX-1 inject submit', summary: 's', content: 'c' },
+        });
+        expectStatus(create, 201, 'POST /api/news (injection fixture)');
+        const r = await reqAt(injectBase, 'POST', `/api/news/${submitId}/submit-approval`, { cookie: maker });
+        expectStatus(r, 500, 'POST submit-approval with a failing audit write');
+        assert(r.json && r.json.success === false && r.json.error === 'Internal server error',
+          `expected the error-handler 500 envelope, got: ${r.text.slice(0, 160)}`);
+        const after = await findNewsAt(injectBase, submitId);
+        assert(after.externalSyncStatus === 'draft',
+          `state+audit must commit or roll back TOGETHER: item must still be draft, got "${after.externalSyncStatus}"`);
+        assert(after.submittedBy === undefined || after.submittedBy === null,
+          `rolled-back submission must leave no submitter stamp, got "${after.submittedBy}"`);
+        const successRows = (await auditRowsAt(injectBase, admin, submitId))
+          .filter((e) => String(e.action).toUpperCase() === 'SUBMIT_APPROVAL' && String(e.status).toUpperCase() === 'SUCCESS');
+        assert(successRows.length === 0, 'no SUBMIT_APPROVAL SUCCESS audit row may survive the rollback');
+        return '500 + still draft (no stamp, no orphan audit row) — all-or-nothing commit';
+      });
+
+      await check('blocker 4 (withdraw): audit-write failure -> 500 AND still synced (no silent draft without AUD-P01)', async () => {
+        const r = await reqAt(injectBase, 'POST', '/api/news/w2fix1-live-synced/withdraw', { cookie: maker });
+        expectStatus(r, 500, 'POST withdraw with a failing audit write');
+        assert(r.json && r.json.success === false && r.json.error === 'Internal server error',
+          `expected the error-handler 500 envelope, got: ${r.text.slice(0, 160)}`);
+        const after = await findNewsAt(injectBase, 'w2fix1-live-synced');
+        assert(after.externalSyncStatus === 'synced' && after.syncToExternal === true,
+          `a withdrawal whose audit failed must NOT commit: still synced/live, got ${after.externalSyncStatus}/${after.syncToExternal}`);
+        const withdrawalRows = (await auditRowsAt(injectBase, admin, 'w2fix1-live-synced'))
+          .filter((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('Withdrawal from public web'));
+        assert(withdrawalRows.length === 0, 'no withdrawal AUD-P01 row may exist for the failed commit');
+        return '500 + still synced + no orphan audit — retry hits the same all-or-nothing outcome';
+      });
+    }
+
+    // ---- servers C/D (:3214/:3215, opt-in) — the same proofs against PostgreSQL ----
+    // Two servers because the injection hook fires inside EVERY
+    // commitNewsTransition: on the inject server no transition can commit
+    // (rollback proofs), on the clean server the COMMIT path and the
+    // concurrency race run for real.
+    const databaseUrl = process.env.SMOKE_DATABASE_URL;
+    if (databaseUrl) {
+      await check('W2-FIX-1 PG ROLLBACK variant: audit-write failure inside the transaction leaves PG state untouched', async () => {
+        pgBase = await spawnAux(
+          W2FIX1_PG_PORT,
+          { DATABASE_URL: databaseUrl, SMOKE_SEED_W2FIX1_FIXTURES: '1', SMOKE_INJECT_AUDIT_FAILURE: '1', UPLOAD_DIR: './uploads-test-w2fix1-pg' },
+          'w2fix1-pg-inject',
+        );
+        const admin = await loginAt(pgBase, ADMIN_USERNAME, ADMIN_PASSWORD);
+
+        // Withdrawal whose audit fails must not commit: still synced/live.
+        const wd = await reqAt(pgBase, 'POST', '/api/news/w2fix1-live-synced/withdraw', { cookie: admin });
+        expectStatus(wd, 500, 'POST withdraw with a failing audit write (PG)');
+        const afterWithdraw = await findNewsAt(pgBase, 'w2fix1-live-synced');
+        assert(afterWithdraw.externalSyncStatus === 'synced' && afterWithdraw.syncToExternal === true,
+          `PG ROLLBACK must leave the item synced/live, got ${afterWithdraw.externalSyncStatus}/${afterWithdraw.syncToExternal}`);
+
+        // Submit whose audit fails must not commit: still draft, no stamp,
+        // no orphan SUCCESS row (the transactional UPDATE rolled back too).
+        const submitId = `news-w2fix1-pg-submit-${Date.now()}`;
+        const create = await reqAt(pgBase, 'POST', '/api/news', {
+          cookie: admin,
+          json: { id: submitId, title: 'W2-FIX-1 pg inject', summary: 's', content: 'c' },
+        });
+        expectStatus(create, 201, 'POST /api/news (PG injection fixture)');
+        const r = await reqAt(pgBase, 'POST', `/api/news/${submitId}/submit-approval`, { cookie: admin });
+        expectStatus(r, 500, 'POST submit-approval with a failing audit write (PG)');
+        const after = await findNewsAt(pgBase, submitId);
+        assert(after.externalSyncStatus === 'draft',
+          `PG ROLLBACK must restore draft, got "${after.externalSyncStatus}"`);
+        const successRows = (await auditRowsAt(pgBase, admin, submitId))
+          .filter((e) => String(e.action).toUpperCase() === 'SUBMIT_APPROVAL' && String(e.status).toUpperCase() === 'SUCCESS');
+        assert(successRows.length === 0, 'PG ROLLBACK must leave no SUBMIT_APPROVAL SUCCESS row');
+        return 'PG ROLLBACK: withdraw still synced, submit still draft, no orphan audit';
+      });
+
+      await check('W2-FIX-1 PG COMMIT + concurrency variant: withdraw commits; edit+approve race ends draft with edited content', async () => {
+        const cleanBase = await spawnAux(
+          W2FIX1_PG_CLEAN_PORT,
+          { DATABASE_URL: databaseUrl, SMOKE_SEED_W2FIX1_FIXTURES: '1', UPLOAD_DIR: './uploads-test-w2fix1-pg' },
+          'w2fix1-pg-clean',
+        );
+        const admin = await loginAt(cleanBase, ADMIN_USERNAME, ADMIN_PASSWORD);
+        // The shared (disposable) database was bootstrapped by section 15's
+        // NODE_ENV=production server, so no demo checker account exists.
+        // Admin plays the maker side; a fresh checker user is created for the
+        // dual-control race (submitter must differ from approver).
+        const checkerName = `w2fix1ck${String(Date.now()).slice(-8)}`;
+        const mkChecker = await reqAt(cleanBase, 'POST', '/api/users', {
+          cookie: admin,
+          json: { username: checkerName, password: 'W2fix1@PG2026', displayName: 'W2-FIX-1 PG Checker', email: 'w2fix1pg@smoke.local', role: 'checker' },
+        });
+        expectStatus(mkChecker, 201, 'POST /api/users (PG checker fixture)');
+        const checker = await loginAt(cleanBase, checkerName, 'W2fix1@PG2026');
+
+        // COMMIT path: the withdrawal transaction persists draft + cleared stamps.
+        const wd = await reqAt(cleanBase, 'POST', '/api/news/w2fix1-live-synced/withdraw', { cookie: admin });
+        expectStatus(wd, 200, 'POST withdraw (PG COMMIT path)');
+        const afterWithdraw = await findNewsAt(cleanBase, 'w2fix1-live-synced');
+        assert(afterWithdraw.externalSyncStatus === 'draft' && afterWithdraw.syncToExternal === false,
+          `PG COMMIT must persist draft/not-live, got ${afterWithdraw.externalSyncStatus}/${afterWithdraw.syncToExternal}`);
+        assert(afterWithdraw.approvedBy === undefined || afterWithdraw.approvedBy === null,
+          `PG COMMIT must clear approvedBy, got "${afterWithdraw.approvedBy}"`);
+
+        // PostgreSQL concurrency coverage (codex blocker 1): the same
+        // concurrent edit+approve race against the transactional PG path.
+        const raceId = `news-w2fix1-pg-race-${Date.now()}`;
+        const editedTitle = `W2-FIX-1 PG race edited ${Date.now()}`;
+        const raceCreate = await reqAt(cleanBase, 'POST', '/api/news', {
+          cookie: admin,
+          json: { id: raceId, title: 'W2-FIX-1 PG race base', summary: 'race base', content: 'race base body' },
+        });
+        expectStatus(raceCreate, 201, 'POST /api/news (PG race fixture)');
+        const raceSubmit = await reqAt(cleanBase, 'POST', `/api/news/${raceId}/submit-approval`, { cookie: admin });
+        expectStatus(raceSubmit, 200, 'POST submit-approval (PG race fixture)');
+        const [putRes, approveRes] = await Promise.all([
+          reqAt(cleanBase, 'PUT', `/api/news/${raceId}`, { cookie: admin, json: { title: editedTitle, summary: 'race edited' } }),
+          reqAt(cleanBase, 'POST', `/api/news/${raceId}/approve`, { cookie: checker }),
+        ]);
+        assert(putRes.status === 200,
+          `PG race: the edit PUT must succeed in either interleaving, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+        assert([200, 400].includes(approveRes.status),
+          `PG race: approve must be 200 (won the lock) or 400 (edit committed first), got ${approveRes.status}: ${approveRes.text.slice(0, 160)}`);
+        const raceAfter = await findNewsAt(cleanBase, raceId);
+        assert(raceAfter.externalSyncStatus === 'draft',
+          `PG race: final state must be draft, got "${raceAfter.externalSyncStatus}"`);
+        assert(raceAfter.title === editedTitle,
+          `PG race: final content must be the EDITED snapshot, got "${raceAfter.title}"`);
+        return 'PG COMMIT: withdraw -> draft (stamps cleared); race -> draft + edited content (approve=' + approveRes.status + ')';
+      });
+    }
+  } finally {
+    await killSpawned();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 
@@ -1575,6 +2007,7 @@ async function main() {
     console.log('Server is healthy. Running checks...');
     await runSuite();
     await runPgSharedStoreSuite(); // no-op unless SMOKE_DATABASE_URL is set
+    await runW2Fix1Suite(); // W2-FIX-1 regression servers (own ports/budgets)
   } catch (err) {
     suiteError = err && err.message ? err.message : String(err);
     console.error(`\n[FATAL] ${suiteError}`);
