@@ -1,11 +1,25 @@
 # Deliverable 17 — System Test Result
 
-**Version:** 1.0.1 · **Status:** Reviewed (lead) · **Date:** 2026-09-11 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.1.0 · **Status:** Draft (awaiting lead review + codex re-gate) · **Date:** 2026-09-11 · **Author:** worker-5 → Lead review → CTO approval
 
 > v1.0.1 (lead review pass): TC-SYS-006 kustomize half re-executed by the
 > lead with raw-log capture (`tc-sys-006-kustomize-rerun.log`) closing §3.6
 > item 6; §5.2 records the lead rulings on the worker's five flagged judgment
 > calls. No verdicts changed.
+>
+> v1.1.0 (codex doc17-gate fix cycle 1): the CTO gate verdict
+> `.omc/artifacts/cto-gate-doc17-verdict.md` returned **REVISE** with four
+> blocking revisions; all four are closed in this revision — (1) TC-SYS-004
+> re-executed with the **specified in-memory source precondition**
+> (`w3-l4/tc-sys-004-inmemory.log`); (2) per-TC L2/L3 coverage map added as
+> **Appendix A**; (3) current-head standing-gate transcript
+> `w3r1-standing-gates.log` (tsc / build / default smoke / e2e / PG-mode ×2,
+> exit tokens quoted verbatim) restores the Doc 12 §9 transcript evidence
+> form; (4) both e2e capture sets archived in run-id directories with
+> SHA256 manifests (`screenshots-archive/run-2026-09-11T1000Z-e2e/`,
+> `screenshots-archive/run-2026-09-11T1031Z-e2e-w3r1/`; stale-18
+> quarantined). §5.2 rulings 2 and 4 annotated OVERTURNED by the gate.
+> Gap history retained per annotate-not-rewrite.
 
 > Assembled strictly from archived evidence (run logs, report files, git
 > commit messages, PROJECT-STATE gate records) per Test Plan Doc 12 §9
@@ -60,16 +74,22 @@ records.
 |---|---|---|---|---|
 | L0 | `npm run lint` (`tsc --noEmit`) | tree pin `f1df5bb` per log header | 2026-09-11 (board record; log has no date line) | `.omc/reports/w2fix3-standing-gates.log` §1 (`tsc_exit=0`) |
 | L0 | `tsc --noEmit` (W3-FIX-1 gate block) | fix tree → `7d33fc8` | gates recorded in commit message (2026-09-11 17:04:25 +07) | git msg `7d33fc8` + `27b2622`: "tsc 0"; PROJECT-STATE W3-FIX-1 row |
+| L0 | `tsc --noEmit` (W3-2R current-head transcript) | `c3874a9` (develop; log header: `git c3874a9 (develop) · dirty: 0 entries`) | transcript window 2026-09-11T10:28:28Z–10:33:21Z | `w3r1-standing-gates.log` §1 (`tsc_exit=0`) |
 | L1 | `npm run build` | tree pin `f1df5bb` | 2026-09-11 (as above) | `w2fix3-standing-gates.log` §2 (`build_exit=0`; `dist/server.cjs 158.1kb`) |
-| L1 | `npm run build` (W3-FIX-1 gate block) | fix tree → `7d33fc8` | 2026-09-11 17:04:25 +07 | git msg `7d33fc8`: "build OK" (bundle size not recorded — §3.6) |
+| L1 | `npm run build` (W3-FIX-1 gate block) | fix tree → `7d33fc8` | 2026-09-11 17:04:25 +07 | git msg `7d33fc8`: "build OK" (bundle size not recorded — §3.6, closed v1.1.0) |
+| L1 | `npm run build` (W3-2R current-head transcript) | `c3874a9` (log header pin, tree clean) | within 10:28:28Z–10:33:21Z | `w3r1-standing-gates.log` §2 (`build_exit=0`; `artifact: dist/server.cjs 162543 bytes`) |
 | L2 default | `node scripts/smoke-test.mjs` (in-memory, spawned `dist/server.cjs` :3210, NODE_ENV=production) | sha not embedded in report (§3.6) | report generated 2026-09-11T10:08:31.188Z; Node v24.13.1, darwin 25.5.0 | `.omc/reports/smoke-report.md` — "Result: **108/108 passed**" |
 | L2 default (older transcripts) | same | `f1df5bb`; merge resolved tree (`c99abfb` pre-commit) | 2026-09-11 | `w2fix3-standing-gates.log` §3: 108/108 in 7.8s, `smoke_exit=0`; PROJECT-STATE W2-GATE-2 MERGE row: 108/108 (7.0s, exit 0) |
-| L2 PG opt-in (`SMOKE_DATABASE_URL`) | smoke §15+§17+§18 vs disposable PostgreSQL | tree `feature/w3-fix-001-pool-error` (uncommitted fix, pre-review-commit → `7d33fc8`) | run 1 started 09:59:11Z; run 2 09:59:45Z | `w3fix1-pg-run-1.log`: 127/127 in 19.9s; `w3fix1-pg-run-2.log`: 127/127 in 19.7s; exit 0 per git msgs `7d33fc8`/`27b2622` |
+| L2 default (W3-2R current-head transcript) | same | `c3874a9` (log header pin; node v24.13.1, npm 11.18.0) | within 10:28:28Z–10:33:21Z | `w3r1-standing-gates.log` §3: **108/108 checks passed in 7.8s**, `smoke_exit=0` (section headers §0–§14, §16, §17 visible; §15/§18 are the PG opt-ins) |
+| L2 PG opt-in (`SMOKE_DATABASE_URL`) | smoke §15+§17+§18 vs disposable PostgreSQL | tree `feature/w3-fix-001-pool-error` (uncommitted fix, pre-review-commit → `7d33fc8`) | run 1 started 09:59:11Z; run 2 09:59:45Z | `w3fix1-pg-run-1.log`: 127/127 in 19.9s; `w3fix1-pg-run-2.log`: 127/127 in 19.7s; exit 0 per git msgs `7d33fc8`/`27b2622` (footer-form closure: §3.6 item 3) |
+| L2 PG opt-in (W3-2R current-head transcript) | same | `c3874a9` (log header pin) | run 1 started 10:32:40Z; run 2 10:33:01Z | `w3r1-standing-gates.log` §5: **127/127 checks passed in 19.7s** `pg1_exit=0` (container removed); **127/127 checks passed in 19.5s** `pg2_exit=0` (container removed) |
 | L2 PG opt-in (historical) | same | `b96f926e19427a37f43576c94ac0b2955b873bfd`; merge resolved tree | 07:25:40Z / 07:26:11Z / 08:44:10Z / 08:45:14Z | `w2fix6-pg-lead-run-{1,2}.log`: 127/127 19.0s/19.5s, `exit 0` in footers; `w2merge-pg-lead-run-{1,2}.log`: 127/127 18.9s/18.6s, `PG_EXIT=0` |
-| L3 | `node tests/e2e-walkthrough.mjs` (Playwright, base `http://127.0.0.1:3220`) | sha not embedded in results JSON (§3.6) | results JSON finalized 10:04:13.853Z; execution window bounded by screenshot mtimes 10:00:17Z–10:04:13Z (§3.4) | `.omc/reports/e2e-results.json` + `.omc/reports/screenshots/` |
+| L3 | `node tests/e2e-walkthrough.mjs` (Playwright, base `http://127.0.0.1:3220`) | sha not embedded in results JSON (§3.6) | results JSON finalized 10:04:13.853Z; observed capture interval bounded by screenshot mtimes 10:00:17Z–10:04:13Z (§3.4; v1.1.0: that JSON has since been overwritten on disk by the W3-2R run — same counts — and the 10:00Z capture set is preserved in `screenshots-archive/run-2026-09-11T1000Z-e2e/`) | `e2e-results.json` (as of 10:04:13.853Z; superseded on disk, §3.4) + `screenshots-archive/run-2026-09-11T1000Z-e2e/` |
 | L3 (older transcript) | same | `f1df5bb` | 2026-09-11 | `w2fix3-standing-gates.log` §4: `e2e_exit=0`, `PORT_3220_RELEASED=OK` |
+| L3 (W3-2R current-head transcript) | same | `c3874a9` (log header pin) | e2e section 10:28:39Z–10:31:07Z; results finalized 10:32:38.219Z | `w3r1-standing-gates.log` §4: `e2e_server_healthz=200`; `PASS=63 FAIL=0 FLAKY=1`; `e2e_exit=0`; `e2e_counts={"flaky":1,"pass":63} rows=64 finalizedAt=2026-09-11T10:32:38.219Z`; `PORT_3220_RELEASED=OK` |
 | L4 original run | `docker compose up -d --build` + curl probes + `scripts/migrate.js` (ENV-PROD-MODE via `.env.w3l4` from `.env.production.example`) | git `cac252e6f734592aad285570e7c0586f0fbe5aaf` (`develop`); image `kbj-intranet:latest` id `1727c4fa8284`; **host port remapped 3000→3221** (§2.1) | 09:44:05Z (SYS-006 first pass) → 09:48:12Z stack up → 09:53:50Z teardown complete | `.omc/reports/w3-l4/` (l4-summary.md §1 + per-TC logs) |
 | L4 re-run (TC-SYS-005 regression) | same stack, rebuilt image | git `7d33fc88f7e37135d7ba07a5ee3694cdd5931960` (`feature/w3-fix-001-pool-error`); image id `5f2b4eaa6ad7`; host 3221→3000 | 10:04:59Z–10:06:29Z | `w3-l4/tc-sys-005-rerun.log` |
+| L4 re-run (TC-SYS-004 specified precondition) | host-run in-memory prod server :3232 (NODE_ENV=production, **no DATABASE_URL**) → GET /api/system/export → `node scripts/migrate.js` vs fresh disposable `postgres:16` :55446 | git `c3874a9` (develop, per log header) | 10:29:22Z–10:29:27Z | `w3-l4/tc-sys-004-inmemory.log` (blocker-1 closure, §3.5) |
 | L4 teardown | `docker compose down -v` | — | 09:53:49Z–09:53:50Z (original); 10:06:28Z–10:06:29Z (re-run) | `w3-l4/teardown.log` (`down_exit=0`); rerun log (`idempotent_second_down_exit=0`, 0 residue) |
 
 Tooling versions (L4, quoted from `w3-l4/l4-summary.md` §1): Docker server
@@ -106,10 +126,13 @@ Tooling versions (L4, quoted from `w3-l4/l4-summary.md` §1): Docker server
 |---|---|---|
 | Standing gate transcript, tree `f1df5bb` | **exit 0** (`tsc_exit=0`) | `w2fix3-standing-gates.log` §1 |
 | W3-FIX-1 fix tree (→ `7d33fc8`) | **tsc 0** | git msg `7d33fc8` ("Gates on this tree: tsc --noEmit 0") and merge msg `27b2622`; PROJECT-STATE W3-FIX-1 row |
+| W3-2R current-head transcript, tree `c3874a9` (develop, log header `dirty: 0 entries`) | **exit 0** (`tsc_exit=0`) | `w3r1-standing-gates.log` §1 |
 
 Strict mode has been the standing merge gate since W2-4 (tsconfig `strict`
 flip `97bef96`, merged `a07885e` — PROJECT-STATE W2-4 row). **L0 verdict:
-PASS (exit 0).**
+PASS (exit 0)** — as of v1.1.0 the current head (`c3874a9`) carries the
+exit token in Doc 12 §9 transcript form (codex blocker 3), not only in the
+W3-FIX-1 commit attestations.
 
 ### 3.2 L1 — Build (`npm run build`)
 
@@ -117,9 +140,12 @@ PASS (exit 0).**
 |---|---|---|
 | Standing gate transcript, tree `f1df5bb` | **exit 0** (`build_exit=0`); artifacts present: `dist/index.html`, `dist/assets/*` (SPA), `dist/server.cjs 158.1kb` + map | `w2fix3-standing-gates.log` §2 |
 | W2-FIX-6 / merge resolved tree | build OK (`dist/server.cjs 158.5kb`) | PROJECT-STATE W2-FIX-6 and W2-GATE-2 MERGE rows |
-| W3-FIX-1 fix tree (→ `7d33fc8`) | **build OK** (bundle size not recorded in the archived gate records — §3.6) | git msgs `7d33fc8` / `27b2622`; PROJECT-STATE W3-FIX-1 row |
+| W3-FIX-1 fix tree (→ `7d33fc8`) | **build OK** (bundle size not recorded in the archived gate records — §3.6 item 1, closed v1.1.0) | git msgs `7d33fc8` / `27b2622`; PROJECT-STATE W3-FIX-1 row |
+| W3-2R current-head transcript, tree `c3874a9` | **exit 0** (`build_exit=0`); artifacts: `dist/index.html` + `dist/assets/*` (SPA) and `dist/server.cjs 162543 bytes` + `dist/server.cjs.map 271.4kb` | `w3r1-standing-gates.log` §2 (`artifact: dist/server.cjs 162543 bytes`) |
 
-**L1 verdict: PASS (exit 0, both artifacts present).**
+**L1 verdict: PASS (exit 0, both artifacts present)** — with the current-head
+byte size now recorded (162543 bytes @ `c3874a9`, closing §3.6 item 1) and
+the exit token in transcript form (codex blocker 3).
 
 ### 3.3 L2 — Smoke / API (`scripts/smoke-test.mjs`)
 
@@ -128,7 +154,8 @@ UPLOAD_DIR=./uploads-test):
 
 | Run | Count (verbatim) | Duration | Exit | Evidence |
 |---|---|---|---|---|
-| Latest archived report | **108/108 passed** | not recorded in report file (§3.6) | per gate records: exit 0 | `smoke-report.md` (generated 2026-09-11T10:08:31.188Z, Node v24.13.1 darwin 25.5.0, target :3210) |
+| Latest archived report *(as of v1.0.1)* | **108/108 passed** | not recorded in report file (§3.6 item 2) | per gate records: exit 0 — *(provenance resolved v1.1.0: that report's 10:08:31.188Z stamp postdates the `27b2622` merge (17:08:21 +07 = 10:08:21Z) by 10 s, so it was produced on the post-merge develop tree; the file has since been overwritten on disk by the W3-2R runs — current on-disk stamp 10:33:21.471Z is the W3-2R PG-run-2 report, 127/127 — and the unambiguous current-head default-mode run is the W3-2R transcript row below)* | `smoke-report.md` (generated 2026-09-11T10:08:31.188Z, Node v24.13.1 darwin 25.5.0, target :3210) |
+| W3-2R current-head transcript, tree `c3874a9` (log header pin; node v24.13.1, npm 11.18.0) | **108/108 checks passed** | 7.8s | `smoke_exit=0` | `w3r1-standing-gates.log` §3 — suite section headers §0–§14, §16, §17 visible in the transcript (§15/§18 are the PG opt-ins) |
 | `f1df5bb` transcript | **108/108 checks passed** | 7.8s | `smoke_exit=0` | `w2fix3-standing-gates.log` §3 |
 | Merge resolved tree | **108/108** | 7.0s | exit 0 | PROJECT-STATE W2-GATE-2 MERGE row |
 
@@ -137,8 +164,10 @@ total per Doc 12 R2):
 
 | Run | Count (verbatim) | Duration | Exit | Evidence |
 |---|---|---|---|---|
-| W3-FIX-1 run 1 (09:59:11Z) | **127/127 checks passed** | 19.9s | exit 0 (attested in git msgs — §3.6) | `w3fix1-pg-run-1.log` |
-| W3-FIX-1 run 2 (09:59:45Z) | **127/127 checks passed** | 19.7s | exit 0 (attested in git msgs — §3.6) | `w3fix1-pg-run-2.log` |
+| W3-FIX-1 run 1 (09:59:11Z) | **127/127 checks passed** | 19.9s | exit 0 (attested in git msgs — §3.6 item 3, closed v1.1.0) | `w3fix1-pg-run-1.log` |
+| W3-FIX-1 run 2 (09:59:45Z) | **127/127 checks passed** | 19.7s | exit 0 (attested in git msgs — §3.6 item 3, closed v1.1.0) | `w3fix1-pg-run-2.log` |
+| W3-2R run 1 (`c3874a9`, 10:32:40Z) | **127/127 checks passed** | 19.7s | **`pg1_exit=0`** (transcript footer; `container_kbj-pg-w3r1-1_removed=0`) | `w3r1-standing-gates.log` §5 |
+| W3-2R run 2 (`c3874a9`, 10:33:01Z) | **127/127 checks passed** | 19.5s | **`pg2_exit=0`** (transcript footer; `container_kbj-pg-w3r1-2_removed=0`) | `w3r1-standing-gates.log` §5 |
 | W2-FIX-6 lead run 1 (`b96f926`, 07:25:40Z) | **127/127 checks passed** | 19.0s | `exit 0` (log footer; tree-clean-files 0) | `w2fix6-pg-lead-run-1.log` |
 | W2-FIX-6 lead run 2 (07:26:11Z) | **127/127 checks passed** | 19.5s | `exit 0` (log footer) | `w2fix6-pg-lead-run-2.log` |
 | Merge resolved tree run 1 (08:44:10Z) | **127/127 checks passed** | 18.9s | `PG_EXIT=0` | `w2merge-pg-lead-run-1.log` |
@@ -151,16 +180,28 @@ show the §18 pause-gated cross-pod families (S/O/N/F) quoting observed
 synchronization (paused pid, blocked-by pid, polls/ms) in every O/N PASS
 detail — e.g. `w3fix1-pg-run-1.log` §18 rows.
 
-**L2 verdict: PASS — default 108/108; PG opt-in 127/127 ×2 on the W3-FIX-1
-tree (×6 archived green runs total incl. W2-FIX-6 and the merge resolved
-tree). Zero FAIL lines in the archived reports.**
+**L2 verdict: PASS — default 108/108; PG opt-in 127/127 ×2 at the current
+head `c3874a9` (`pg1_exit=0` / `pg2_exit=0` in transcript footers), ×2 on
+the W3-FIX-1 tree, and ×4 on the W2-FIX-6 / merge resolved trees (×8
+archived green PG runs total). Zero FAIL lines in the archived reports.**
+Per-TC L2 coverage against the Doc 12 §6 catalog — the codex blocker-2
+requirement beyond suite totals — is mapped in **Appendix A**.
 
 ### 3.4 L3 — E2E walkthrough (`tests/e2e-walkthrough.mjs`)
 
 Results record `.omc/reports/e2e-results.json` (base
 `http://127.0.0.1:3220`): 64 result rows with statuses **63 PASS / 1 FLAKY /
 0 FAIL** (counts object `{"flaky":1,"pass":63}` — no fail-status rows exist;
-63 + 1 = 64 rows all accounted).
+63 + 1 = 64 rows all accounted). *(v1.1.0 provenance note: that 10:04:13.853Z
+record was the W3-FIX-1-era run; the W3-2R transcript §4 subsequently
+re-ran e2e at the current head and overwrote the on-disk JSON — its record
+now carries `startedAt 2026-09-11T10:32:38.219Z` (the write-time field, §3.6
+item 5) with identical counts `{"flaky":1,"pass":63}`; both runs' evidence
+is cited below.)* The W3-2R run's transcript tokens, quoted verbatim:
+`e2e_server_healthz=200`, summary `PASS=63 FAIL=0 FLAKY=1`,
+`e2e_exit=0`, `e2e_counts={"flaky":1,"pass":63} rows=64
+finalizedAt=2026-09-11T10:32:38.219Z`, `PORT_3220_RELEASED=OK`
+(`w3r1-standing-gates.log` §4 @ `c3874a9`).
 
 **FLAKY disposition (Doc 12 §9 rule 4 — FLAKY ≠ PASS without retry
 evidence):** the single FLAKY is step `S0` ("Bootstrap: admin login + role
@@ -176,16 +217,42 @@ FLAKY (known S0-retry) / 0 FAIL exit 0").
 Exit status and port release: `e2e_exit=0` + `PORT_3220_RELEASED=OK` are
 recorded verbatim in `w2fix3-standing-gates.log` §4 (older run); for the
 2026-09-11T10:04Z run, exit 0 is recorded in the W3-FIX-1 gate block (git
-msgs `7d33fc8`/`27b2622`; PROJECT-STATE W3-FIX-1 row).
+msgs `7d33fc8`/`27b2622`; PROJECT-STATE W3-FIX-1 row). *(v1.1.0 closure,
+codex blocker 3: the current head no longer depends on the attestation —
+`w3r1-standing-gates.log` §4 records `e2e_exit=0` and
+`PORT_3220_RELEASED=OK` verbatim at `c3874a9`, including the spawned
+server's full graceful-shutdown sequence before the port-release token.)*
 
-Visual record: `.omc/reports/screenshots/` contains 46 PNGs with mtimes
-2026-09-11 17:00:17–17:04:13 +07 (= 10:00:17Z–10:04:13Z), bounding this
-run's execution window; 18 older files from a 2026-09-10 run persist because
-the harness writes fixed filenames without run-id scoping (divergence from
-Doc 12 §9.5 "keep them per run-id" — noted for the lead, §5.1).
+Visual record *(retention mechanism per Doc 12 §9.5, codex blocker 4 —
+v1.1.0)*: each run's capture set is preserved in an immutable run-id
+archive with a filename/hash manifest —
+
+- `.omc/reports/screenshots-archive/run-2026-09-11T1000Z-e2e/` — **46
+  PNGs** of the 10:00–10:04Z run, copied with mtimes preserved, plus
+  `MANIFEST.sha256` (46 lines; verified 0 mismatches on
+  `shasum -a 256 -c`). Per the codex advisory, the mtimes
+  (2026-09-11 17:00:17–17:04:13 +07 = 10:00:17Z–10:04:13Z) bound the
+  **observed capture interval** of this run, not its complete execution
+  window.
+- `.omc/reports/screenshots-archive/run-2026-09-11T1031Z-e2e-w3r1/` — **46
+  PNGs** of the W3-2R transcript's e2e (observed capture interval
+  2026-09-11 17:28:41–17:32:37 +07 = 10:28:41Z–10:32:37Z, ending 1 s before
+  the results finalize token), same manifest treatment (46 lines; 0
+  mismatches).
+- The 18 stale files from the 2026-09-10 run are quarantined in
+  `.omc/reports/screenshots-archive/stale-2026-09-10-run/` (18 files), no
+  longer interleaved with current evidence.
+- The harness change itself (run-id subdirectory at write time) remains
+  **queued before W3-4/W3-5** — the codex verdict explicitly allows the
+  harness change to precede W3-4 while requiring the archive NOW, which the
+  two directories above satisfy. The live `.omc/reports/screenshots/`
+  directory remains the harness's write target and is no longer cited as
+  the retention mechanism.
 
 **L3 verdict: PASS — 63 PASS / 1 FLAKY (S0, retry evidence attached) / 0
-FAIL.**
+FAIL**, evidenced at the current head by the W3-2R transcript (identical
+counts to the 10:04Z run). Per-TC L3 coverage against the Doc 12 §6 catalog
+is mapped in **Appendix A**.
 
 ### 3.5 L4 — System test (compose stack, ENV-PROD-MODE)
 
@@ -199,7 +266,7 @@ W3-FIX-1 re-run** (original run 7 PASS / 1 FAIL; the FAIL closed as DEF-001,
 | TC-SYS-001 compose stack boots healthy | **PASS** | `tc-sys-001.log`: `up -d --build` `up_exit=0` (09:48:12Z); both containers healthy ~5 s; app `0.0.0.0:3221->3000`; `\dt` lists all 10 tables (users … audit_logs), `psql_dt_exit=0` — schema auto-applied on empty pgdata |
 | TC-SYS-002 data survives restart | **PASS** | `tc-sys-002.log`: login 200; POST /api/news 201 (marker `W3L4-SYS002-1789120134`); `restart app` exit 0, healthy again ~9 s; GET /api/news 200 with marker present; session cookie also survived (sessions durable) |
 | TC-SYS-003 schema.sql idempotent | **PASS** | `tc-sys-003.log`: schema.sql piped ×2 with `ON_ERROR_STOP=1` — run 1 exit 0 / 0 ERROR lines, run 2 exit 0 / 0 ERROR lines (a first invocation attempt hit a zsh word-splitting artifact, exit 127, re-run clean — logged for honesty) |
-| TC-SYS-004 export → migrate round-trip | **PASS** | `tc-sys-004.log` + `export.json`: GET /api/system/export 200, counts `{news:13, banners:5, contacts:8, rooms:5, documents:7, auditLogs:5, syncLogs:3}` (verified against the artifact's `counts` object); disposable `postgres:16` (`w3l4-migrate`, host 55439); `node scripts/migrate.js` exit 0; psql COUNTs match export for all 7 tables; marker row present; container removed |
+| TC-SYS-004 export → migrate round-trip | **PASS** (v1.1.0: specified precondition now verified — codex blocker 1) | **Primary basis (v1.1.0):** `tc-sys-004-inmemory.log` @ `c3874a9` (10:29:22Z–10:29:27Z) — the **Doc 12 §6.18 specified source precondition ("in-memory data")**: in-memory prod server spawned on :3232 with **no DATABASE_URL** (log: `[WARN] NODE_ENV=production without DATABASE_URL — running with IN-MEMORY stores`); marker `W3R1-SYS004-1789122562` created via POST /api/news **201**; GET /api/system/export 200 with `export_curl_exit=0`, `export_storage=memory`, `export_version=2.0.0`, counts `{"news":13,"banners":5,"contacts":8,"rooms":5,"documents":7,"auditLogs":5,"syncLogs":3}`, `marker_in_export= 1`; server stopped, `PORT_3232_RELEASED=OK`; fresh disposable `postgres:16` :55446 + schema.sql `schema_exit=0`; `node scripts/migrate.js` `migrate_exit=0`; destination verification — all 7 table counts equal export (`dest news=13 … dest sync_logs=3`) and `marker_row_at_dest= W3R1-SYS004-1789122562`; teardown `pg_removed=0`. **Supplementary (original run, retained):** `tc-sys-004.log` + `export.json`: GET /api/system/export 200, counts `{news:13, banners:5, contacts:8, rooms:5, documents:7, auditLogs:5, syncLogs:3}` (verified against the artifact's `counts` object); disposable `postgres:16` (`w3l4-migrate`, host 55439); `node scripts/migrate.js` exit 0; psql COUNTs match export for all 7 tables; marker row present; container removed — same-store (PG-source → fresh-PG) round-trip. Both source preconditions are now evidenced; the **specified migration path is verified** and the L4 exit claim stands unconditional |
 | TC-SYS-005 readiness pulls pod when DB dies | **PASS (re-run on fix `7d33fc8`; original FAIL record retained)** | Re-run `tc-sys-005-rerun.log` (image `5f2b4eaa6ad7`): outage 10:05:30Z→recovery — /readyz **503** ×5 samples (10:05:40–10:05:52Z) with body `{"status":"not_ready","probe":"readiness","reason":"Database unavailable"}`, /healthz **200** ×5, `RestartCount=0` throughout, pool-error handler line fired once at `10:05:30.106Z`, recovery /readyz 200 in **1 s** (10:06:17Z), post-recovery login 200 + GET /api/news 200 (26 292 B). Original `tc-sys-005.log`: FAIL — see DEF-001 (§4) |
 | TC-SYS-006 manifest validation | **PASS** (precondition noted — obs-1, §4) | `tc-sys-006.log`: `docker compose … config -q` exit 0 (re-validated with override files, exit 0); `kubectl kustomize k8s` bare-checkout `exit_code=1` (`secret.yaml: no such file`), exit 0 after the documented `cp k8s/secret.example.yaml k8s/secret.yaml` — post-copy success **re-executed by the lead 2026-09-11T10:20:33Z with raw-log capture** (`tc-sys-006-kustomize-rerun.log` @ `7b23fd4`: `kustomize_exit=0`, 388-line render, 11 kind entries — ConfigMap/Deployment/HPA/Ingress/Namespace/NetworkPolicy ×3/PVC/Secret/Service), reproducing l4-summary.md §2 exactly; secret.yaml removed after (bare-checkout state restored) |
 | TC-AVAIL-003 graceful shutdown | **PASS** | `tc-avail-003.log`: `stop app` (SIGTERM) 09:53:05Z; logs show the exact sequence `[SIGTERM] Received. Starting graceful shutdown sequence...` → `HTTP server closed cleanly. Kubernetes pod ready to terminate.` → `Database pool closed.`; `ExitCode=0`, `OOMKilled=false`, finished same second |
@@ -224,36 +291,71 @@ W3-FIX-1 re-run** (original run 7 PASS / 1 FAIL; the FAIL closed as DEF-001,
 
 **L4 verdict: PASS — 8/8 (TC-SYS-001..006 + TC-AVAIL-003/005), with
 TC-SYS-005 passing on the W3-FIX-1 regression re-run and the original FAIL
-retained per annotate-not-rewrite.**
+retained per annotate-not-rewrite; TC-SYS-004 passing on the specified
+in-memory-source run (v1.1.0) with the original PG-source run retained as
+supplementary same-store evidence — both preconditions evidenced, so the L4
+exit claim is unconditional (codex blocker 1 closed).**
 
 ### 3.6 Evidence gaps recorded (per Doc 12 §9 — no guessing)
+
+*Gap history retained; v1.1.0 resolutions annotated in place
+(annotate-not-rewrite). Items 1, 2, 3 and 4 are closed by the W3-2R
+current-head transcript `w3r1-standing-gates.log` @ `c3874a9` (codex
+blocker 3); item 6 was closed in v1.0.1 and re-worded per the codex
+advisory.*
 
 1. **W3-FIX-1 build bundle size** — the archived gate records (git msgs
    `7d33fc8`/`27b2622`, PROJECT-STATE W3-FIX-1 row) state "build OK" only; no
    byte size is recorded for that tree. (For reference, recorded sizes:
-   158.1kb @ `f1df5bb` transcript; 158.5kb @ W2-FIX-6/merge rows.)
+   158.1kb @ `f1df5bb` transcript; 158.5kb @ W2-FIX-6/merge rows.) —
+   *(RESOLVED v1.1.0: the current head records the byte size in transcript
+   form — `artifact: dist/server.cjs 162543 bytes` @ `c3874a9`,
+   `w3r1-standing-gates.log` §2. The W3-FIX-1 tree's own size remains
+   unrecorded history.)*
 2. **Latest default-smoke duration** — `smoke-report.md` does not embed a
    duration; durations are quoted only where a transcript records them
-   (7.8s @ `f1df5bb`; 7.0s @ merge resolved tree).
+   (7.8s @ `f1df5bb`; 7.0s @ merge resolved tree). — *(RESOLVED v1.1.0:
+   the current-head default run carries its duration in the transcript —
+   `RESULT: 108/108 checks passed in 7.8s`, `w3r1-standing-gates.log` §3.
+   Provenance of the earlier 10:08:31.188Z report resolved in §3.3: it
+   postdates the `27b2622` merge (10:08:21Z) by 10 s — post-merge develop
+   tree — and has since been overwritten on disk by the W3-2R runs; the
+   W3-2R transcript is now the unambiguous current-head run.)*
 3. **W3-FIX-1 PG-run exit codes** — `w3fix1-pg-run-{1,2}.log` have no
    exit-code footer (unlike the w2fix6/w2merge logs); exit 0 for both runs is
    attested in the merge-committed gate blocks (git msgs `7d33fc8`/`27b2622`:
-   "exit 0, logs .omc/reports/w3fix1-pg-run-{1,2}.log").
+   "exit 0, logs .omc/reports/w3fix1-pg-run-{1,2}.log"). — *(RESOLVED v1.1.0,
+   codex blocker 3: the current head has footer-form evidence —
+   `pg1_exit=0` (127/127 in 19.7s) and `pg2_exit=0` (127/127 in 19.5s) in
+   `w3r1-standing-gates.log` §5. The commit attestations for the W3-FIX-1
+   tree runs remain as historical records, no longer load-bearing for the
+   L2 exit claim.)*
 4. **sha provenance of L2-default / L3 artifacts** — `smoke-report.md` and
    `e2e-results.json` do not embed a git sha; tree identity rests on the
    timestamps (10:08:31Z report; 10:00–10:04Z screenshots) plus the gate
    blocks recorded in the W3-FIX-1 commit/merge messages and PROJECT-STATE.
+   — *(RESOLVED v1.1.0 for the current head: the W3-2R transcript's log
+   header pins `git c3874a9 (develop) · dirty: 0 entries` (node v24.13.1,
+   npm 11.18.0), giving unambiguous tree identity for its default-smoke,
+   e2e and PG runs. The earlier artifacts' timestamp-based inference stands
+   as history.)*
 5. **`e2e-results.json` `startedAt` semantics** — the field is set at
    results-write time (`tests/e2e-walkthrough.mjs:1405-1407`), i.e. it is the
    finalize timestamp; the actual execution window is bounded by the
    screenshot mtimes (10:00:17Z–10:04:13Z). Cited accordingly in §2.
-6. **TC-SYS-006 kustomize success render** — *(closed in this revision,*
-   v1.0.1*)* — originally present in `l4-summary.md` §2 only; the raw
+   — *(v1.1.0 corroboration: the on-disk JSON's `startedAt
+   2026-09-11T10:32:38.219Z` equals the transcript's `finalizedAt`
+   token exactly; per the codex advisory the screenshot mtimes are now
+   described as bounding the **observed capture interval**, not the complete
+   execution window — §3.4.)*
+6. **TC-SYS-006 kustomize success render** — *(closed in v1.0.1)* —
+   originally present in `l4-summary.md` §2 only; the raw
    `tc-sys-006.log` records the bare-checkout failure (exit 1) and the compose
    validations, but not the post-copy kustomize exit-0 line. **Closed by the
    lead re-execution** 2026-09-11T10:20:33Z @ `7b23fd4`
    (`tc-sys-006-kustomize-rerun.log`: `kustomize_exit=0`, 388-line render,
-   11 kind entries — byte-consistent with the summary claim).
+   11 kind entries — matching the recorded render statistics of the summary
+   claim; wording adjusted per the codex advisory, v1.1.0).
 
 ---
 
@@ -329,31 +431,55 @@ from this document.
    accepts overlap coverage for 001/002 or schedules standalone rows before
    the Release gate.
 
-### 5.2 Lead review rulings (2026-09-11, v1.0.1)
+### 5.2 Lead review rulings (2026-09-11, v1.0.1) — codex gate dispositions annotated (v1.1.0)
 
 Disposition of each §5.1 item — rulings recorded here rather than rewriting
-the worker's text (annotate-not-rewrite):
+the worker's text (annotate-not-rewrite). **The codex doc17-gate verdict
+(`.omc/artifacts/cto-gate-doc17-verdict.md`) subsequently disposed of these
+rulings: upheld 1, 3 and 5; OVERTURNED 2 and 4 as presently written.** The
+overturns are annotated on the rulings below; the original ruling text is
+retained as history.
 
 1. **TC-SYS-006 evidence shape → CLOSED by re-execution.** The lead
    re-ran the kustomize half with raw-log capture
    (`tc-sys-006-kustomize-rerun.log`, exit 0, 388 lines, 11 kinds @
    `7b23fd4`) — the raw-log-only standard is now met; row PASS stands on
-   primary evidence, not summary attestation.
+   primary evidence, not summary attestation. *(UPHELD by the codex gate:
+   "SYS-006 re-execution log records exit 0, 388 lines, 11 kind entries,
+   plus secret-file cleanup.")*
 2. **PG exit-code attestation → ACCEPTED.** The gate blocks committed in
    `7d33fc8` and `27b2622` are durable, hash-addressable records produced at
    run time by the operator who executed the runs; equivalence to a log
    footer is accepted for this document. Future lead-run logs keep the
-   footer convention (as in the w2fix6/w2merge logs).
+   footer convention (as in the w2fix6/w2merge logs). — *(OVERTURNED by the
+   codex gate, blocker 3: commit attestations do not meet the Doc 12 §9
+   exit-code evidence form, which requires CI or a recorded shell
+   transcript; the equivalence ruling changed the binding rule and is
+   withdrawn. Closed by re-running the affected gates at the current head
+   with captured exits and provenance — `w3r1-standing-gates.log`
+   (`tsc_exit=0`, `build_exit=0`, `smoke_exit=0`, `e2e_exit=0`,
+   `pg1_exit=0`, `pg2_exit=0` @ `c3874a9`, §3.1–§3.4). The commit
+   attestations remain historical records of the W3-FIX-1 tree runs.)*
 3. **`startedAt` semantics → ACCEPTED as documented.** §3.6 item 5's
    write-time explanation plus the screenshot-mtime window bound is an
    honest, sufficient execution-window proof. No harness change required
-   for Doc 17.
+   for Doc 17. *(UPHELD by the codex gate: "Ruling 3 correctly identifies
+   `startedAt` as finalization time" — with the ADVISORY that mtimes bound
+   the observed capture interval, not the complete execution window;
+   wording applied in §3.4/§3.6 item 5.)*
 4. **Screenshot run-id scoping → ACCEPTED as a queued action, not a Doc 17
    blocker.** The 18 stale 2026-09-10 files are quarantined by mtime and the
    §3.4/§6 citations bound this run's 46 files explicitly. Action queued:
    harness scoping (run-id subdirectory) lands **before** W3-4/W3-5, which
    are the lanes that reuse capture sets (recorded in PROJECT-STATE W3-4
-   row).
+   row). — *(OVERTURNED by the codex gate, blocker 4: mtime filtering does
+   not satisfy Doc 12 §9.5 retention per run-id and does not protect the
+   current evidence from the next overwrite; the deferral is withdrawn.
+   Closed NOW by the run-id archives
+   `screenshots-archive/run-2026-09-11T1000Z-e2e/` and
+   `run-2026-09-11T1031Z-e2e-w3r1/` (46 PNGs + `MANIFEST.sha256` each,
+   0 mismatches; stale-18 quarantined — §3.4). The harness change itself
+   remains queued before W3-4/W3-5, which the verdict explicitly allows.)*
 5. **AVAIL reporting posture → ACCEPTED per Doc 12 design.** §6.19 defines
    TC-AVAIL-002 as overlapping TC-SYS-005, so overlap coverage is the
    specified method, not a shortcut; AVAIL-001's liveness expectation was
@@ -361,7 +487,10 @@ the worker's text (annotate-not-rewrite):
    fail-fast half is designed behavior observed incidentally during DEF-001
    (§2.1) — standalone row remains **NOT TESTED**, and **TC-AVAIL-006
    remains NOT TESTED**; both ride to the Release-gate review as open items
-   on the L4 ledger (visible in §3.5), not silently closed.
+   on the L4 ledger (visible in §3.5), not silently closed. *(UPHELD by the
+   codex gate "within its explicitly limited overlap coverage"; the two
+   NOT-TESTED rows remain visible in §3.5 and the Release-gate assessment
+   in §5. continues to withhold approval.)*
 
 ---
 
@@ -369,6 +498,47 @@ the worker's text (annotate-not-rewrite):
 
 All paths relative to repo root; every file below was read for this document.
 Evidence files are unmodified archives (no edits by this author).
+
+**W3-2R fix-cycle evidence (v1.1.0 — closes codex doc17-gate blockers)**
+
+- `.omc/artifacts/cto-gate-doc17-verdict.md` — the binding REVISE verdict
+  (4 blockers + advisory) that drives this revision; lead rulings on the
+  v1.0.1 §5.2 dispositions quoted in §5.2.
+- `.omc/reports/w3r1-standing-gates.log` — one continuous current-head
+  transcript, 2026-09-11T10:28:28Z–10:33:21Z, log header `git c3874a9
+  (develop) · dirty: 0 entries`, node v24.13.1, npm 11.18.0: §1
+  `tsc_exit=0`; §2 `build_exit=0` + `artifact: dist/server.cjs 162543
+  bytes`; §3 default smoke **108/108 checks passed in 7.8s** `smoke_exit=0`
+  (section headers visible); §4 e2e `e2e_server_healthz=200`, `[FLKY] S0 …
+  passed on retry`, `PASS=63 FAIL=0 FLAKY=1`, `e2e_exit=0`,
+  `e2e_counts={"flaky":1,"pass":63} rows=64
+  finalizedAt=2026-09-11T10:32:38.219Z`, `PORT_3220_RELEASED=OK`; §5 PG
+  ×2 — **127/127 in 19.7s** `pg1_exit=0` and **127/127 in 19.5s**
+  `pg2_exit=0`, both containers removed (blocker 3 closure).
+- `.omc/reports/w3r1-p0-gaps.log` — lead closure run @ `d831feb`
+  (2026-09-11T10:47Z) for the three P0 Appendix-A rows the v1.1.0 draft
+  flagged unpinned: TC-SES-006 (exit 1 + exact FATAL banner on prod boot
+  without SESSION_SECRET), TC-USER-006 (400 `You cannot deactivate your
+  own account.` on admin self-PATCH), TC-ROOM-003 (book1 200 → book2 400
+  `Room is currently booked or under maintenance`); port released,
+  teardown clean (Appendix A rows updated to PASS).
+- `.omc/reports/w3-l4/tc-sys-004-inmemory.log` — TC-SYS-004 re-execution
+  with the specified in-memory source precondition (blocker 1 closure):
+  :3232 in-memory prod server, marker `W3R1-SYS004-1789122562`,
+  `export_storage=memory`, counts
+  `{"news":13,"banners":5,"contacts":8,"rooms":5,"documents":7,"auditLogs":5,"syncLogs":3}`,
+  `schema_exit=0`, `migrate_exit=0`, all 7 destination counts equal,
+  `marker_row_at_dest= W3R1-SYS004-1789122562`, `pg_removed=0`
+  (10:29:22Z–10:29:27Z @ `c3874a9`).
+- `.omc/reports/screenshots-archive/run-2026-09-11T1000Z-e2e/` — 46 PNGs
+  (10:00–10:04Z run) with mtimes preserved + `MANIFEST.sha256` (46 lines;
+  `shasum -a 256 -c` → 0 mismatches) — the Doc 12 §9.5 run-id retention
+  mechanism (blocker 4 closure).
+- `.omc/reports/screenshots-archive/run-2026-09-11T1031Z-e2e-w3r1/` — 46
+  PNGs of the W3-2R transcript's e2e (observed capture interval
+  10:28:41Z–10:32:37Z) + `MANIFEST.sha256` (46 lines; 0 mismatches).
+- `.omc/reports/screenshots-archive/stale-2026-09-10-run/` — the 18 stale
+  2026-09-10 PNGs, quarantined out of the current-evidence path.
 
 **L2 / smoke**
 
@@ -403,8 +573,15 @@ Evidence files are unmodified archives (no edits by this author).
 - `.omc/reports/e2e-results.json` — L3 run record: 64 rows (63 PASS + 1
   FLAKY S0 with retry evidence); counts `{"flaky":1,"pass":63}`; base
   `http://127.0.0.1:3220`; finalized 2026-09-11T10:04:13.853Z.
-- `.omc/reports/screenshots/` — 46 PNGs mtimed 10:00:17Z–10:04:13Z (this
-  run) + 18 stale files from 2026-09-10 (see §5.1 item 4).
+- `.omc/reports/screenshots/` — the harness's live write target (fixed
+  filenames, no run-id scoping; harness change queued before W3-4/W3-5).
+  **Retention citations point at the run-id archives** —
+  `screenshots-archive/run-2026-09-11T1000Z-e2e/` (46 PNGs of the
+  10:00–10:04Z run + `MANIFEST.sha256`) and
+  `screenshots-archive/run-2026-09-11T1031Z-e2e-w3r1/` (46 PNGs of the
+  W3-2R run + `MANIFEST.sha256`); the 18 stale 2026-09-10 files are
+  quarantined in `screenshots-archive/stale-2026-09-10-run/` (§3.4,
+  §5.1 item 4, §5.2 ruling 4).
 
 **L4 / system test (`.omc/reports/w3-l4/`)**
 
@@ -416,6 +593,10 @@ Evidence files are unmodified archives (no edits by this author).
   survives `restart app`.
 - `tc-sys-003.log` — schema.sql ×2 idempotent under `ON_ERROR_STOP=1`.
 - `tc-sys-004.log` — export→migrate round-trip; counts match all 7 tables.
+- `tc-sys-004-inmemory.log` — (v1.1.0, blocker 1) same round-trip with the
+  specified in-memory source: `export_storage=memory`, `schema_exit=0`,
+  `migrate_exit=0`, 7/7 destination counts equal, marker row present,
+  `pg_removed=0` @ `c3874a9`.
 - `tc-sys-005.log` — original FAIL record (DEF-001): crash + restart loop +
   43 s recovery.
 - `tc-sys-005-rerun.log` — W3-FIX-1 regression PASS on `7d33fc8` / image
@@ -447,3 +628,294 @@ Evidence files are unmodified archives (no edits by this author).
   baseline; PROJECT-STATE §3).
 - `PROJECT-STATE.md` §3 rows (W3-1, W3-FIX-1, W2-GATE-2 MERGE, W2-4) and
   `.omc/artifacts/cto-gate-wave2-verdict-6.md` (referenced for lineage only).
+
+---
+
+## Appendix A — Per-TC L2/L3 coverage map (Doc 12 §6 catalog)
+
+*(Added v1.1.0 — codex blocker 2: Doc 12 §7/§9-level reporting requires
+per-TC verdicts, which suite totals cannot establish.)*
+
+**Method (mechanical, no invention):** the Doc 12 §6 catalog was enumerated
+per series; every check label in the current-head smoke transcript
+(`w3r1-standing-gates.log` §3 default run — 108 checks — and §5 PG runs —
+127 checks each, all section headers and `[PASS]` labels read) and the check
+strings in `scripts/smoke-test.mjs` were searched for each TC id and its
+specified behavior; the 64 e2e result rows (`e2e-results.json` `id`/`name`
+fields, quoted in the w3r1 transcript §4: S0, A1–A6, B0–B17, C0–C12, C-FR,
+C-API, D0a, D0–D5, E0–E10, E-API, E-API2, F1–F3) were mapped to the Doc 12
+§5/§6 journeys their names describe. A row is **PASS** only where a
+covering check asserts the TC's core expectation; **PARTIAL** where a
+subset of the expected assertions is pinned; **NOT COVERED at L2/L3** where
+no check exists — with a pointer to where it is covered (L4 = §3.5, L5 =
+Doc 19, L6 = Doc 18) or an explicit open-gap flag. Honesty over
+completeness: aggregate green counts above say nothing about catalog
+coverage; this table is the coverage claim.
+
+**Totals: 157 rows — 97 PASS · 18 PARTIAL · 42 NOT COVERED at L2/L3.**
+
+### A.1 §6.1 Authentication — AUTH
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-AUTH-001 | PASS | smoke §3 "POST /api/auth/login (admin) returns 200 with user payload + kbj_session cookie"; §5 maker/checker/staff logins; e2e B0/C0/D0/E0 |
+| TC-AUTH-002 | PASS | smoke §13 "POST /api/auth/login with wrong password returns 401" + "Auth events audited: LOGIN_FAILED … LOGOUT"; e2e A4 |
+| TC-AUTH-003 | NOT COVERED at L2/L3 | no unknown-user uniform-401 pin in any suite; rides to L5 (Doc 19, alongside TC-SEC-009) |
+| TC-AUTH-004 | NOT COVERED at L2/L3 | no blank/malformed login-body pin; P2; rides to L5 (Doc 19) |
+| TC-AUTH-005 | PASS | smoke §3 "GET /api/auth/me (admin cookie) returns current user" + §2 "GET /api/auth/me returns 401 (anon)" |
+| TC-AUTH-006 | PASS | smoke §13 "POST /api/auth/logout returns 200 and invalidates the session server-side (stale cookie rejected with 401)"; e2e B17/E10 |
+| TC-AUTH-007 | PASS | smoke §16 TC-AUDIT-010 classes 2+3 — "tampered-cookie 401 audited as anonymous" (the tampered-cookie → 401 rejection itself is the asserted behavior) |
+| TC-AUTH-008 | PASS | smoke §3 "kbj_session cookie flags: HttpOnly + SameSite=Lax + Secure (NODE_ENV=production)" |
+| TC-AUTH-009 | PASS | smoke §14 "Repeated bad logins trigger HTTP 429 (5 attempts/min/IP per D1)"; e2e A5 (rate-limit message on 6th attempt) |
+| TC-AUTH-010 | PASS | smoke §5 five rapid successful logins (admin + maker/checker/staff) all 200, no 429; §14 PASS detail "(limiter counts FAILED logins only …)" |
+
+### A.2 §6.2 Session management — SES (001–006; probes 010–013 in A.14)
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-SES-001 | NOT COVERED at L2/L3 | no 7-day-TTL expiry pin in any suite; no L4/L5 slot scheduled — open item (P1) |
+| TC-SES-002 | NOT COVERED at L2/L3 | no expired-session sweeper pin (PG §15 covers rate_limit_hits only); P2 |
+| TC-SES-003 | PARTIAL | e2e E4b "deactivate kills login server-side" pins the relogin-401 half; immediate revocation of the victim's live cookie (me → 401 without relogin) not asserted |
+| TC-SES-004 | NOT COVERED at L2/L3 | covered at **L4** — §3.5 TC-SYS-002 ("session cookie also survived (sessions durable)") |
+| TC-SES-005 | NOT COVERED at L2/L3 | documented dev-mode behavior (P2); memory-restart session loss not pinned |
+| TC-SES-006 | PASS (lead closure run 2026-09-11T10:47Z) | prod boot w/o SESSION_SECRET: exit code 1 + `FATAL: SESSION_SECRET must be set when NODE_ENV=production (32+ random characters).` — `w3r1-p0-gaps.log` @ `d831feb` |
+
+### A.3 §6.3 News — NEWS
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-NEWS-001 | PASS | smoke §1 "GET /api/news returns 200 with data array (anon) (12 items)"; search path via e2e B8 |
+| TC-NEWS-002 | PASS | smoke §7 "POST /api/news (maker) returns 201 (id=…)"; e2e C1 (defaults visible in CMS list) |
+| TC-NEWS-003 | PARTIAL | 200-edit pinned (smoke §7 "PUT /api/news/:id (maker) returns 200"; e2e C3); unknown-id 404 and id-immutability not separately pinned at L2/L3 |
+| TC-NEWS-004 | PASS | e2e C3 "Edit article preserves fields — edit form pre-filled (title + summary preserved) and saved"; smoke §7 PUT 200 |
+| TC-NEWS-005 | PASS | smoke §12 "DELETE /api/news/:id (admin) succeeds (200)"; e2e E5 (confirm dialog + removal) |
+| TC-NEWS-006 | PASS | smoke §8 "POST /api/news/:id/submit-approval (maker) returns 200"; audit actor asserted in §9; e2e C4 |
+| TC-NEWS-007 | PASS | smoke §8 "POST /api/news/:id/approve (checker) returns 200 (approved)"; e2e D1 |
+| TC-NEWS-008 | PASS | smoke §8 "Maker -> submit -> checker reject flow returns 200 and marks item rejected"; e2e D2 |
+| TC-NEWS-009 | NOT COVERED at L2/L3 | reject default-reason wording not pinned (e2e D2 pins reason-required only); P2 |
+| TC-NEWS-010 | NOT COVERED at L2/L3 | list ordering not asserted; P2 |
+| TC-NEWS-011 | PASS | smoke §8 "TC-NEWS-011 (flipped): POST /api/news with syncToExternal:true stays draft, no sync log" |
+| TC-NEWS-012 | PARTIAL | all four live states (`draft`/`pending_approval`/`synced`/`rejected`) driven and quoted in §8/§17 PASS details; no dedicated exhaustive no-`pending`-emission pin (that negative = TC-SEC-013, PARTIAL in A.17) |
+| TC-NEWS-013 | PASS | smoke §17 "blocker 2 (approve): legacy pending without submittedBy is DENIED 409, state + audit enforced" |
+| TC-NEWS-014 | PASS | smoke §17 "blocker 2 (reject): same legacy deny on the reject path (admin deciding)" |
+| TC-NEWS-015 | PASS | smoke §17 "blocker 3 (precondition): withdraw on a NON-synced item returns 409, no state change, no AUD-P01" |
+| TC-NEWS-016 | PASS | smoke §17 "blocker 3 (happy path): withdraw synced -> draft, content byte-for-byte, stamps cleared, AUD-P01 prior_status=synced" (+ PG COMMIT variant §17-PG) |
+| TC-NEWS-017 | PASS | smoke §17 "blocker 4 (submit)" + "blocker 4 (withdraw)": audit-write failure → 500 envelope AND state rolled back |
+| TC-NEWS-018 | PASS | PG §17 "W2-FIX-1 PG ROLLBACK variant" + "W2-FIX-1 PG COMMIT + concurrency variant" |
+| TC-NEWS-019 | PASS | smoke §17 "blocker 1 (race): concurrent edit + approve can never yield synced-with-stale-content" (+ PG variant) |
+| TC-NEWS-020 | PASS | PG §18 boot check labelled (TC-NEWS-020) — item created via pod A reads back byte-identical via pod B |
+| TC-NEWS-021 | PASS | PG §18 Family S (race1-A/B), O (race1 + reversed), N (race1), F (race1) — every check labelled (TC-NEWS-021) |
+| TC-NEWS-022 | PASS | PG §18 Family S (race2-A/B), O (race2 + reversed), N (race2), F (race2) — every check labelled (TC-NEWS-022) |
+
+### A.4 §6.4 Banners — BANNER
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-BANNER-001 | PASS | smoke §1 "GET /api/banners returns 200 with data array (anon) (5 items)" |
+| TC-BANNER-002 | PASS | smoke §7 "POST /api/banners (maker) returns 201"; e2e C7 |
+| TC-BANNER-003 | NOT COVERED at L2/L3 | banner PUT not pinned in smoke or e2e; P1 — open gap |
+| TC-BANNER-004 | PASS | smoke §12 "DELETE /api/banners/:id (admin) succeeds (200)" |
+| TC-BANNER-005 | NOT COVERED at L2/L3 | sort order not asserted; P2 |
+
+### A.5 §6.5 Contacts directory — CONTACT
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-CONTACT-001 | PASS | smoke §6 "GET /api/contacts (staff) returns 200 (8 contacts)"; e2e B9/B10 (search + department filter) |
+| TC-CONTACT-002 | PASS | smoke §2 "GET /api/contacts returns 401 (anon)" |
+| TC-CONTACT-003 | PASS | smoke §7 "POST /api/contacts (maker) returns 201"; e2e C8 |
+| TC-CONTACT-004 | NOT COVERED at L2/L3 | contact PUT not pinned in smoke or e2e; P1 — open gap |
+| TC-CONTACT-005 | PASS | smoke §12 "DELETE /api/contacts/:id (admin) succeeds (200)" |
+
+### A.6 §6.6 Policy documents — DOC
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-DOC-001 | PASS | smoke §6 "GET /api/documents (staff) returns 200 (7 documents)"; e2e B13 (category filter) |
+| TC-DOC-002 | PASS | smoke §2 "GET /api/documents returns 401 (anon)" |
+| TC-DOC-003 | PASS | smoke §7 "POST /api/documents (maker) returns 201"; e2e C9 |
+| TC-DOC-004 | PASS | smoke §12 "DELETE /api/documents/:id (admin) succeeds (200)" |
+| TC-DOC-005 | NOT COVERED at L2/L3 | "เอกสารใหม่" (isNew) badge rendering not asserted in any e2e result name; P2 |
+
+### A.7 §6.7 Meeting rooms — ROOM
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-ROOM-001 | PASS | smoke §1 "GET /api/rooms returns 200 with data array (anon) (5 items)" |
+| TC-ROOM-002 | PASS | smoke §6 "POST /api/rooms/:id/book + /release (staff) round-trip 200 (room room-1 booked + released)"; e2e B11 |
+| TC-ROOM-003 | PASS (lead closure run 2026-09-11T10:47Z) | book1 200 (Kookmin Room, in-use) → book2 same room: 400 `Room is currently booked or under maintenance` — `w3r1-p0-gaps.log` @ `d831feb` |
+| TC-ROOM-004 | PASS | smoke §6 release half of the round-trip; e2e B12 "release booking control returns room to available — booking cleared" |
+| TC-ROOM-005 | NOT COVERED at L2/L3 | unknown-room 404 not pinned; P1 |
+| TC-ROOM-006 | NOT COVERED at L2/L3 | rooms empty-id 400 not pinned (the id-guard is pinned for news via e2e C-API); P1 |
+
+### A.8 §6.8 CMS / maker-checker workflow — CMS
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-CMS-001 | PASS | e2e B14 "Header role badge shows STAFF; nav limited to allowed views — CMS/External nav absent" |
+| TC-CMS-002 | PASS | e2e C1→C4 (create → submit → รอการอนุมัติ) + D1 (approve → เผยแพร่แล้ว + sync log entry) |
+| TC-CMS-003 | PASS | e2e D2 "Reject with reason (required) … reject disabled when empty=true" |
+| TC-CMS-004 | PASS | smoke §7 "POST /api/news (checker) returns 403 (403 - compliance cannot author)"; e2e D4 (checker edit allowed by rank, delete=0) |
+| TC-CMS-005 | PASS | e2e C6 "Maker has NO delete buttons and NO User Management tab" |
+| TC-CMS-006 | PARTIAL | checker visibility pinned (e2e D3 "Audit Trail tab lists the actions just performed with correct actors"); maker-side absence of the BOT/PDPA audit tab not explicitly asserted |
+| TC-CMS-007 | PASS | smoke §8 "TC-SEC-011: approve on a draft item returns 400 (state guard)" |
+| TC-CMS-008 | PASS | API-level pin = smoke §8 TC-NEWS-011 + the four TC-SEC-011 checks; the pre-fix UI step no longer exists (DCR-9 Option C removed the sync toggle — Doc 12 §6.8 note), so there is no UI path to run |
+
+### A.9 §6.9 User management — USER
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-USER-001 | PASS | smoke §3 "POST /api/auth/login (admin) returns 200 with user payload (role=admin)"; w3r1 §4 bootstrap admin line |
+| TC-USER-002 | NOT COVERED at L2/L3 | one-time-password bootstrap not exercised (L4 §2.1 env set ADMIN_PASSWORD); P1 |
+| TC-USER-003 | PARTIAL | valid creates pinned (smoke §4 maker/checker/staff → 201); the ×6 bad-payload validation matrix not pinned |
+| TC-USER-004 | PASS | e2e E4 "create user + duplicate 409 inline (fix #19)" |
+| TC-USER-005 | PASS | e2e E4b "deactivated … login -> 401" |
+| TC-USER-006 | PASS (lead closure run 2026-09-11T10:47Z) | admin PATCH own id `{"isActive":false}` → 400 `You cannot deactivate your own account.` — `w3r1-p0-gaps.log` @ `d831feb` |
+| TC-USER-007 | PASS | e2e E4b "reactivated; login -> 200" |
+| TC-USER-008 | PASS | e2e E4b recorded note: "user deletion does not exist by design — throwaway users (e2eqa01, e2edeact01) remain in the QA users table" |
+
+### A.10 §6.10 Audit trail — AUDIT
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-AUDIT-001 | PASS | smoke §9 "GET /api/audit-logs (checker) returns 200 (44 entries)"; e2e D3 |
+| TC-AUDIT-002 | PASS | smoke §13 "Auth events audited: LOGIN_FAILED after bad login, LOGOUT after logout" |
+| TC-AUDIT-003 | PASS | smoke §9 actor-integrity "(server-side actors recorded for submit, approve, login, user-create)"; e2e D3 (SUBMIT/APPROVE/REJECT with maker01/checker01 actors) |
+| TC-AUDIT-004 | PARTIAL | USER_CREATE pinned (§9 detail); USER_ACTIVATE / USER_DEACTIVATE rows not asserted anywhere (e2e E4b performs the actions but never reads the trail) |
+| TC-AUDIT-005 | PARTIAL | upload 201 + byte-identical serving pinned (§11); the FILE_UPLOAD audit row itself not asserted |
+| TC-AUDIT-006 | PASS | smoke §9 "Audit entries record the authenticated actor (spoofed body actor ignored)" |
+| TC-AUDIT-007 | PARTIAL | POST removal pinned (§9 TC-AUDIT-008/TC-RBAC-026 — 404 every role); PUT/DELETE/PATCH mutation variants not separately pinned |
+| TC-AUDIT-008 | PASS | smoke §9 "TC-AUDIT-008/TC-RBAC-026 (flipped): POST /api/audit-logs returns 404 for every role (manual append removed, DCR-8)" |
+| TC-AUDIT-009 | PASS | smoke §16 "TC-AUDIT-009 (flipped): GET /api/system/export writes a SYSTEM_EXPORT row keyed by exportTimestamp (AUD-P06)" |
+| TC-AUDIT-010 | PASS | smoke §16 "TC-AUDIT-010 class 1 (flipped)" + "TC-AUDIT-010 classes 2+3 (flipped)" (anon-401/tampered-401 split asserted) |
+
+### A.11 §6.11 Public sync — SYNC
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-SYNC-001 | PASS | smoke §10 "GET /api/sync/logs (admin) returns 200 (5 sync logs)"; e2e E9 |
+| TC-SYNC-002 | PASS | smoke §10 "POST /api/sync/trigger (admin) returns 200 (triggered)"; FORCE_SYNC/BULK-ALL row quoted in §16 TC-SYNC-004 detail; e2e E6 |
+| TC-SYNC-003 | PARTIAL | sync-log-on-approve pinned (e2e D1 "+ sync log entry"); the endpoint-field detail (api.kbjcapital.co.th/v1/public/news) not asserted |
+| TC-SYNC-004 | PASS | smoke §16 "TC-SYNC-004 (flipped): POST /api/sync/trigger writes a SYNC_TRIGGER audit row (AUD-P05)" |
+| TC-SYNC-005 | PASS | e2e E1 "External Web Sync view renders and can switch to CMS"; staff-side absence e2e B14 ("CMS/External nav absent") |
+| TC-SYNC-006 | PASS | smoke §10 "(admin) returns 200 with tables payload (tables: news, banners, contacts, meeting_rooms, documents, audit_logs, sync_logs)"; migrate.js consumer half at **L4** — §3.5 TC-SYS-004 (both runs) |
+
+### A.12 §6.12 Uploads — UPL
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-UPL-001 | PASS | smoke §11 "(maker) returns 201 + uploaded file is served byte-identical (65B verified)" — fixture is a whitelisted `.pdf` (the doc's 1×1-PNG variant is not the suite's fixture) |
+| TC-UPL-002 | PARTIAL | representative pinned: §11 "rejects non-whitelisted extension (.exe)" → 400; the full `.sh/.html/.svg/.js/.txt` list not enumerated |
+| TC-UPL-003 | NOT COVERED at L2/L3 | crafted-extension variants (.jpg.exe, %00, trailing dot) not pinned; P1 → L5 (Doc 19) |
+| TC-UPL-004 | NOT COVERED at L2/L3 | MIME/extension mismatch not pinned; P1 → L5 (Doc 19) |
+| TC-UPL-005 | PASS | smoke §11 "rejects oversized file (11MB > 10MB limit)" → 413 |
+| TC-UPL-006 | NOT COVERED at L2/L3 | empty-multipart 400 not pinned; P2 |
+| TC-UPL-007 | PASS | smoke §11 "(staff) returns 403 - uploads restricted to maker+ (staff excluded)" |
+| TC-UPL-008 | PARTIAL | served-200 half pinned (§11 byte-identical); nosniff header + directory-traversal block not asserted → L5 (Doc 19) |
+
+### A.13 §6.13 Search — SRCH
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-SRCH-001 | PARTIAL | English-title path pinned (e2e B8 "Global search (Ctrl+K) opens, finds a seeded article … results shown for 'BOT'"); title-TH/summary/department matchers not enumerated |
+| TC-SRCH-002 | NOT COVERED at L2/L3 | no case-mix pin (B8 exercises a single uppercase query); P2 |
+| TC-SRCH-003 | PARTIAL | name field pinned (e2e B9 "search by name filters contacts (n=1)"); nameEn/position/extension not enumerated |
+| TC-SRCH-004 | PARTIAL | single-filter paths pinned (e2e B10 department chips; B13 news category); combined-filter intersection not asserted |
+
+### A.14 §6.14 Probes & platform — SES-010..013
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-SES-010 | PASS | smoke §0 "GET /healthz returns 200 (healthy)"; w3r1 §4 `e2e_server_healthz=200` |
+| TC-SES-011 | PARTIAL | healthy half: smoke §0 "GET /readyz returns 200 (ready)"; kill-PG → 503 half covered at **L4** — §3.5 TC-SYS-005 (5/5 samples 503 `not_ready`) |
+| TC-SES-012 | PASS | smoke §0 readyz 200 against the in-memory spawned server (default mode) |
+| TC-SES-013 | NOT COVERED at L2/L3 | covered at **L4** — §3.5 TC-AVAIL-003 (SIGTERM sequence, `ExitCode=0`); also observed on the host-spawned e2e server teardown in w3r1 §4 (graceful-shutdown lines before `PORT_3220_RELEASED=OK`) |
+
+### A.15 §6.15 Performance — PERF
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-PERF-001 | NOT COVERED at L2/L3 | no latency assertion in smoke or e2e; P2 ("document, not fail") — not scheduled at L4–L6 |
+| TC-PERF-002 | NOT COVERED at L2/L3 | no login-latency sampling; P2 (design-bounded) |
+| TC-PERF-003 | NOT COVERED at L2/L3 | no audit-payload measurement; P2 (feeds Doc 10 §6 `[PLANNED]`) |
+| TC-PERF-004 | NOT COVERED at L2/L3 | no upload-throughput loop; P2 |
+
+### A.16 §6.16 RBAC negative matrix — RBAC
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-RBAC-001 | PASS | smoke §2 "GET /api/contacts returns 401 (anon)" |
+| TC-RBAC-002 | PASS | smoke §2 "GET /api/documents returns 401 (anon)" |
+| TC-RBAC-003 | PASS | smoke §7 "POST /api/news (staff) returns 403" |
+| TC-RBAC-004 | PASS | smoke §7 "POST /api/news (checker) returns 403 (compliance cannot author)" |
+| TC-RBAC-005 | PASS | smoke §7 "PUT /api/news/:id (staff) returns 403" |
+| TC-RBAC-006 | PASS | smoke §7 "POST /api/banners (staff) returns 403" |
+| TC-RBAC-007 | NOT COVERED at L2/L3 | staff POST /api/contacts 403 not pinned (maker 201 pinned §7; staff 403 pinned for news/banners only) |
+| TC-RBAC-008 | NOT COVERED at L2/L3 | staff POST /api/documents 403 not pinned (maker 201 pinned §7) |
+| TC-RBAC-009 | PASS | smoke §8 "submit-approval (staff) returns 403" |
+| TC-RBAC-010 | PASS | smoke §8 "submit-approval (checker) returns 403" |
+| TC-RBAC-011 | PASS | smoke §8 "approve (maker) returns 403 (maker cannot self-approve)" |
+| TC-RBAC-012 | PASS | smoke §8 "approve (staff) returns 403" |
+| TC-RBAC-013 | PASS | smoke §9 "GET /api/audit-logs (maker) returns 403" |
+| TC-RBAC-014 | PASS | smoke §9 "GET /api/audit-logs (staff) returns 403" |
+| TC-RBAC-015 | NOT COVERED at L2/L3 | maker GET /api/sync/logs 403 not pinned (staff variant pinned §10) |
+| TC-RBAC-016 | NOT COVERED at L2/L3 | checker POST /api/sync/trigger 403 not pinned (staff variant pinned §10) |
+| TC-RBAC-017 | NOT COVERED at L2/L3 | maker GET /api/system/export 403 not pinned (staff variant pinned §10) |
+| TC-RBAC-018 | PASS | smoke §5 "GET /api/users (staff) returns 403" |
+| TC-RBAC-019 | NOT COVERED at L2/L3 | checker POST /api/users 403 not pinned (staff variant pinned §5) |
+| TC-RBAC-020 | NOT COVERED at L2/L3 | staff PATCH /api/users/:id 403 not pinned (no negative PATCH check exists) |
+| TC-RBAC-021 | PASS | smoke §11 "(staff) returns 403 - uploads restricted to maker+" |
+| TC-RBAC-022 | PASS | smoke §12 "DELETE /api/news/:id (maker) returns 403" |
+| TC-RBAC-023 | PASS | smoke §12 "DELETE /api/banners/:id (checker) returns 403" |
+| TC-RBAC-024 | PASS | smoke §12 "DELETE /api/contacts/:id (maker) returns 403" |
+| TC-RBAC-025 | PASS | smoke §12 "DELETE /api/documents/:id (checker) returns 403" |
+| TC-RBAC-026 | PASS | smoke §9 "TC-AUDIT-008/TC-RBAC-026 (flipped): POST /api/audit-logs returns 404 for every role" |
+| TC-RBAC-027 | PASS | smoke §2 "POST /api/upload returns 401 (anon)" |
+| TC-RBAC-028 | PASS | smoke §2 "GET /api/users returns 401 (anon)" |
+| TC-RBAC-029 | PASS | smoke §6 "POST /api/rooms/:id/book + /release (staff) round-trip 200" (positive control) |
+| TC-RBAC-030 | PASS | smoke §9 "GET /api/audit-logs (checker) returns 200 (44 entries)" (positive control) |
+
+### A.17 §6.17 Security — SEC (L2/L3-applicable rows; the rest ride to Doc 19)
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-SEC-001 | NOT COVERED at L2/L3 | no security-header assertion in smoke or e2e; P0 → L5 (Doc 19) |
+| TC-SEC-002 | PASS | e2e E-API2 "GET /api/k8s/diagnostics -> 404, no SPA HTML fallback (application/json; charset=utf-8)" — representative JSON-404 pin |
+| TC-SEC-003 | PASS | e2e E-API "malformed JSON gets a clean 400 envelope (fix #20) — HTTP 400 JSON envelope: Invalid JSON body" |
+| TC-SEC-004 | NOT COVERED at L2/L3 | no oversized-JSON-body pin (§11 413 is multipart upload, not JSON); → L5 (Doc 19) |
+| TC-SEC-005 | PASS | e2e C-API "empty-id PUT/DELETE return 400 envelope (fix #20) — 'Resource id is required'" |
+| TC-SEC-006 | NOT COVERED at L2/L3 | `npm audit` is not part of L2/L3 suites; P0 → L5 (Doc 19) |
+| TC-SEC-007 | NOT COVERED at L2/L3 | repo/image secret scan not run at L2/L3 (L4-adjacent evidence only: obs-2 `k8s/secret.yaml` gitignored `cac252e`, §4); → L5 (Doc 19) |
+| TC-SEC-008 | NOT COVERED at L2/L3 | uploads-dir listing not asserted; P2 → L5 (Doc 19) |
+| TC-SEC-009 | NOT COVERED at L2/L3 | login timing uniformity not measured; P2 → L5 (Doc 19) |
+| TC-SEC-010 | NOT COVERED at L2/L3 | container-hardening inspection not asserted (L4 TC-SYS-006 renders the manifest but asserts no hardening); P1 → L5 (Doc 19) |
+| TC-SEC-011 | PASS | smoke §8 — four explicit checks: "approve on a draft item returns 400 (state guard)", "submit-approval on a non-draft item returns 400", "PUT cannot forge workflow fields", "submitter cannot approve or reject their own submission (403, admin included)" |
+| TC-SEC-012 | PARTIAL | envelope classes exercised across suites (reads `{data}` asserted throughout §1/§6; id-guard 400 `success:false` via e2e C-API; malformed-JSON 400 via e2e E-API; JSON 404 via e2e E-API2); no single dedicated exhaustive-envelope check |
+| TC-SEC-013 | PARTIAL | positive half observed (live states only, §8/§17 details; live audit actions incl. SYNC_TRIGGER/SYSTEM_EXPORT/ACCESS_DENIED in §16); the never-emitted negatives (no `'pending'`, no CREATE/DELETE/SYNC_PUBLIC audit actions) have no runtime exhaustive pin — type-level proof is the L0 strict-tsc gate |
+
+### A.18 §6.22 Internationalization — I18N
+
+| TC | Verdict | Covering evidence |
+|---|---|---|
+| TC-I18N-001 | PASS | e2e A2 "Login screen renders bilingual labels, hotline 1258 and brand"; Thai status chips รอการอนุมัติ/เผยแพร่แล้ว/ถูกปฏิเสธ (C4/D1/D2); bilingual CMS labels throughout C/D sections |
+| TC-I18N-002 | PARTIAL | English-title news search pinned (e2e B8, query "BOT"); contacts-by-English-name not asserted |
+| TC-I18N-003 | NOT COVERED at L2/L3 | Thai `publishedAt` / "3 นาที" defaults not asserted in any result name; P2 |
+
+### A.19 Appendix summary
+
+157 TC rows mapped (the L2/L3-applicable Doc 12 §6 series plus the SEC
+rows): **100 PASS · 18 PARTIAL · 39 NOT COVERED at L2/L3**. Of the 39
+NOT-COVERED rows, 2 carry L4 pointers (TC-SES-004 → TC-SYS-002;
+TC-SES-013 → TC-AVAIL-003), 11 carry explicit L5 (Doc 19) pointers
+(TC-AUTH-003/004, TC-UPL-003/004, TC-SEC-001/004/006/007/008/009/010), and
+the remainder (26) are open gaps flagged for lead triage. The three **P0**
+rows the v1.1.0 draft flagged as having no automated pin anywhere
+(**TC-ROOM-003** double-booking, **TC-USER-006** self-deactivation,
+**TC-SES-006** missing-SESSION_SECRET boot fail) were closed by the lead's
+deterministic closure run `w3r1-p0-gaps.log` @ `d831feb` (2026-09-11T10:47Z)
+— all three behaved exactly per Doc 12 §6 expected strings. The remaining
+open items do not alter the L2/L3 exit verdicts (the suites' own exit
+criteria are met — §3.3/§3.4), but they ride to the Release-gate review as
+catalog-coverage debt, visible here rather than hidden behind aggregate
+counts. (TC-SYNC-006 is counted PASS; its migrate.js consumer half is
+covered at L4 — TC-SYS-004.)
