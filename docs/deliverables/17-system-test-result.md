@@ -1,6 +1,6 @@
 # Deliverable 17 — System Test Result
 
-**Version:** 1.1.0 · **Status:** Draft (awaiting lead review + codex re-gate) · **Date:** 2026-09-11 · **Author:** worker-5 → Lead review → CTO approval
+**Version:** 1.1.1 · **Status:** Draft (awaiting codex re-gate 2) · **Date:** 2026-09-11 · **Author:** worker-5 → Lead review → CTO approval
 
 > v1.0.1 (lead review pass): TC-SYS-006 kustomize half re-executed by the
 > lead with raw-log capture (`tc-sys-006-kustomize-rerun.log`) closing §3.6
@@ -20,6 +20,18 @@
 > `screenshots-archive/run-2026-09-11T1031Z-e2e-w3r1/`; stale-18
 > quarantined). §5.2 rulings 2 and 4 annotated OVERTURNED by the gate.
 > Gap history retained per annotate-not-rewrite.
+>
+> v1.1.1 (codex re-gate 1 fix): blockers 1/3/4 verified CLOSED; the residual
+> blocker-2 items closed by executed assertions — TC-USER-008 (actual
+> DELETE→404 JSON, both unknown and real id) and TC-NEWS-004 (merge
+> semantics: PUT summary-only 200 with preserved title/titleEn/content in
+> the response data) via `w3r2-gap-closures.log` @ `db6dde6`; TC-ROOM-003
+> recaptured with an explicit `book1_http=200` token (regate-1 NIT: the
+> first run's status token was consumed by the pretty-print pipe); Appendix
+> intro totals reconciled to A.19 (100/18/39); §6 provenance qualifications
+> for the overwritten live artifacts. Totals unchanged — the two rows were
+> already counted PASS; their evidence now establishes the specified
+> assertions.
 
 > Assembled strictly from archived evidence (run logs, report files, git
 > commit messages, PROJECT-STATE gate records) per Test Plan Doc 12 §9
@@ -522,6 +534,16 @@ Evidence files are unmodified archives (no edits by this author).
   own account.` on admin self-PATCH), TC-ROOM-003 (book1 200 → book2 400
   `Room is currently booked or under maintenance`); port released,
   teardown clean (Appendix A rows updated to PASS).
+- `.omc/reports/w3r2-gap-closures.log` — lead closure run @ `db6dde6`
+  (2026-09-11T10:51Z, regate-1 blocker-2 residuals): TC-USER-008 executed
+  assertion (`DELETE /api/users/:id` → 404 `application/json`
+  `{"success":false,"error":"No API endpoint for DELETE …"}` for BOTH an
+  unknown id and a real just-created id); TC-NEWS-004 merge semantics
+  (PUT summary-only → 200, response data preserves
+  `title:"W3R2-N004-OriginalTitle"` / `titleEn` / original `content`,
+  replaces `summary`); TC-ROOM-003 recapture with explicit
+  `book1_http=200` → `book2_http=400` tokens; port released, teardown
+  clean.
 - `.omc/reports/w3-l4/tc-sys-004-inmemory.log` — TC-SYS-004 re-execution
   with the specified in-memory source precondition (blocker 1 closure):
   :3232 in-memory prod server, marker `W3R1-SYS004-1789122562`,
@@ -542,9 +564,15 @@ Evidence files are unmodified archives (no edits by this author).
 
 **L2 / smoke**
 
-- `.omc/reports/smoke-report.md` — latest default-mode smoke report: 108/108
-  passed; generated 2026-09-11T10:08:31.188Z; Node v24.13.1 darwin 25.5.0;
-  spawned `dist/server.cjs` on :3210; in-memory mode.
+- `.omc/reports/smoke-report.md` — *(historical as of v1.1.1)* the
+  default-mode report cited throughout §2/§3.3: 108/108 passed; generated
+  2026-09-11T10:08:31.188Z; Node v24.13.1 darwin 25.5.0; spawned
+  `dist/server.cjs` on :3210; in-memory mode. **Live-file caveat:** the
+  harness overwrites this fixed filename per run — the on-disk file NOW
+  holds the W3-2R PG-run-2 report (stamp 10:33:21.471Z, 127/127), same code
+  tree; the 10:08:31Z values here are historical record, and the durable
+  transcript-form evidence for the current head is
+  `w3r1-standing-gates.log` §3.
 - `.omc/reports/w3fix1-pg-run-1.log` — W3-FIX-1 PG opt-in run 1: 127/127 in
   19.9s; started 2026-09-11T09:59:11Z; header pins tree
   `feature/w3-fix-001-pool-error` (uncommitted fix, pre-review-commit).
@@ -570,9 +598,14 @@ Evidence files are unmodified archives (no edits by this author).
 
 **L3 / e2e**
 
-- `.omc/reports/e2e-results.json` — L3 run record: 64 rows (63 PASS + 1
-  FLAKY S0 with retry evidence); counts `{"flaky":1,"pass":63}`; base
-  `http://127.0.0.1:3220`; finalized 2026-09-11T10:04:13.853Z.
+- `.omc/reports/e2e-results.json` — *(historical as of v1.1.1)* the L3 run
+  record: 64 rows (63 PASS + 1 FLAKY S0 with retry evidence); counts
+  `{"flaky":1,"pass":63}`; base `http://127.0.0.1:3220`; finalized
+  2026-09-11T10:04:13.853Z. **Live-file caveat:** overwritten on disk by the
+  W3-2R run (live `startedAt` 2026-09-11T10:32:38.219Z, same counts
+  63/1/0 — quoted in `w3r1-standing-gates.log` §4); the 10:04:13Z values
+  here are the historical 10:00Z-run record whose capture set is preserved
+  in `screenshots-archive/run-2026-09-11T1000Z-e2e/`.
 - `.omc/reports/screenshots/` — the harness's live write target (fixed
   filenames, no run-id scoping; harness change queued before W3-4/W3-5).
   **Retention citations point at the run-id archives** —
@@ -652,7 +685,10 @@ Doc 19, L6 = Doc 18) or an explicit open-gap flag. Honesty over
 completeness: aggregate green counts above say nothing about catalog
 coverage; this table is the coverage claim.
 
-**Totals: 157 rows — 97 PASS · 18 PARTIAL · 42 NOT COVERED at L2/L3.**
+**Totals: 157 rows — 100 PASS · 18 PARTIAL · 39 NOT COVERED at L2/L3**
+*(v1.1.0-draft counts were 97/18/42; the three P0 closures and the
+v1.1.1 executed-assertion closures below shift PASS up — A.19 is the
+authoritative reconciliation).*
 
 ### A.1 §6.1 Authentication — AUTH
 
@@ -687,7 +723,7 @@ coverage; this table is the coverage claim.
 | TC-NEWS-001 | PASS | smoke §1 "GET /api/news returns 200 with data array (anon) (12 items)"; search path via e2e B8 |
 | TC-NEWS-002 | PASS | smoke §7 "POST /api/news (maker) returns 201 (id=…)"; e2e C1 (defaults visible in CMS list) |
 | TC-NEWS-003 | PARTIAL | 200-edit pinned (smoke §7 "PUT /api/news/:id (maker) returns 200"; e2e C3); unknown-id 404 and id-immutability not separately pinned at L2/L3 |
-| TC-NEWS-004 | PASS | e2e C3 "Edit article preserves fields — edit form pre-filled (title + summary preserved) and saved"; smoke §7 PUT 200 |
+| TC-NEWS-004 | PASS (lead closure run 2026-09-11T10:51Z) | merge-semantics executed per §6.3: create (title `W3R2-N004-OriginalTitle`, titleEn, content, category) → `PUT` **summary only** → **200** with response data showing `title:"W3R2-N004-OriginalTitle"` + `titleEn` + `content:"<p>original body W3R2-N004</p>"` **preserved** and `summary:"UPDATED summary only — merge test"` **replaced** — `w3r2-gap-closures.log` @ `db6dde6` (e2e C3 form-prefill + smoke §7 PUT-200 retained as corroboration) |
 | TC-NEWS-005 | PASS | smoke §12 "DELETE /api/news/:id (admin) succeeds (200)"; e2e E5 (confirm dialog + removal) |
 | TC-NEWS-006 | PASS | smoke §8 "POST /api/news/:id/submit-approval (maker) returns 200"; audit actor asserted in §9; e2e C4 |
 | TC-NEWS-007 | PASS | smoke §8 "POST /api/news/:id/approve (checker) returns 200 (approved)"; e2e D1 |
@@ -743,7 +779,7 @@ coverage; this table is the coverage claim.
 |---|---|---|
 | TC-ROOM-001 | PASS | smoke §1 "GET /api/rooms returns 200 with data array (anon) (5 items)" |
 | TC-ROOM-002 | PASS | smoke §6 "POST /api/rooms/:id/book + /release (staff) round-trip 200 (room room-1 booked + released)"; e2e B11 |
-| TC-ROOM-003 | PASS (lead closure run 2026-09-11T10:47Z) | book1 200 (Kookmin Room, in-use) → book2 same room: 400 `Room is currently booked or under maintenance` — `w3r1-p0-gaps.log` @ `d831feb` |
+| TC-ROOM-003 | PASS (lead closure runs 2026-09-11T10:47Z + recapture 10:51Z) | `book1_http=200` (explicit token, success body w/ booking data) → `book2_http=400` `Room is currently booked or under maintenance` — `w3r2-gap-closures.log` @ `db6dde6` (recapture: the first run's `w3r1-p0-gaps.log` retained the success body but its `-w` status token was consumed by the JSON pretty-print pipe — regate-1 NIT; first log kept as history) |
 | TC-ROOM-004 | PASS | smoke §6 release half of the round-trip; e2e B12 "release booking control returns room to available — booking cleared" |
 | TC-ROOM-005 | NOT COVERED at L2/L3 | unknown-room 404 not pinned; P1 |
 | TC-ROOM-006 | NOT COVERED at L2/L3 | rooms empty-id 400 not pinned (the id-guard is pinned for news via e2e C-API); P1 |
@@ -772,7 +808,7 @@ coverage; this table is the coverage claim.
 | TC-USER-005 | PASS | e2e E4b "deactivated … login -> 401" |
 | TC-USER-006 | PASS (lead closure run 2026-09-11T10:47Z) | admin PATCH own id `{"isActive":false}` → 400 `You cannot deactivate your own account.` — `w3r1-p0-gaps.log` @ `d831feb` |
 | TC-USER-007 | PASS | e2e E4b "reactivated; login -> 200" |
-| TC-USER-008 | PASS | e2e E4b recorded note: "user deletion does not exist by design — throwaway users (e2eqa01, e2edeact01) remain in the QA users table" |
+| TC-USER-008 | PASS (lead closure run 2026-09-11T10:51Z) | executed assertion per §6.9: admin `DELETE /api/users/nonexistent-id-404` → **404** `application/json` `{"success":false,"error":"No API endpoint for DELETE /api/users/…"}`; same for a real just-created user id (no endpoint exists by design) — `w3r2-gap-closures.log` @ `db6dde6` (e2e E4b's design note retained as corroboration) |
 
 ### A.10 §6.10 Audit trail — AUDIT
 
