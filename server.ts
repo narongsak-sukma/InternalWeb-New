@@ -869,6 +869,12 @@ class PostgresRepository implements Repository {
       max: 10,
       idleTimeoutMillis: 30000,
     });
+    // Out-of-band server termination (e.g. `docker compose stop postgres`) surfaces as a
+    // Pool 'error' event, not a query rejection: log and keep serving — /readyz reports
+    // 503 and the pool re-connects on demand. Unhandled, this event crashes the process.
+    this.pool.on('error', (err) => {
+      console.error('[Persistence] Idle/client pool error (server may have terminated connections):', err instanceof Error ? err.message : err);
+    });
   }
 
   async init(): Promise<void> {
