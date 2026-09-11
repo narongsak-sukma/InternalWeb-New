@@ -1,6 +1,6 @@
 # Deliverable 21 — คู่มือผู้ใช้งาน (User Manual)
 
-**Version:** 0.2.0 · **Status:** Reviewed (lead review PASS 2026-09-11 — 46/46 figure citations verified against both run-id archives; all quoted UI strings + error messages verified verbatim against `server.ts`/`src/`; six judgment calls upheld; awaiting CTO gate) · **Date:** 2026-09-11 · **Author:** worker-3 → Lead review → CTO approval
+**Version:** 0.2.1 · **Status:** **Approved** (codex gate @ `541bae9`, 2026-09-11 — `.omc/artifacts/cto-gate-doc21-verdict.md`) · **Date:** 2026-09-11 · **Author:** worker-3 → Lead review → CTO approval
 
 > **v0.2.0 (2026-09-11):** §12 ปิดครบแล้ว — ภาพประกอบทั้งสามรายการจาก W3-4 UAT
 > (run `run-2026-09-11T1255Z-uat`) ถูกใส่เข้ามาพร้อมแฮช SHA-256
@@ -12,7 +12,7 @@
 >
 > แหล่งอ้างอิงความจริง (as built): Doc 11 (UI Prototype v1.2.0), Doc 03 (SRS), Doc 09 (RBAC v1.2.0), `tests/e2e-walkthrough.mjs` (ป้าย/ข้อความที่ assert จริง), และ `server.ts` (เฉพาะข้อความแสดงข้อผิดพลาดที่แน่นอน)
 
-**รูปประกอบ (Figures):** ภาพทั้งหมดอ้างอิงจากคลังภาพถาวร (archived screenshot runs) สองชุดซึ่งมีชื่อไฟล์เหมือนกันทั้ง 46 ภาพ + `MANIFEST.sha256`:
+**รูปประกอบ (Figures):** ภาพส่วนใหญ่อ้างอิงจากคลังภาพถาวร e2e สองชุดซึ่งมีชื่อไฟล์เหมือนกันทั้ง 46 ภาพ + `MANIFEST.sha256` และภาพ §12 ทั้งหมดมาจากคลังภาพ UAT เพิ่มเติม (8 ภาพ + `MANIFEST.sha256`):
 - `.omc/reports/screenshots-archive/run-2026-09-11T1031Z-e2e-w3r1/` (ชุดหลักที่อ้างอิงในเอกสารนี้)
 - `.omc/reports/screenshots-archive/run-2026-09-11T1000Z-e2e/` (ชุดสำรอง ชื่อไฟล์ตรงกัน)
 - `.omc/reports/screenshots/run-2026-09-11T1255Z-uat/` (ชุด W3-4 UAT visuals — ภาพ §12 ทั้งหมด + v4/v5/v5b สนับสนุน พร้อม `MANIFEST.sha256`)
@@ -32,7 +32,7 @@
 9. บทบาทผู้ดูแลระบบ (Admin)
 10. ข้อความแสดงข้อผิดพลาดที่พบบ่อย (Troubleshooting)
 11. คำถามที่พบบ่อย (FAQ)
-12. หมายเหตุ: รอภาพประกอบจาก W3-4 (UAT)
+12. ภาพประกอบจาก W3-4 (UAT) — ปิดครบแล้ว (v0.2.0)
 
 ---
 
