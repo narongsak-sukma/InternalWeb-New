@@ -1069,12 +1069,17 @@ class PostgresRepository implements Repository {
       const locked = sel.rows[0] ? newsFromRow(sel.rows[0]) : null;
       const p = plan(locked);
       if (p.kind === 'commit') {
-        // W2-FIX-4 delay hook: in normal mode the transaction HOLDS the FOR
-        // UPDATE row lock across this sleep (the deterministic lock-handoff
-        // point smoke §18 Family O exercises); in SIMULATE_STALE_READ mode it
-        // merely holds the unlocked window open with no lock held.
-        if (NEWS_COMMIT_DELAY_MS > 0) {
-          await new Promise<void>((resolve) => setTimeout(resolve, NEWS_COMMIT_DELAY_MS));
+        // W2-FIX-6 pause hook: the TEST HARNESS holds the session-level
+        // advisory lock on this key, so this transaction BLOCKS here until
+        // the harness releases it — no timer window exists. In normal mode
+        // the FOR UPDATE row lock is HELD across the pause (the deterministic
+        // lock-handoff point smoke §18 Family O exercises); in
+        // SIMULATE_STALE_READ mode the pause holds the unlocked, lock-free
+        // window open (the negative control). pg_advisory_xact_lock is
+        // transaction-level: it auto-releases at COMMIT/ROLLBACK, so pooled
+        // server connections can never leak the lock.
+        if (NEWS_PAUSE_ADVISORY_KEY > 0) {
+          await client.query('SELECT pg_advisory_xact_lock($1)', [NEWS_PAUSE_ADVISORY_KEY]);
         }
         await client.query(NEWS_UPDATE_SQL, newsUpdateValues(p.next));
         // The hook means "audit-write failure": it fires only when an audit
@@ -1257,26 +1262,34 @@ const AUDIT_FAILURE_INJECTION =
 const SEED_W2FIX1_FIXTURES =
   process.env.SMOKE_SEED_W2FIX1_FIXTURES === '1' && !IS_PRODUCTION;
 
-// ---- W2-FIX-4 test-only hooks (codex fix-cycle-3 regression coverage) ----
+// ---- W2-FIX-4/W2-FIX-6 test-only hooks (codex fix-cycle regression
+// coverage) ----
 // Both are PG-topology test tools for smoke §18; the memory repository stays
 // hook-free on purpose (single-process semantics have no cross-pod window to
 // exercise). Inert unless env-set AND non-production, same guard style as
 // the W2-FIX-1 hooks above.
-// - SMOKE_DELAY_NEWS_COMMIT_MS: hold the runNewsTransition transaction open
-//   for N ms after the plan decides 'commit', BEFORE the UPDATE. In normal
-//   mode the FOR UPDATE row lock is held ACROSS the sleep — the
-//   deterministic lock-handoff point smoke §18 Family O exercises. In
-//   SMOKE_SIMULATE_STALE_READ mode the sleep merely holds the unlocked
-//   window open with NO lock held.
+// - SMOKE_NEWS_PAUSE_ADVISORY_KEY: a positive integer; when set, every
+//   committed runNewsTransition executes SELECT pg_advisory_xact_lock($key)
+//   after the plan decides 'commit' and BEFORE the UPDATE. The TEST HARNESS
+//   holds the session-level advisory lock on that key, so the transaction
+//   BLOCKS there until the harness explicitly releases it — in normal mode
+//   the FOR UPDATE row lock is held ACROSS the pause (the deterministic
+//   lock-handoff point smoke §18 Family O exercises); in
+//   SMOKE_SIMULATE_STALE_READ mode the pause holds the unlocked window open
+//   with NO lock held (the negative control). Transaction-level advisory
+//   locks auto-release at COMMIT/ROLLBACK, so pooled server connections can
+//   never leak the lock. (Retired in W2-FIX-6: the
+//   SMOKE_DELAY_NEWS_COMMIT_MS sleep hook this replaces resumed
+//   automatically after N ms, so the harness controlled nothing.)
 // - SMOKE_SIMULATE_STALE_READ=1: faithfully reproduce the PRE-W2-FIX-3
 //   behavior — read the row WITHOUT FOR UPDATE, run the plan against that
 //   unlocked snapshot, and skip the FOR UPDATE select entirely (guards on a
 //   stale read; the UPDATE then clobbers by id). Exists so smoke §18
 //   Family N can prove the regression suite DETECTS the former stale-read
 //   defect.
-const NEWS_COMMIT_DELAY_MS = IS_PRODUCTION
+const NEWS_PAUSE_ADVISORY_KEY = IS_PRODUCTION
   ? 0
-  : Math.max(0, Number(process.env.SMOKE_DELAY_NEWS_COMMIT_MS) || 0);
+  : Math.max(0, Math.trunc(Number(process.env.SMOKE_NEWS_PAUSE_ADVISORY_KEY) || 0));
 const SIMULATE_STALE_READ =
   process.env.SMOKE_SIMULATE_STALE_READ === '1' && !IS_PRODUCTION;
 
