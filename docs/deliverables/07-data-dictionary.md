@@ -1,6 +1,6 @@
 # 07 — Data Dictionary
 
-**Version:** 1.2.0 · **Status:** Approved (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-4 → Lead review → CTO approval (W2-1 truth pass: worker-4)
+**Version:** 1.3.0 · **Status:** Approved (Wave-2 revision) · **Date:** 2026-09-11 · **Author:** worker-4 → Lead review → CTO approval (W2-1 truth pass: worker-4; W2-FIX-1 ripple pass: worker-5)
 
 AS-BUILT reference for every data structure the KB J Capital Intranet & CMS Portal persists. Compiled directly from `scripts/schema.sql` (canonical PostgreSQL DDL), the `PG_DDL` constant and repository implementations in `server.ts`, the shared types in `src/types.ts`, and the tooling in `scripts/migrate.js` / `scripts/seed-users.js`. Compliance context: Bank of Thailand (BOT) financial-institution governance and Thailand PDPA B.E. 2562.
 
@@ -56,7 +56,7 @@ Enforced by TypeScript types in `src/types.ts` (and by request defaults/validati
 | `users.is_active` | `true` / `false` | Deactivated accounts are never deleted; login and session resolution reject them. |
 | `news.category` | `kbj-news`, `ncb-news`, `bot-news`, `regulation`, `hr-announcement`, `all-about-money`, `lifestyle` | `NewsCategory` (types.ts). GET /api/news filters on exact match; `all` = no filter. |
 | `news.badge_color` | `red`, `orange`, `blue`, `emerald`, `amber` | Default on create: `orange`. |
-| `news.external_sync_status` | `draft`, `pending_approval`, `rejected`, `synced`, `pending` *(dead)* | `NewsItem['externalSyncStatus']` (`src/types.ts:28`). **Server-controlled (W2-1, FR-NEWS-009):** stripped from create/update request bodies at the validation layer; every create enters as `draft`. Strict machine: create → `draft`, submit → `pending_approval`, approve → `synced`, reject → `rejected`; editing a non-draft item force-resets it to `draft` (stamps cleared). *`pending` is the only dead member — declared in the union but **no code path ever assigns it** (DCR-5 in §12; DCR-3 resolved — §12). The union contains no `approved` member at all.* |
+| `news.external_sync_status` | `draft`, `pending_approval`, `rejected`, `synced`, `pending` *(dead)* | `NewsItem['externalSyncStatus']` (`src/types.ts:28`). **Server-controlled (W2-1, FR-NEWS-009):** stripped from create/update request bodies at the validation layer; every create enters as `draft`. Strict machine: create → `draft`, submit → `pending_approval`, approve → `synced`, reject → `rejected`; editing a non-draft item force-resets it to `draft` (stamps cleared); withdraw (W2-FIX-1, `2c97cc3`): `synced → draft` **state-only** — content preserved byte-for-byte, stamps cleared, no checker (DCR-9; `POST /api/news/:id/withdraw`). *`pending` is the only dead member — declared in the union but **no code path ever assigns it** (DCR-5 in §12; DCR-3 resolved — §12). The union contains no `approved` member at all.* |
 | `news.external_category` | `press-release`, `csr`, `product-notice`, `compliance`, `money-tips`, `lifestyle` | Default on create: `press-release`. |
 | `meeting_rooms.status` | `available`, `in-use`, `maintenance` | Set to `in-use` by POST /api/rooms/:id/book, back to `available` by /release; `maintenance` only via direct DB edit. |
 | `documents.category` | `policy`, `work-rules`, `form`, `handbook`, `governance` | Default on create: `form`. |
@@ -64,7 +64,7 @@ Enforced by TypeScript types in `src/types.ts` (and by request defaults/validati
 | `banners.is_active` | `true` / `false` | Default `true`. |
 | `sync_logs.action` | `CREATE`, `UPDATE`, `DELETE`, `FORCE_SYNC` | `SyncLog['action']`. |
 | `sync_logs.status` | `SUCCESS`, `PENDING`, `FAILED` | As built every runtime write uses `SUCCESS`; `PENDING`/`FAILED` appear only in seed data. |
-| `audit_logs.action` | `CREATE`, `UPDATE`, `DELETE`, `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `SYNC_PUBLIC`, `LOGIN`, `LOGIN_FAILED`, `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`, `FILE_UPLOAD` | 14 values, `AuditLog['action']`. Runtime-written ones: LOGIN, LOGIN_FAILED, LOGOUT, USER_CREATE, USER_ACTIVATE, USER_DEACTIVATE, FILE_UPLOAD, SUBMIT_APPROVAL, APPROVE, REJECT; the rest exist in seed data or via manual POST /api/audit-logs. |
+| `audit_logs.action` | `UPDATE`, `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `LOGIN`, `LOGIN_FAILED`, `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`, `FILE_UPLOAD`, `SYNC_TRIGGER`, `SYSTEM_EXPORT`, `ACCESS_DENIED` | 14 values, `AuditLog['action']` (`src/types.ts:119`) — **exactly the live writer set** since the W2-3 prune (`4650335` removed the dead `CREATE`/`DELETE`/`SYNC_PUBLIC`, whose only writer — the manual `POST /api/audit-logs` — had been removed by DCR-8 at `f6fa52d`; `SYNC_TRIGGER`/`SYSTEM_EXPORT`/`ACCESS_DENIED` were added). All 14 are runtime-written server-side; there is no manual append path. W2-FIX-1 (`2c97cc3`) call-site shapes reuse existing members: the state-only withdrawal writes `UPDATE` with `prior_status='synced'` in `details`; a denied decision on a legacy no-submitter pending row writes `ACCESS_DENIED` (handler-level, no state change). Pre-prune databases may still hold legacy rows carrying the removed values (free-text column — treat as historical, Doc 10 §9.2). |
 | `audit_logs.status` | `SUCCESS`, `REJECTED`, `WARNING` | `WARNING` = failed login; `REJECTED` = checker rejection; `SUCCESS` = everything else. |
 
 There is **no dedicated `system_tools` table** — see §8.
@@ -140,14 +140,14 @@ Mapped to `NewsItem`. The richest table; drives the intranet feed and the maker-
 | `is_important_alert` | boolean | NO | `false` | — | High-visibility flag. | — |
 | `views` | integer | NO | `0` | — | View counter (client-updated via PUT). | — |
 | `sync_to_external` | boolean | NO | `false` | — | "Live on public website" flag. **Server-controlled (W2-1):** stripped from create/update bodies — `false` at create, forced `false` on any draft reset, `true` only via the checker approve endpoint. | — |
-| `external_sync_status` | text | YES | — | enum-by-app (§3.2) | Maker-checker state machine value. **Server-controlled (W2-1):** stripped from create/update bodies; create always `draft`; transitions only via submit-approval/approve/reject. | — |
+| `external_sync_status` | text | YES | — | enum-by-app (§3.2) | Maker-checker state machine value. **Server-controlled (W2-1):** stripped from create/update bodies; create always `draft`; transitions only via submit-approval/approve/reject/withdraw (W2-FIX-1: withdraw = the state-only `synced→draft` endpoint `POST /api/news/:id/withdraw`). | — |
 | `external_category` | text | YES | — | enum-by-app (§3.2) | Public-site category. Create-default `press-release`. | — |
 | `attachment_url` | text | YES | — | — | Uploaded attachment path (`/uploads/<uuid>.<ext>`). | — |
 | `attachment_name` | text | YES | — | — | Original attachment filename. | Potentially **PDPA-Y** (filenames can contain names) |
 | `approved_by` | text | YES | — | — | Approving checker's username (set only by the approve endpoint). **Overloaded by reject**: set to `Rejected by <username>: <reason>`. | **PDPA-Y** |
 | `approved_at` | text | YES | — | — | Approval instant as `YYYY-MM-DD HH:MM:SS` display label. Cleared by the edit-forced draft reset. | Metadata |
-| `submitted_by` | text | YES | — | — | **W2-1 (FR-NEWS-009).** User id of the maker/admin who submitted the item for approval; the self-approval guard compares it against the acting checker's id (submitter can never approve or reject their own item — admin included). Cleared by the edit-forced draft reset. | Pseudonymous link |
-| `submitted_at` | text | YES | — | — | **W2-1 (FR-NEWS-009).** Submission instant as `YYYY-MM-DD HH:MM:SS` display label; cleared together with `submitted_by` on draft reset. | Metadata |
+| `submitted_by` | text | YES | — | — | **W2-1 (FR-NEWS-009).** User id of the maker/admin who submitted the item for approval; the self-approval guard compares it against the acting checker's id (submitter can never approve or reject their own item — admin included). **W2-FIX-1:** a `pending_approval` row with no `submitted_by` (pre-migration legacy shape) cannot be decided — approve/reject → 409 with an `ACCESS_DENIED` audit row. Cleared by the edit-forced draft reset and the state-only withdrawal. | Pseudonymous link |
+| `submitted_at` | text | YES | — | — | **W2-1 (FR-NEWS-009).** Submission instant as `YYYY-MM-DD HH:MM:SS` display label; cleared together with `submitted_by` on draft reset and the state-only withdrawal. | Metadata |
 | `created_at` | timestamptz | NO | `now()` | — | Row creation. | Metadata |
 | `updated_at` | timestamptz | NO | `now()` | trigger `update_news_modtime` | Row last-modified. | Metadata |
 
@@ -245,7 +245,7 @@ Mapped to `SyncLog`. Records every simulated outbound transmission to the public
 
 ### 5.9 `audit_logs` — immutable compliance trail (append-only)
 
-Mapped to `AuditLog`. Written server-side via `recordAudit()`; the actor always comes from the authenticated session (never client input).
+Mapped to `AuditLog`. Written server-side via two paths since W2-FIX-1 (`2c97cc3`): `recordAudit()` — the direct path (auth, users, sync-trigger, export, upload) — and `repo.commitNewsTransition()` for **news workflow transitions**, where the news `UPDATE`, the audit `INSERT` and — on the approve path — the `sync_logs` `INSERT` commit in **one PostgreSQL transaction** and roll back together on any failure (in-memory: state+audit back-to-back with prior-state restore; Doc 10 §9.3). The actor always comes from the authenticated session (never client input).
 
 | Column | Type | Nullable | Default | Constraints | Description | PII (PDPA) |
 |---|---|---|---|---|---|---|
@@ -400,3 +400,4 @@ Upserts the admin by **username** (`ON CONFLICT (username) DO UPDATE` — resets
 | 1.0.0 | 2026-09-10 | worker-4 | Initial as-built data dictionary from `scripts/schema.sql`, `server.ts`, `src/types.ts`, `scripts/migrate.js`, `scripts/seed-users.js`. |
 | 1.1.0 | 2026-09-10 | worker-4 | CTO-gate revision: DCR numbering aligned to the ratified register (dead-union → DCR-5, envelope inconsistency → DCR-4); 5,000-entry dev audit cap demoted to an unnumbered note; corrected `externalSyncStatus` union facts — `pending` is the only dead member, no `approved` value exists in the union. |
 | 1.2.0 | 2026-09-10 | worker-4 (W2-1 truth pass) | Aligned to W2-1 strict dual-control (22023eb): §3.2/§5.3 workflow fields (`sync_to_external`, `external_sync_status`, `approved_by/at`) marked server-controlled (stripped on create/update; create always `draft`); new `submitted_by`/`submitted_at` columns documented (§5.3, §11.1 ALTER TABLE upgrade path); DCR-3 marked RESOLVED. |
+| 1.3.0 | 2026-09-11 | worker-5 (W2-FIX-1 ripple pass) | §3.2 `audit_logs.action` trued to the **14-value live writer union** (was the pre-prune Wave-1 list with dead `CREATE`/`DELETE`/`SYNC_PUBLIC` and a stale manual-append note — DCR-8 removal landed `f6fa52d`, prune landed `4650335`; matches Doc 05 §3.5 v1.2.0 / Doc 10 §9.1–§9.3; verified against `src/types.ts:119`) with the W2-FIX-1 call-site shapes (withdrawal `UPDATE` `prior_status='synced'`; legacy-decision `ACCESS_DENIED`, handler-level). §3.2/§5.3 news rows: withdraw edge added to the state machine (`synced→draft` state-only, `2c97cc3`); `external_sync_status` transitions now name all four endpoints; `submitted_by`/`submitted_at` cleared-by list + legacy no-submitter 409 denial noted. §5.9: two audit write paths (`recordAudit` direct vs `commitNewsTransition` single-transaction atomic commit). Closes the doc-07 half of the `0be867c` ripple debt. |
