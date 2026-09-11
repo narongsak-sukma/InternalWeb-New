@@ -36,6 +36,11 @@
  *     → also opt-in for section 17: two further PG-mode servers (ports
  *       3214/3215) exercise the W2-FIX-1 transaction COMMIT and ROLLBACK
  *       paths plus the concurrency race against real PostgreSQL.
+ *     → also opt-in for section 18 (W2-FIX-3): two more PG-mode pods (ports
+ *       3216/3217) share ONE PostgreSQL and race concurrent edits against
+ *       approve/withdraw across PROCESSES — the replicas:2 regressions the
+ *       codex cycle-2 verdict mandates (SELECT ... FOR UPDATE transitions;
+ *       3 concurrent + 2 deterministic staggered iterations per race).
  *   Section 17 (W2-FIX-1) always runs: it spawns its own NODE_ENV=test
  *   servers (ports 3212/3213) that set SMOKE_SEED_W2FIX1_FIXTURES /
  *   SMOKE_INJECT_AUDIT_FAILURE — the hooks are non-production-guarded, so the
@@ -1505,34 +1510,20 @@ async function runW23AuditSuite() {
 }
 
 // ---------------------------------------------------------------------------
-// Section 17 (W2-FIX-1, codex fix-cycle blockers 1-4): atomic workflow
-// transitions, legacy-submission deny, state-only withdrawal, and
-// audit-failure rollback. Runs on its OWN spawned servers because the two
-// test hooks are non-production-guarded while the main server runs
-// NODE_ENV=production:
-//   :3212 - SMOKE_SEED_W2FIX1_FIXTURES=1 (legacy pending + live synced rows)
-//   :3213 - SMOKE_SEED_W2FIX1_FIXTURES=1 + SMOKE_INJECT_AUDIT_FAILURE=1
-//           (every commitNewsTransition audit write throws → rollback proof)
-//   :3214 - PostgreSQL + injection (opt-in, needs SMOKE_DATABASE_URL):
-//           proves the real BEGIN→…→ROLLBACK path leaves state untouched
-//   :3215 - PostgreSQL, clean (opt-in): the COMMIT path + the concurrency
-//           race against the transactional PG implementation
-// The spawned servers run NODE_ENV=test, so startServer() also mounts the
-// Vite dev middleware — harmless here: every /api route is registered before
-// that mount, and none of these checks touch non-API paths. Non-production
-// boot also creates the demo maker/checker accounts the checks log in as.
-// These servers carry their own login budgets, so running after section 14
-// (which saturates the MAIN server's budget) is safe.
+// Aux-server toolkit, shared by sections 17 and 18: per-suite spawned-children
+// registry + identical spawn/HTTP/login/news/audit helpers, plus the content
+// fingerprint used by the withdrawal-preservation assertions.
 // ---------------------------------------------------------------------------
 
-const W2FIX1_PORT = Number(process.env.SMOKE_W2FIX1_PORT || 3212);
-const W2FIX1_INJECT_PORT = Number(process.env.SMOKE_W2FIX1_INJECT_PORT || 3213);
-const W2FIX1_PG_PORT = Number(process.env.SMOKE_W2FIX1_PG_PORT || 3214);
-const W2FIX1_PG_CLEAN_PORT = Number(process.env.SMOKE_W2FIX1_PG_CLEAN_PORT || 3215);
+// All content fields must survive a withdrawal byte-for-byte: compare the
+// JSON fingerprint of everything EXCEPT the workflow fields.
+const WORKFLOW_KEYS = new Set(['externalSyncStatus', 'syncToExternal', 'approvedBy', 'approvedAt', 'submittedBy', 'submittedAt']);
+const contentFingerprint = (item) =>
+  JSON.stringify(Object.keys(item).filter((k) => !WORKFLOW_KEYS.has(k)).sort().reduce((acc, k) => { acc[k] = item[k]; return acc; }, {}));
 
-async function runW2Fix1Suite() {
-  section('17. W2-FIX-1 regression: atomic transitions, legacy deny, state-only withdrawal, audit-failure rollback');
-
+// One toolkit per suite: the spawned registry is scoped to the calling suite
+// so its finally block kills exactly its own servers.
+const makeAuxToolkit = () => {
   const spawned = [];
 
   const killSpawned = async () => {
@@ -1638,11 +1629,43 @@ async function runW2Fix1Suite() {
     return (r.json.data || []).filter((e) => String(e.resourceId) === resourceId);
   };
 
-  // All content fields must survive a withdrawal byte-for-byte: compare the
-  // JSON fingerprint of everything EXCEPT the workflow fields.
-  const WORKFLOW_KEYS = new Set(['externalSyncStatus', 'syncToExternal', 'approvedBy', 'approvedAt', 'submittedBy', 'submittedAt']);
-  const contentFingerprint = (item) =>
-    JSON.stringify(Object.keys(item).filter((k) => !WORKFLOW_KEYS.has(k)).sort().reduce((acc, k) => { acc[k] = item[k]; return acc; }, {}));
+  return { killSpawned, spawnAux, reqAt, loginAt, findNewsAt, auditRowsAt, contentFingerprint };
+};
+
+// ---------------------------------------------------------------------------
+// Section 17 (W2-FIX-1, codex fix-cycle blockers 1-4): atomic workflow
+// transitions, legacy-submission deny, state-only withdrawal, and
+// audit-failure rollback. Runs on its OWN spawned servers because the two
+// test hooks are non-production-guarded while the main server runs
+// NODE_ENV=production:
+//   :3212 - SMOKE_SEED_W2FIX1_FIXTURES=1 (legacy pending + live synced rows)
+//   :3213 - SMOKE_SEED_W2FIX1_FIXTURES=1 + SMOKE_INJECT_AUDIT_FAILURE=1
+//           (every runNewsTransition audit write throws → rollback proof)
+//   :3214 - PostgreSQL + injection (opt-in, needs SMOKE_DATABASE_URL):
+//           proves the real BEGIN→…→ROLLBACK path leaves state untouched
+//   :3215 - PostgreSQL, clean (opt-in): the COMMIT path + the same-pod
+//           concurrency race against the transactional PG implementation
+// Since W2-FIX-3 every writer runs through runNewsTransition (SELECT … FOR
+// UPDATE re-read + sync/pure plan inside one transaction); this section is
+// the single-server control for that path. The cross-pod (replicas:2)
+// regressions live in section 18 below.
+// The spawned servers run NODE_ENV=test, so startServer() also mounts the
+// Vite dev middleware — harmless here: every /api route is registered before
+// that mount, and none of these checks touch non-API paths. Non-production
+// boot also creates the demo maker/checker accounts the checks log in as.
+// These servers carry their own login budgets, so running after section 14
+// (which saturates the MAIN server's budget) is safe.
+// ---------------------------------------------------------------------------
+
+const W2FIX1_PORT = Number(process.env.SMOKE_W2FIX1_PORT || 3212);
+const W2FIX1_INJECT_PORT = Number(process.env.SMOKE_W2FIX1_INJECT_PORT || 3213);
+const W2FIX1_PG_PORT = Number(process.env.SMOKE_W2FIX1_PG_PORT || 3214);
+const W2FIX1_PG_CLEAN_PORT = Number(process.env.SMOKE_W2FIX1_PG_CLEAN_PORT || 3215);
+
+async function runW2Fix1Suite() {
+  section('17. W2-FIX-1 regression: atomic transitions, legacy deny, state-only withdrawal, audit-failure rollback');
+
+  const { killSpawned, spawnAux, reqAt, loginAt, findNewsAt, auditRowsAt, contentFingerprint } = makeAuxToolkit();
 
   let fixtureBase = null;
   let injectBase = null;
@@ -1930,6 +1953,397 @@ async function runW2Fix1Suite() {
 }
 
 // ---------------------------------------------------------------------------
+// Section 18 (W2-FIX-3, codex cycle-2 mandate): the two-process PostgreSQL
+// regressions. Opt-in under SMOKE_DATABASE_URL (same opt-in as sections 15
+// and 17-PG). Spawns TWO server processes that share ONE PostgreSQL:
+//   :3216 (pod A) and :3217 (pod B) — both NODE_ENV=test,
+//   DATABASE_URL=$SMOKE_DATABASE_URL, SMOKE_SEED_W2FIX1_FIXTURES=1, own
+//   UPLOAD_DIR, spawned sequentially (health-wait A, then B) so boot
+//   seeding never races.
+// This is the shipped k8s/deployment.yaml replicas:2 topology: the
+// process-local withNewsLock mutex CANNOT serialize these two pods, so every
+// invariant below is enforced solely by the SELECT ... FOR UPDATE re-read
+// inside runNewsTransition. Each race check runs 3 CONCURRENT fire-both-at-once
+// iterations (invariant assertions hold for whichever interleaving the
+// scheduler picks) plus 2 STAGGERED iterations (~150ms apart) that pin each
+// legal branch deterministically: approve/withdraw-first → 200 with its audit
+// row, edit-first → 400/409 from the FOR UPDATE re-read. Users follow the
+// §17-PG pattern — the bootstrap admin (shared DB) plays the maker; a fresh
+// checker is created via POST /api/users for dual-control (submitter ≠ actor).
+// ---------------------------------------------------------------------------
+
+const W2FIX3_POD_A_PORT = Number(process.env.SMOKE_W2FIX3_POD_A_PORT || 3216);
+const W2FIX3_POD_B_PORT = Number(process.env.SMOKE_W2FIX3_POD_B_PORT || 3217);
+
+async function runW2Fix3Suite() {
+  const databaseUrl = process.env.SMOKE_DATABASE_URL;
+  if (!databaseUrl) return; // opt-in, like sections 15/17-PG
+
+  section('18. W2-FIX-3 cross-pod regression: two pods, one PostgreSQL, FOR UPDATE transitions');
+
+  const { killSpawned, spawnAux, reqAt, loginAt, findNewsAt, auditRowsAt, contentFingerprint } = makeAuxToolkit();
+
+  try {
+    let podA = null;
+    let podB = null;
+    let makerA = null;
+    let makerB = null;
+    let checkerA = null;
+    let checkerB = null;
+
+    await check('W2-FIX-3 pods boot and share one PostgreSQL: an item created via pod A reads back byte-identical via pod B', async () => {
+      // Spawn sequentially (health-wait A, then B) so boot seeding never races.
+      podA = await spawnAux(
+        W2FIX3_POD_A_PORT,
+        { DATABASE_URL: databaseUrl, SMOKE_SEED_W2FIX1_FIXTURES: '1', UPLOAD_DIR: './uploads-test-w2fix3-a' },
+        'w2fix3-pod-a',
+      );
+      podB = await spawnAux(
+        W2FIX3_POD_B_PORT,
+        { DATABASE_URL: databaseUrl, SMOKE_SEED_W2FIX1_FIXTURES: '1', UPLOAD_DIR: './uploads-test-w2fix3-b' },
+        'w2fix3-pod-b',
+      );
+
+      // Bootstrap admin plays the maker (it exists in the shared DB); a fresh
+      // checker user enables the dual-control races (submitter ≠ approver).
+      makerA = await loginAt(podA, ADMIN_USERNAME, ADMIN_PASSWORD);
+      makerB = await loginAt(podB, ADMIN_USERNAME, ADMIN_PASSWORD);
+      const checkerName = `w2fix3ck${String(Date.now()).slice(-8)}`;
+      const mkChecker = await reqAt(podA, 'POST', '/api/users', {
+        cookie: makerA,
+        json: { username: checkerName, password: 'W2fix3@PG2026', displayName: 'W2-FIX-3 Pod Checker', email: 'w2fix3@smoke.local', role: 'checker' },
+      });
+      expectStatus(mkChecker, 201, 'POST /api/users (W2-FIX-3 checker fixture)');
+      checkerA = await loginAt(podA, checkerName, 'W2fix3@PG2026');
+      checkerB = await loginAt(podB, checkerName, 'W2fix3@PG2026');
+
+      const id = `news-w2fix3-shared-${Date.now()}`;
+      const create = await reqAt(podA, 'POST', '/api/news', {
+        cookie: makerA,
+        json: { id, title: 'W2-FIX-3 shared pod state', summary: 'shared', content: 'shared body' },
+      });
+      expectStatus(create, 201, 'POST /api/news via pod A');
+      const viaA = await findNewsAt(podA, id);
+      const viaB = await findNewsAt(podB, id);
+      assert(viaA.id === viaB.id && viaA.title === viaB.title && viaA.content === viaB.content,
+        `pods must read the same row: A(title="${viaA.title}") vs B(title="${viaB.title}")`);
+      assert(contentFingerprint(viaA) === contentFingerprint(viaB),
+        'the two pods must agree on every content field byte-for-byte');
+      return `pods healthy on :${W2FIX3_POD_A_PORT}/:${W2FIX3_POD_B_PORT}; item created via A, read via B — one shared store`;
+    });
+
+    if (podA && podB) {
+
+      await check('W2-FIX-3 race 1 (codex repro 1): concurrent cross-pod edit vs approve never yields synced-with-stale-content (3 concurrent + 2 staggered iterations)', async () => {
+        const observed = [];
+        for (let i = 0; i < 3; i += 1) {
+          const editOnA = i % 2 === 0;
+          const editPod = editOnA ? podA : podB;
+          const approvePod = editOnA ? podB : podA;
+          const editCookie = editOnA ? makerA : makerB;
+          const approveCookie = editOnA ? checkerB : checkerA;
+          const id = `news-w2fix3-race1-${Date.now()}-${i}`;
+          const editedTitle = `W2-FIX-3 race1 edited ${Date.now()}-${i}`;
+
+          const create = await reqAt(editPod, 'POST', '/api/news', {
+            cookie: editCookie,
+            json: { id, title: `W2-FIX-3 race1 base ${i}`, summary: 'race base', content: 'race base body' },
+          });
+          expectStatus(create, 201, `POST /api/news (race 1 iter ${i})`);
+          const sub = await reqAt(editPod, 'POST', `/api/news/${id}/submit-approval`, { cookie: editCookie });
+          expectStatus(sub, 200, `POST submit-approval (race 1 iter ${i})`);
+          const pending = await findNewsAt(editPod, id);
+          assert(pending.externalSyncStatus === 'pending_approval',
+            `race 1 iter ${i}: pre-race state must be pending_approval, got "${pending.externalSyncStatus}"`);
+
+          // Fire CONCURRENTLY on DIFFERENT pods; the fire order also alternates
+          // so both interleavings get a chance across the iterations.
+          const responses = await Promise.all(editOnA
+            ? [
+              reqAt(editPod, 'PUT', `/api/news/${id}`, { cookie: editCookie, json: { title: editedTitle, summary: 'race edited' } }),
+              reqAt(approvePod, 'POST', `/api/news/${id}/approve`, { cookie: approveCookie }),
+            ]
+            : [
+              reqAt(approvePod, 'POST', `/api/news/${id}/approve`, { cookie: approveCookie }),
+              reqAt(editPod, 'PUT', `/api/news/${id}`, { cookie: editCookie, json: { title: editedTitle, summary: 'race edited' } }),
+            ]);
+          const putRes = responses[editOnA ? 0 : 1];
+          const approveRes = responses[editOnA ? 1 : 0];
+          assert(putRes.status === 200,
+            `race 1 iter ${i}: the edit PUT must succeed in either interleaving, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+          assert([200, 400].includes(approveRes.status),
+            `race 1 iter ${i}: cross-pod approve must be 200 (won the FOR UPDATE lock) or 400 (edit committed first), got ${approveRes.status}: ${approveRes.text.slice(0, 160)}`);
+
+          // Final state read via BOTH pods: draft + edited title, byte-same.
+          const viaEditPod = await findNewsAt(editPod, id);
+          const viaApprovePod = await findNewsAt(approvePod, id);
+          for (const [label, item] of [['edit-pod', viaEditPod], ['approve-pod', viaApprovePod]]) {
+            assert(item.externalSyncStatus === 'draft',
+              `race 1 iter ${i} (${label}): final state must be draft in either interleaving, got "${item.externalSyncStatus}"`);
+            assert(item.title === editedTitle,
+              `race 1 iter ${i} (${label}): final content must be the EDITED snapshot (no stale sync), got "${item.title}"`);
+          }
+          assert(contentFingerprint(viaEditPod) === contentFingerprint(viaApprovePod),
+            `race 1 iter ${i}: both pods must read the byte-same final row`);
+
+          if (approveRes.status === 200) {
+            const reset = (await auditRowsAt(approvePod, makerA, id))
+              .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('reset externalSyncStatus to draft'));
+            assert(reset,
+              `race 1 iter ${i}: approve won the lock → the following PUT must have audited the forced reset (AUD-P01)`);
+          }
+          observed.push(approveRes.status);
+        }
+
+        // ---- staggered iterations (deterministic branch coverage) ----
+        // The concurrent iterations above prove the invariants for whichever
+        // interleaving the scheduler picks; the two staggered runs below pin
+        // EACH branch deterministically — 150ms is far more than a local
+        // transaction needs to commit, so the first request is always fully
+        // committed before the second re-reads the row under FOR UPDATE.
+        const staggered = [];
+        {
+          // Staggered A (approve-first): approve commits synced; the late edit
+          // PUT re-reads it and forced-resets to draft.
+          const id = `news-w2fix3-race1-staga-${Date.now()}`;
+          const editedTitle = `W2-FIX-3 race1 staggered-A edited ${Date.now()}`;
+          const create = await reqAt(podA, 'POST', '/api/news', {
+            cookie: makerA,
+            json: { id, title: 'W2-FIX-3 race1 staggered-A base', summary: 'race base', content: 'race base body' },
+          });
+          expectStatus(create, 201, 'POST /api/news (race 1 staggered A)');
+          const sub = await reqAt(podA, 'POST', `/api/news/${id}/submit-approval`, { cookie: makerA });
+          expectStatus(sub, 200, 'POST submit-approval (race 1 staggered A)');
+          const approvePromise = reqAt(podB, 'POST', `/api/news/${id}/approve`, { cookie: checkerB });
+          await sleep(150);
+          const putRes = await reqAt(podA, 'PUT', `/api/news/${id}`, { cookie: makerA, json: { title: editedTitle, summary: 'race edited' } });
+          const approveRes = await approvePromise;
+          assert(approveRes.status === 200,
+            `race 1 staggered A: approve fired 150ms ahead must commit (200), got ${approveRes.status}: ${approveRes.text.slice(0, 160)}`);
+          assert(putRes.status === 200,
+            `race 1 staggered A: the late edit PUT must succeed, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+          const viaA = await findNewsAt(podA, id);
+          const viaB = await findNewsAt(podB, id);
+          for (const [label, item] of [['podA', viaA], ['podB', viaB]]) {
+            assert(item.externalSyncStatus === 'draft' && item.title === editedTitle,
+              `race 1 staggered A (${label}): final must be draft + edited title (the PUT reset the just-approved item), got ${item.externalSyncStatus}/"${item.title}"`);
+          }
+          assert(contentFingerprint(viaA) === contentFingerprint(viaB),
+            'race 1 staggered A: both pods must read the byte-same final row');
+          const reset = (await auditRowsAt(podB, makerA, id))
+            .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('reset externalSyncStatus to draft'));
+          assert(reset,
+            'race 1 staggered A: the PUT that followed the approval must have audited the forced reset (AUD-P01)');
+          staggered.push('approve-first: approve=200, PUT=200, AUD-P01 reset row present');
+        }
+        {
+          // Staggered B (PUT-first): the edit forced-resets pending → draft;
+          // the late approve re-reads draft under FOR UPDATE → 400.
+          const id = `news-w2fix3-race1-stagb-${Date.now()}`;
+          const editedTitle = `W2-FIX-3 race1 staggered-B edited ${Date.now()}`;
+          const create = await reqAt(podB, 'POST', '/api/news', {
+            cookie: makerB,
+            json: { id, title: 'W2-FIX-3 race1 staggered-B base', summary: 'race base', content: 'race base body' },
+          });
+          expectStatus(create, 201, 'POST /api/news (race 1 staggered B)');
+          const sub = await reqAt(podB, 'POST', `/api/news/${id}/submit-approval`, { cookie: makerB });
+          expectStatus(sub, 200, 'POST submit-approval (race 1 staggered B)');
+          const putRes = await reqAt(podB, 'PUT', `/api/news/${id}`, { cookie: makerB, json: { title: editedTitle, summary: 'race edited' } });
+          await sleep(150);
+          const approveRes = await reqAt(podA, 'POST', `/api/news/${id}/approve`, { cookie: checkerA });
+          assert(putRes.status === 200,
+            `race 1 staggered B: the edit PUT fired 150ms ahead must commit (200), got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+          assert(approveRes.status === 400,
+            `race 1 staggered B: the late approve must re-read draft under FOR UPDATE and be refused (400), got ${approveRes.status}: ${approveRes.text.slice(0, 160)}`);
+          const viaA = await findNewsAt(podA, id);
+          const viaB = await findNewsAt(podB, id);
+          for (const [label, item] of [['podA', viaA], ['podB', viaB]]) {
+            assert(item.externalSyncStatus === 'draft' && item.title === editedTitle,
+              `race 1 staggered B (${label}): final must be draft + edited title, got ${item.externalSyncStatus}/"${item.title}"`);
+          }
+          assert(contentFingerprint(viaA) === contentFingerprint(viaB),
+            'race 1 staggered B: both pods must read the byte-same final row');
+          staggered.push('PUT-first: PUT=200, approve=400 (draft re-read)');
+        }
+        return `concurrent approve per iteration: [${observed.join(', ')}] (200 = approve won the lock, 400 = edit committed first); staggered deterministic: ${staggered.join('; ')}`;
+      });
+
+      await check('W2-FIX-3 race 2 (codex repro 2): concurrent cross-pod edit vs withdraw preserves the edit and the synced precondition (3 concurrent + 2 staggered iterations)', async () => {
+        const observed = [];
+        for (let i = 0; i < 3; i += 1) {
+          const editOnA = i % 2 === 0;
+          const editPod = editOnA ? podA : podB;
+          const opPod = editOnA ? podB : podA; // approve + withdraw run on the OTHER pod
+          const editCookie = editOnA ? makerA : makerB;
+          const opMakerCookie = editOnA ? makerB : makerA;
+          const checkerCookie = editOnA ? checkerB : checkerA;
+          const id = `news-w2fix3-race2-${Date.now()}-${i}`;
+          const editedTitle = `W2-FIX-3 race2 edited ${Date.now()}-${i}`;
+
+          const create = await reqAt(editPod, 'POST', '/api/news', {
+            cookie: editCookie,
+            json: { id, title: `W2-FIX-3 race2 base ${i}`, summary: 'race base', content: `race 2 body ${i}` },
+          });
+          expectStatus(create, 201, `POST /api/news (race 2 iter ${i})`);
+          const sub = await reqAt(editPod, 'POST', `/api/news/${id}/submit-approval`, { cookie: editCookie });
+          expectStatus(sub, 200, `POST submit-approval (race 2 iter ${i})`);
+          // Approve via the OTHER pod — the normal cross-pod path too.
+          const appr = await reqAt(opPod, 'POST', `/api/news/${id}/approve`, { cookie: checkerCookie });
+          expectStatus(appr, 200, `POST approve via the other pod (race 2 iter ${i})`);
+          const syncedBefore = await findNewsAt(editPod, id);
+          assert(syncedBefore.externalSyncStatus === 'synced' && syncedBefore.syncToExternal === true,
+            `race 2 iter ${i}: pre-race state must be synced/live, got ${syncedBefore.externalSyncStatus}/${syncedBefore.syncToExternal}`);
+          const fingerprintBefore = contentFingerprint(syncedBefore);
+
+          const responses = await Promise.all(editOnA
+            ? [
+              reqAt(editPod, 'PUT', `/api/news/${id}`, { cookie: editCookie, json: { title: editedTitle, summary: 'race edited' } }),
+              reqAt(opPod, 'POST', `/api/news/${id}/withdraw`, { cookie: opMakerCookie }),
+            ]
+            : [
+              reqAt(opPod, 'POST', `/api/news/${id}/withdraw`, { cookie: opMakerCookie }),
+              reqAt(editPod, 'PUT', `/api/news/${id}`, { cookie: editCookie, json: { title: editedTitle, summary: 'race edited' } }),
+            ]);
+          const putRes = responses[editOnA ? 0 : 1];
+          const withdrawRes = responses[editOnA ? 1 : 0];
+          assert(putRes.status === 200,
+            `race 2 iter ${i}: the edit PUT must succeed in either interleaving, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+          assert([200, 409].includes(withdrawRes.status),
+            `race 2 iter ${i}: cross-pod withdraw must be 200 (won the FOR UPDATE lock while still synced) or 409 (edit reset to draft first), got ${withdrawRes.status}: ${withdrawRes.text.slice(0, 160)}`);
+
+          // Final state via BOTH pods: draft + edited title + not live, byte-same.
+          const viaEditPod = await findNewsAt(editPod, id);
+          const viaOpPod = await findNewsAt(opPod, id);
+          for (const [label, item] of [['edit-pod', viaEditPod], ['op-pod', viaOpPod]]) {
+            assert(item.externalSyncStatus === 'draft' && item.syncToExternal === false,
+              `race 2 iter ${i} (${label}): final state must be draft/not-live, got ${item.externalSyncStatus}/${item.syncToExternal}`);
+            assert(item.title === editedTitle,
+              `race 2 iter ${i} (${label}): final content must be the EDITED snapshot (the concurrent edit is never destroyed), got "${item.title}"`);
+          }
+          assert(contentFingerprint(viaEditPod) === contentFingerprint(viaOpPod),
+            `race 2 iter ${i}: both pods must read the byte-same final row`);
+
+          if (withdrawRes.status === 200) {
+            // The winning withdrawal preserved the pre-race synced content
+            // byte-for-byte (the edit then lands on top via the draft PUT path).
+            const wdData = withdrawRes.json && withdrawRes.json.data;
+            assert(wdData, `race 2 iter ${i}: withdraw 200 must return {success:true, data:item}, got: ${withdrawRes.text.slice(0, 160)}`);
+            assert(contentFingerprint(wdData) === fingerprintBefore,
+              `race 2 iter ${i}: a winning withdrawal must preserve the pre-race synced content byte-for-byte`);
+            const row = (await auditRowsAt(opPod, makerA, id))
+              .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('Withdrawal from public web'));
+            assert(row, `race 2 iter ${i}: withdraw 200 must carry the AUD-P01 withdrawal row`);
+            assert(String(row.details).includes("prior_status='synced'"),
+              `race 2 iter ${i}: AUD-P01 details must record prior_status='synced', got: "${row.details}"`);
+          } else {
+            assert(withdrawRes.json && withdrawRes.json.currentState === 'draft',
+              `race 2 iter ${i}: withdraw 409 must report the ACTUAL current (draft) state, got: ${withdrawRes.text.slice(0, 160)}`);
+          }
+          observed.push(withdrawRes.status);
+        }
+
+        // ---- staggered iterations (deterministic branch coverage) ----
+        // Same rationale as race 1: 150ms staggers pin each branch — the
+        // 200-withdraw (synced precondition held, content preserved, AUD-P01
+        // prior_status='synced') and the 409-withdraw (late withdraw re-reads
+        // the edit's forced draft reset, currentState reports draft).
+        const staggered = [];
+        {
+          // Staggered A (withdraw-first): withdraw commits synced→draft with
+          // the synced content intact; the late PUT lands the edit on draft.
+          const id = `news-w2fix3-race2-staga-${Date.now()}`;
+          const editedTitle = `W2-FIX-3 race2 staggered-A edited ${Date.now()}`;
+          const create = await reqAt(podA, 'POST', '/api/news', {
+            cookie: makerA,
+            json: { id, title: 'W2-FIX-3 race2 staggered-A base', summary: 'race base', content: 'race 2 staggered-A body' },
+          });
+          expectStatus(create, 201, 'POST /api/news (race 2 staggered A)');
+          const sub = await reqAt(podA, 'POST', `/api/news/${id}/submit-approval`, { cookie: makerA });
+          expectStatus(sub, 200, 'POST submit-approval (race 2 staggered A)');
+          const appr = await reqAt(podB, 'POST', `/api/news/${id}/approve`, { cookie: checkerB });
+          expectStatus(appr, 200, 'POST approve via the other pod (race 2 staggered A)');
+          const syncedBefore = await findNewsAt(podA, id);
+          assert(syncedBefore.externalSyncStatus === 'synced' && syncedBefore.syncToExternal === true,
+            `race 2 staggered A: pre-race state must be synced/live, got ${syncedBefore.externalSyncStatus}/${syncedBefore.syncToExternal}`);
+          const fingerprintBefore = contentFingerprint(syncedBefore);
+
+          const withdrawPromise = reqAt(podB, 'POST', `/api/news/${id}/withdraw`, { cookie: makerB });
+          await sleep(150);
+          const putRes = await reqAt(podA, 'PUT', `/api/news/${id}`, { cookie: makerA, json: { title: editedTitle, summary: 'race edited' } });
+          const withdrawRes = await withdrawPromise;
+          assert(withdrawRes.status === 200,
+            `race 2 staggered A: withdraw fired 150ms ahead on the synced item must commit (200), got ${withdrawRes.status}: ${withdrawRes.text.slice(0, 160)}`);
+          assert(putRes.status === 200,
+            `race 2 staggered A: the late edit PUT must land on the withdrawn draft, got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+          const wdData = withdrawRes.json && withdrawRes.json.data;
+          assert(wdData, `race 2 staggered A: withdraw 200 must return {success:true, data:item}, got: ${withdrawRes.text.slice(0, 160)}`);
+          assert(contentFingerprint(wdData) === fingerprintBefore,
+            'race 2 staggered A: the withdrawal must preserve the pre-race synced content byte-for-byte');
+          const row = (await auditRowsAt(podB, makerA, id))
+            .find((e) => String(e.action).toUpperCase() === 'UPDATE' && String(e.details).includes('Withdrawal from public web'));
+          assert(row, 'race 2 staggered A: withdraw 200 must carry the AUD-P01 withdrawal row');
+          assert(String(row.details).includes("prior_status='synced'"),
+            `race 2 staggered A: AUD-P01 details must record prior_status='synced', got: "${row.details}"`);
+          const viaA = await findNewsAt(podA, id);
+          const viaB = await findNewsAt(podB, id);
+          for (const [label, item] of [['podA', viaA], ['podB', viaB]]) {
+            assert(item.externalSyncStatus === 'draft' && item.syncToExternal === false,
+              `race 2 staggered A (${label}): final must be draft/not-live, got ${item.externalSyncStatus}/${item.syncToExternal}`);
+            assert(item.title === editedTitle,
+              `race 2 staggered A (${label}): final content must be the EDITED snapshot, got "${item.title}"`);
+          }
+          assert(contentFingerprint(viaA) === contentFingerprint(viaB),
+            'race 2 staggered A: both pods must read the byte-same final row');
+          staggered.push('withdraw-first: withdraw=200 (content preserved, AUD-P01 prior_status=synced), PUT=200');
+        }
+        {
+          // Staggered B (PUT-first): the edit forced-resets synced → draft;
+          // the late withdraw re-reads draft → 409 with currentState draft.
+          const id = `news-w2fix3-race2-stagb-${Date.now()}`;
+          const editedTitle = `W2-FIX-3 race2 staggered-B edited ${Date.now()}`;
+          const create = await reqAt(podB, 'POST', '/api/news', {
+            cookie: makerB,
+            json: { id, title: 'W2-FIX-3 race2 staggered-B base', summary: 'race base', content: 'race 2 staggered-B body' },
+          });
+          expectStatus(create, 201, 'POST /api/news (race 2 staggered B)');
+          const sub = await reqAt(podB, 'POST', `/api/news/${id}/submit-approval`, { cookie: makerB });
+          expectStatus(sub, 200, 'POST submit-approval (race 2 staggered B)');
+          const appr = await reqAt(podA, 'POST', `/api/news/${id}/approve`, { cookie: checkerA });
+          expectStatus(appr, 200, 'POST approve via the other pod (race 2 staggered B)');
+          const syncedBefore = await findNewsAt(podB, id);
+          assert(syncedBefore.externalSyncStatus === 'synced' && syncedBefore.syncToExternal === true,
+            `race 2 staggered B: pre-race state must be synced/live, got ${syncedBefore.externalSyncStatus}/${syncedBefore.syncToExternal}`);
+
+          const putRes = await reqAt(podB, 'PUT', `/api/news/${id}`, { cookie: makerB, json: { title: editedTitle, summary: 'race edited' } });
+          await sleep(150);
+          const withdrawRes = await reqAt(podA, 'POST', `/api/news/${id}/withdraw`, { cookie: makerA });
+          assert(putRes.status === 200,
+            `race 2 staggered B: the edit PUT fired 150ms ahead must commit its forced reset (200), got ${putRes.status}: ${putRes.text.slice(0, 160)}`);
+          assert(withdrawRes.status === 409,
+            `race 2 staggered B: the late withdraw must re-read draft under FOR UPDATE and be refused (409), got ${withdrawRes.status}: ${withdrawRes.text.slice(0, 160)}`);
+          assert(withdrawRes.json && withdrawRes.json.currentState === 'draft',
+            `race 2 staggered B: withdraw 409 must report the ACTUAL current (draft) state, got: ${withdrawRes.text.slice(0, 160)}`);
+          const viaA = await findNewsAt(podA, id);
+          const viaB = await findNewsAt(podB, id);
+          for (const [label, item] of [['podA', viaA], ['podB', viaB]]) {
+            assert(item.externalSyncStatus === 'draft' && item.syncToExternal === false,
+              `race 2 staggered B (${label}): final must be draft/not-live, got ${item.externalSyncStatus}/${item.syncToExternal}`);
+            assert(item.title === editedTitle,
+              `race 2 staggered B (${label}): final content must be the EDITED snapshot, got "${item.title}"`);
+          }
+          assert(contentFingerprint(viaA) === contentFingerprint(viaB),
+            'race 2 staggered B: both pods must read the byte-same final row');
+          staggered.push('PUT-first: PUT=200 (forced reset), withdraw=409 (currentState=draft)');
+        }
+        return `concurrent withdraw per iteration: [${observed.join(', ')}] (200 = withdraw won the lock, 409 = edit reset to draft first); staggered deterministic: ${staggered.join('; ')}`;
+      });
+    }
+  } finally {
+    await killSpawned();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 
@@ -2008,6 +2422,7 @@ async function main() {
     await runSuite();
     await runPgSharedStoreSuite(); // no-op unless SMOKE_DATABASE_URL is set
     await runW2Fix1Suite(); // W2-FIX-1 regression servers (own ports/budgets)
+    await runW2Fix3Suite(); // W2-FIX-3 cross-pod PG regressions (no-op unless SMOKE_DATABASE_URL)
   } catch (err) {
     suiteError = err && err.message ? err.message : String(err);
     console.error(`\n[FATAL] ${suiteError}`);
