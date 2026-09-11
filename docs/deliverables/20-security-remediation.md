@@ -1,6 +1,6 @@
 # Deliverable 20 — Security Remediation Report
 
-**Version:** 0.1.0 · **Status:** **Reviewed** (lead review PASS 2026-09-11 — git timeline/diff-stats/as-built line ranges/43s figure/gate counts all verified against `git show`, `server.ts` @ `13fae9e`, and the archived logs; five worker judgment calls accepted; awaiting CTO gate) · **Date:** 2026-09-11 · **Author:** worker-5 (fresh spawn) → Lead review → CTO approval
+**Version:** 0.1.1 · **Status:** **Approved** (codex gate @ `aec9779`, 2026-09-11 — `.omc/artifacts/cto-gate-doc20-verdict.md`) · **Date:** 2026-09-11 · **Author:** worker-5 (fresh spawn) → Lead review → CTO approval
 
 > Scope basis: conditional companion to Deliverable 19 — VA/Pentest Report
 > `docs/deliverables/19-va-pentest-report.md` **v0.4.1 Approved** (codex re-gate 2
@@ -14,6 +14,19 @@
 > cited record is marked **NOT RECORDED** — never inferred. Severity labels reuse
 > Deliverable 19's framework (Test Plan §8, S1–S4 by functional impact); no new
 > severities are minted here.
+>
+> v0.1.1 (codex gate = **APPROVE** — deliverable #20 PASSED; verdict
+> `.omc/artifacts/cto-gate-doc20-verdict.md` @ `aec9779`): no blocking
+> findings — R-01/R-02/R-03 remediation claims, residual register, inherited
+> severities, gate counts, and the NOT RECORDED honesty all verified
+> [OK]. 3 non-blocking NITs applied: (1) §2 R-02 "run twice, second
+> idempotent" re-attributed to `summary.md` + the `614dfa5` commit message
+> (`audit-fix-output.txt` retains one invocation's output only); (2) §6
+> evidence-index gate-log row qualified (`tsc.log` is empty — the exit-0
+> transcript lives in `summary.md`; exact build bytes in `summary.md` +
+> `lead-gates.log`, `build.log` prints a rounded size); (3) §1 Doc 19
+> provenance precision — `9d84dc1` is the reviewed v0.4.0 commit, the
+> v0.4.1 Approved flip landed in `f2fd57a`. Status flipped to Approved.
 
 ## 1. Purpose & scope
 
@@ -34,8 +47,9 @@ re-adjudication of Deliverable 19's TC verdicts — those stand as approved.
 
 Timeline (all 2026-09-11, from `git show` on `develop`): DEF-001 fix `7d33fc8`
 17:04:25 +0700, merged `27b2622` 17:08:21 +0700; VUL-001 fix `45f0bb0` and
-VUL-002 fix `614dfa5` both 17:58:01 +0700. Deliverable 19 approved v0.4.1 @
-`9d84dc1` (decision #19). This document authored at head `13fae9e`.
+VUL-002 fix `614dfa5` both 17:58:01 +0700. Deliverable 19 v0.4.0 reviewed @
+`9d84dc1`, the v0.4.1 Approved flip landed in `f2fd57a` (decision #19). This
+document authored at head `13fae9e`.
 
 ## 2. Remediation items
 
@@ -92,7 +106,7 @@ VUL-002 fix `614dfa5` both 17:58:01 +0700. Deliverable 19 approved v0.4.1 @
 - **Fix — commit `614dfa5`** "chore(deps): VUL-002 partial — patch-level
   transitive refresh (3→2 moderates)" (`git show`: `package-lock.json` only,
   24 lines changed, 20 insertions / 4 deletions; **`package.json` untouched**):
-  `npm audit fix --omit=dev` (run twice, second idempotent — `audit-fix-output.txt`)
+  `npm audit fix --omit=dev` (run twice, second idempotent — attested by `summary.md` and the `614dfa5` commit message; `audit-fix-output.txt` retains one invocation's output)
   moved body-parser 1.20.6→1.20.8 and its nested qs→6.16.0. Patch-level
   transitive only — the W3-3 ruling's abort-on-major-bump STOP rule was not
   triggered (`summary.md` §Change 2).
@@ -219,7 +233,7 @@ Every file cited above, with one-line content description.
 | `.omc/reports/w3fix2/audit-before.txt` / `audit-after.txt` | npm audit 3 → 2 moderates (same two GHSAs; zero High/Critical both) |
 | `.omc/reports/w3fix2/audit-fix-output.txt` | `npm audit fix --omit=dev` run transcript |
 | `.omc/reports/w3fix2/hdrs-a-get-root.txt` / `hdrs-b-400-malformed-json.txt` / `hdrs-c-413-too-large.txt` | 3-probe five-header regression dumps (:3234) |
-| `.omc/reports/w3fix2/tsc.log` / `build.log` / `smoke-default.log` / `smoke-pg-{1,2}.log` | Fix-tree worker gates: tsc 0 · build 162,543 B · smoke 108/108 · PG 127/127 ×2 |
+| `.omc/reports/w3fix2/tsc.log` / `build.log` / `smoke-default.log` / `smoke-pg-{1,2}.log` | Fix-tree worker gates: tsc 0 · build 162,543 B · smoke 108/108 · PG 127/127 ×2 *(v0.1.1 qualification: `tsc.log` is an empty exit-0 artifact — the run transcript with the exit code lives in `summary.md`; the exact 162,543-byte figure is recorded in `summary.md` + `lead-gates.log`, while `build.log` prints a rounded size)* |
 | `.omc/reports/w3fix2/server-3234.log` | Targeted-regression server boot log |
 | `.omc/reports/w3fix2/lead-gates.log` | Lead spot-gates atop `4fb1040` + independent malformed-JSON probe (:3236) |
 | `.omc/reports/w3-l4/tc-sys-005-rerun.log` | DEF-001 regression re-test PASS (503-not_ready contract, RestartCount 0, 1 s recovery) |
