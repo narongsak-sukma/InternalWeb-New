@@ -46,7 +46,7 @@ CTO (codex) solves directly.
 | 15 | Database Script | `scripts/schema.sql` + migrations | exists / extend |
 | 16 | Deployment Package | Dockerfile, compose, `k8s/` | exists / extend |
 | 17 | System Test Result | `docs/deliverables/17-system-test-result.md` | **Approved** — v1.1.2 @ `4fb1040` (codex re-gate 2 APPROVE @ `f11e4fe`, decision #16); L0-L4 EXITED |
-| 18 | UAT Result | `docs/deliverables/18-uat-result.md` | **Reviewed** — v0.3.0 (re-gate 1 APPROVE v0.2.1 @ `f70ae51`, decision #23; v0.3.0 = obs-U1 offline-sim closure + UAT-043 flip, 62 PASS/0 NOT TESTED — re-gate 2 in flight; L6 exit conditional on 18a nominee sign-off) |
+| 18 | UAT Result | `docs/deliverables/18-uat-result.md` | **Reviewed** — v0.3.0 under re-gate 2 **REVISE** (decision #24: UAT-043 PASS overclaims — O2a evidences the badge over the login screen; FR-CMS-004(a) rendered-bundled-content acceptance uncovered; O4 covering-evidence lane dispatched: surgical data-endpoint outage at login-hydration, deterministic via route-abort); L6 exit conditional on 18a nominee sign-off |
 | 19 | VA/Pentest Report | `docs/deliverables/19-va-pentest-report.md` | **Approved** — v0.4.1 (codex re-gate 2 APPROVE @ `9d84dc1`, decision #19); VUL-001 FIXED / VUL-002 partial + DEP-001; L5 EXITED |
 | 20 | Security Remediation Report | `docs/deliverables/20-security-remediation.md` | **Approved** — v0.1.1 (codex gate APPROVE @ `aec9779`, decision #20); R-01/R-03 FIXED, R-02 partial + DEP-001 accepted |
 | 21 | User Manual | `docs/deliverables/21-user-manual.md` | **Approved** — v0.2.1 (codex gate APPROVE @ `541bae9`, decision #22; §12 closed with W3-4 visuals) |
