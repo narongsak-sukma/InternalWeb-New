@@ -2,10 +2,19 @@
 
 **KB J Capital Co., Ltd. — Corporate Intranet & Public-Sync Portal (KB J Capital Intranet Portal 2.0)**
 
-**Version:** 1.2.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-10 · **Author:** worker-2 → Lead review → CTO approval (W2-2 revision: worker-5)
+**Version:** 1.7.0 · **Status:** Draft (Wave-2 revision) · **Date:** 2026-09-11 · **Author:** worker-2 → Lead review → CTO approval (W2-2/W2-3 revisions + W2-3 as-built flip: worker-5; W2-5 flip: worker-3; W2-FIX-1 pass: worker-5; W2-FIX-3 pass: worker-2)
+
+> **Change log (v1.7.0, W2-FIX-3):** codex cycle-2 cross-pod concurrency mandate closed in code (commit `bccd441`) — requirements trued to as-built. **FR-NEWS-010 extended in place** (no new id): acceptance (f) added — the news concurrency guarantee is **enforced in PostgreSQL across all news writers** (every writer route rides the `runNewsTransition` transactional executor: `BEGIN` → `SELECT … FOR UPDATE` re-read → pure guard plan on the locked fresh row → `UPDATE` + optional audit/sync-log inserts → `COMMIT`; `ROLLBACK` on any failure), so serialization holds **across pods — safe at the shipped `replicas: 2` topology** (`withNewsLock` remains the same-pod serializer; memory-mode single-process semantics unchanged). **FR-NEWS-009 mechanism names trued** (atomicity/serialization bullet + Status): `commitNewsTransition` → `runNewsTransition`; acceptance (i) extended to name the cross-pod proof. Inventory **unchanged at 95 REQ** (64 FR + 31 NFR) — extension, not a new requirement. New TCs TC-NEWS-020..022 (Doc 12 v1.10.0, smoke §18 — two pods, one shared PostgreSQL); design side = Doc 10 §9.3 v1.7.0; API side = Doc 08 §6 v1.5.0.
+> **Change log (v1.6.0, W2-FIX-1):** codex REVISE blockers 1–4 closed in code (commit `2c97cc3`) — requirements trued to as-built. **NEW FR-NEWS-010** (withdraw a live item from the public web — state-only, no checker per the ratified DCR-9 policy; the semantics are *not* covered by FR-NEWS-009, which constrains only the path **to** `synced` and grants no withdrawal right — hence a new id, flagged as a judgment call for lead review). **FR-NEWS-009 extended in place** (no new id): legacy-decision denial (a `pending_approval` row with no recorded submitter cannot be decided — 409 fresh-cycle, `ACCESS_DENIED` audit) and workflow atomicity/serialization (per-item lock; state+audit(+sync-log) commit as one all-or-nothing unit — 500 + rollback on audit-write failure, retry-safe). Inventory **94 → 95 REQ** (64 FR + 31 NFR). New TCs TC-NEWS-013..019 (Doc 12 v1.9.0, smoke §17); design side = Doc 10 §9.3; API side = Doc 08 §6.8.
+
+> **Change log (v1.5.0, W2-3 as-built flip):** FR-AUDIT-003's Wave-2 extension flipped from target state to **AS-BUILT (W2-3 code landed, commit `4650335`)** — the three call-site classes (sync trigger / system export / access denials) are live per Doc 10 §9.1; the audit-union prune is executed (net 14 values = the live writer set, Doc 10 §9.2); flip-pins TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 asserted in smoke §16 (Doc 12 v1.8.0; TC-SYNC-004 P2→P1). FR-AUDIT-004 and the §2.6 DCR-8 entry trued up in passing (stale "until the W2-2 code phase" clauses → removal **landed `f6fa52d`**). No new FR ids — the 94-REQ inventory is unchanged.
+
+> **Change log (v1.4.0, W2-5 lane):** FR-AUTH-002 acceptance (d) rewritten + (e) added, and the §2 per-pod rate-limit assumption flipped — the failed-login budget is **shared across pods in PostgreSQL** (`rate_limit_hits` atomic upsert) whenever `DATABASE_URL` is set; in-memory dev stays per-process; transient store errors fail open with a logged degradation `WARNING` (W2-5, RISK-010, commit `1b237cd`; no new REQ ids — 94-REQ inventory unchanged).
+
+> **Change log:** v1.3.0 (2026-09-10) — **FR-AUDIT-003 W2-3 extension (doc-first; extension of an existing requirement — no new FR ids, the 94-REQ inventory is unchanged):** enumerated coverage extended with the three ruled W2-3 call-site classes — sync trigger (`SYNC_TRIGGER`), system export (`SYSTEM_EXPORT`), access denials (`ACCESS_DENIED`, lead-ruled trim: 403s + presented-cookie 401s; no-cookie 401s request-log-only) — per Doc 10 §9.1 as ruled/trimmed; W2-1 guard/reset audit reuses noted; flip-pins TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 (Doc 12 v1.6.0). Target state until the W2-3 code phase lands (queues behind W2-2).
 
 > **Change log:** v1.2.0 (2026-09-10) — DCR-8 (CTO ruling, RISK-023, decision #5/#6: **PREFER REMOVAL**): FR-AUDIT-004 retitled to the removal target state (POST /api/audit-logs → 404; no API audit fabrication outside server-side `recordAudit`); DCR-8 entry added to the §2.6 DCR log. Current as-built (endpoint live) is explicitly preserved in the requirement text until the W2-2 code phase lands. Prior: v1.1.0 CTO-gate revision; v1.0.0 initial.
-> **Change log (W2-1, same version):** dual-control enforcement **landed** (DCR-3/DCR-7 + AUD-P01/02/03): FR-NEWS-009 `[PLANNED]` → **AS-BUILT**; FR-NEWS-002/003 acceptance criteria rewritten to the strict behavior (create always `'draft'`, no create/update sync log, workflow fields stripped, rejected→draft on edit); FR-SYNC-001(d) and NFR-COMP-001 as-built-gap notes resolved; §2.6 DCR-3 marked **resolved in W2-1**; §4 inventory counts updated.
+> **Change log (W2-1, same version):** dual-control enforcement **landed** (DCR-3/DCR-7 + AUD-P01/02/03): FR-NEWS-009 `[PLANNED]` → **AS-BUILT**; FR-NEWS-002/003 acceptance criteria rewritten to the strict behavior (create always `'draft'`, no create/update sync log, workflow fields stripped, non-draft→draft reset on edit); FR-SYNC-001(d) and NFR-COMP-001 as-built-gap notes resolved; §2.6 DCR-3 marked **resolved in W2-1**; §4 inventory counts updated. *Lead-ruling extension (same pass): the forced edit-reset covers ALL non-draft states (`'pending_approval'`/`'synced'`/`'rejected'`) — content change ⇒ draft; edited-live content drops out of the public set until re-approval.*
 
 > **Change log:** v1.1.0 (2026-09-10) — CTO gate REVISE applied: FR-NEWS-009 rewritten to the strict dual-control ruling (post-fix, no role — admin included — may reach `'synced'` outside the checker approve endpoint; state + submitter≠approver guards; server-controlled workflow fields; no admin carve-out; future override = separate break-glass requirement); NFR-COMP-001 aligned; DCR-3 disposition recorded in §2.6. v1.0.0 — initial draft.
 
@@ -84,7 +93,7 @@ website itself, the legacy portal, and customer-facing systems.
 
 Section 2 gives the overall description (product perspective, user classes,
 environment, constraints, assumptions). Section 3 lists the specific
-requirements — 63 functional (§3.1, 13 domains) and 31 non-functional
+requirements — 64 functional (§3.1, 13 domains) and 31 non-functional
 (§3.2, 6 domains) — each with inputs, outputs and testable acceptance
 criteria. Section 4 summarizes requirement counts per domain.
 
@@ -177,9 +186,11 @@ users are rejected at login and their existing sessions stop resolving.
 - Uploaded files live on a volume (`uploads` named volume / 5Gi RWO PVC);
   multi-replica write access is constrained by RWO until moved to RWX/object
   storage.
-- Rate limiting and failed-login tracking are **per process/pod** (5/min/IP);
-  consistent hashing or a shared store is required for stricter multi-replica
-  enforcement.
+- Login failed-budget tracking is **shared across replicas when PostgreSQL is
+  configured** (W2-5, RISK-010: `rate_limit_hits` atomic upsert through the
+  repository's login-budget contract — one budget for every pod); in-memory
+  dev mode remains per-process (5/min/IP). A transient shared-store error
+  fails open with a logged degradation `WARNING`.
 - `[PLANNED]` The public website exposes a webhook endpoint for outbound sync
   (not yet integrated).
 
@@ -224,10 +235,12 @@ users are rejected at login and their existing sessions stop resolving.
   evidentiary value (RISK-023). **CTO ruling (Wave-2, decision #5/#6): PREFER
   REMOVAL.** Target state (FR-AUDIT-004): the endpoint answers 404 and audit
   rows are appended **exclusively** by server-side `recordAudit()`; the audit
-  action set enumerated in FR-AUDIT-003 remains the complete set. The current
-  as-built (endpoint live, FR-AUDIT-004 v1.1.0 behavior) remains in force
-  until the W2-2 code phase removes the route — doc-first per PROJECT-STATE
-  §7; flip-pinned by TC-AUDIT-008 / TC-RBAC-026.
+  action set enumerated in FR-AUDIT-003 remains the complete set. The
+  current as-built (endpoint live, FR-AUDIT-004 v1.1.0 behavior) was kept in
+  force doc-first per PROJECT-STATE §7 until the W2-2 code phase —
+  **executed at `f6fa52d`: the route is removed (404 every role; tombstone
+  in `server.ts`) and TC-AUDIT-008 / TC-RBAC-026 are flipped and asserted in
+  the default smoke suite.**
 
 ---
 
@@ -253,7 +266,7 @@ Acceptance: (a) active user with correct password → 200 + cookie; (b) wrong pa
 Brute-force protection on the login endpoint.
 Actor: anonymous (per source IP). Inputs: repeated `POST /api/auth/login`.
 Outputs: HTTP 429 `{success:false, error:"Too many login attempts. Please try again in a minute."}` once the budget is exhausted; `RateLimit-*` draft-7 standard headers; no legacy headers.
-Acceptance: (a) more than 5 **failed** logins per minute per IP → 429; (b) successful logins do not consume the budget (`skipSuccessfulRequests`); (c) budget resets after the 1-minute window; (d) limit is per IP and per process/pod (documented limitation).
+Acceptance: (a) more than 5 **failed** logins per minute per IP → 429; (b) successful logins do not consume the budget (`skipSuccessfulRequests`); (c) budget resets after the 1-minute window; (d) the limit is per IP, and the failed-login budget is **shared across pods in PostgreSQL** (`rate_limit_hits` atomic upsert) whenever `DATABASE_URL` is set — in-memory dev mode remains per-process (documented limitation); (e) a transient shared-store error **fails open** with a logged degradation `WARNING` — a database blip never locks every user out (W2-5, RISK-010).
 
 **FR-AUTH-003 — User logout.**
 Destroy the current session.
@@ -360,7 +373,7 @@ Acceptance: (a) maker or admin → 201; staff/checker → 403; anonymous → 401
 **FR-NEWS-003 — Update news item.**
 Actor: maker, admin. Inputs: `PUT /api/news/:id` with partial item JSON.
 Outputs: 200 with the merged item (the `id` in the URL is authoritative — body id cannot change it); 404 for unknown id; blank/whitespace id → 400 (`requireResourceId`); when the updated item has `syncToExternal`, an `UPDATE` sync log is written.
-Acceptance: (a) unknown id → 404; (b) `id` cannot be reassigned; (c) `PUT /api/news/%20` → 400; (d) staff/checker → 403; (e) the update can never change workflow state: client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` are stripped (FR-NEWS-009) and update writes **no** `sync_logs` row; (f) editing a `'rejected'` item resets it to `'draft'` (prior approval/submission stamps cleared, forced transition audited — AUD-P01). *(Pre-W2-1 as-built gap (DCR-3) removed — see §2.6.)*
+Acceptance: (a) unknown id → 404; (b) `id` cannot be reassigned; (c) `PUT /api/news/%20` → 400; (d) staff/checker → 403; (e) the update can never change workflow state: client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` are stripped (FR-NEWS-009) and update writes **no** `sync_logs` row; (f) editing an item in **any non-draft state** (`'pending_approval'`, `'synced'`, `'rejected'`) resets it to `'draft'` — prior approval/submission stamps cleared and `syncToExternal` set false so modified content never stays public under a stale approval nor mutates under an open review (forced transition audited — AUD-P01). *(Pre-W2-1 as-built gap (DCR-3) removed — see §2.6.)*
 
 **FR-NEWS-004 — Delete news item.**
 Actor: admin. Inputs: `DELETE /api/news/:id`.
@@ -394,11 +407,20 @@ Actor: all roles (maker, checker, admin).
 Controls (as built):
 - Create/update (`POST /api/news`, `PUT /api/news/:id`): the workflow fields `externalSyncStatus`, `approvedBy`, `approvedAt` and the `syncToExternal` flag are **server-controlled** — client-supplied values for these fields are stripped at the validation layer (`stripNewsWorkflowFields`, applied to the request body so all current and future news mutation endpoints inherit it), and a new item is persisted as `'draft'` with `syncToExternal:false`; create/update write **no** `sync_logs` row.
 - Submit (FR-NEWS-005): accepted only when the item is in `'draft'`; any other state → 400. The submitter identity is persisted on the item (`news.submitted_by` user id + `submitted_at`) for the self-approval guard, and the SUBMIT_APPROVAL audit entry names the submitter.
-- Approve/reject (FR-NEWS-006/007): accepted only when the item is in `'pending_approval'`; any other state → 400. Additionally, the approver identity must differ from the submitter identity (**submitter ≠ approver guard**, compared as user ids via `submitted_by`); a self-decision attempt → 403.
-- Forced transition: editing a `'rejected'` item resets it to `'draft'` with the prior cycle's approval/submission stamps cleared — the only legal path is `draft → pending_approval → synced|rejected`.
+- Approve/reject (FR-NEWS-006/007): accepted only when the item is in `'pending_approval'`; any other state → 400. Additionally, the approver identity must differ from the submitter identity (**submitter ≠ approver guard**, compared as user ids via `submitted_by`); a self-decision attempt → 403. *W2-FIX-1 extension:* a `'pending_approval'` row carrying **no `submittedBy`** (pre-migration legacy shape; no API path can create it today — every submit stamps) **cannot be decided by anyone** — the dual-control invariant is unverifiable without a submitter identity, so approve/reject → **409** ("รายการนี้ถูกส่งก่อนการย้ายระบบ กรุณาให้ผู้สร้างส่งคำขออนุมัติใหม่ / Legacy submission requires a fresh submission cycle") with an `ACCESS_DENIED`/WARNING audit row; a fresh submission cycle (edit → submit) restores decidability.
+- Forced transition: **content change ⇒ draft** — editing an item in any non-draft state (`'pending_approval'`, `'synced'`, `'rejected'`) resets it to `'draft'`, clearing the prior cycle's approval/submission stamps and setting `syncToExternal:false` (the item drops out of the live public set until a checker re-approves; a pending item cannot be mutated under an open review). The only legal path is `draft → pending_approval → synced|rejected`; only checker approve makes content live.
+- *W2-FIX-1 extension — atomicity & serialization (mechanism trued by W2-FIX-3):* every news workflow transition (edit-reset, submit, approve, reject, and the FR-NEWS-010 withdrawal) commits its state change **and its audit row (and the approve-path sync log) as one all-or-nothing unit** inside the transactional executor `repo.runNewsTransition` (PG `BEGIN` → `SELECT … FOR UPDATE` re-read → pure guard plan on the locked fresh row → `UPDATE`/`INSERT`/`COMMIT` with `ROLLBACK` on any failure; in-memory with prior-state restore) — an audit-write failure rolls the transition back and returns 500, so **no committed transition can lack its audit row** and a retry hits the identical pre-transition state. All six news mutations additionally serialize per item: same-pod through a chained-promise critical section (`withNewsLock`), **cross-pod through the `FOR UPDATE` re-read** (under READ COMMITTED a blocked lock re-reads the latest committed row, so the state guards always see the winning write even when another pod's transaction wins the race — FR-NEWS-010(f)).
 Outputs (as built): `'synced'` (with `approvedBy`/`approvedAt` stamps and `syncToExternal:true`) can only be produced by a valid checker approve of a `'pending_approval'` item that was submitted by a different identity; every path remains audited (FR-AUDIT-003) — forced transitions and guard rejections each write an audit row with the reason in `details` (AUD-P01/02/03).
-Acceptance: (a) no role — including admin — can produce `'synced'` via create/update or via any endpoint other than checker approve; (b) approve/reject on an item not in `'pending_approval'` → 400; (c) approve by the same identity that submitted the item → 403; (d) submit-approval on an item not in `'draft'` → 400; (e) client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` in create/update payloads have no effect on persisted state; (f) regression tests cover each guard (a)–(e) (`scripts/smoke-test.mjs` maker-checker section, TC-SEC-011/TC-COMP-001).
-Status: **AS-BUILT (W2-1, v1.2.0)** — implemented in `server.ts` (`stripNewsWorkflowFields` validation-layer strip; guards on submit-approval/approve/reject; `news.submitted_by`/`submitted_at` columns in `scripts/schema.sql` and the server DDL, lockstep per NFR-MAINT-004). *Note:* any future admin override capability must be introduced as a separate, explicitly risk-accepted **break-glass requirement** — it is explicitly out of scope for the current requirements.
+Acceptance: (a) no role — including admin — can produce `'synced'` via create/update or via any endpoint other than checker approve; (b) approve/reject on an item not in `'pending_approval'` → 400; (c) approve by the same identity that submitted the item → 403; (d) submit-approval on an item not in `'draft'` → 400; (e) client-supplied `externalSyncStatus`/`approvedBy`/`approvedAt`/`syncToExternal` in create/update payloads have no effect on persisted state; (f) regression tests cover each guard (a)–(e) (`scripts/smoke-test.mjs` maker-checker section, TC-SEC-011/TC-COMP-001); (g) *(W2-FIX-1)* a decision on a legacy no-submitter pending row → 409, state unchanged, `ACCESS_DENIED` audit written; (h) *(W2-FIX-1)* an audit-write failure during any transition rolls the state change back (500) — no committed transition exists without its audit row; (i) *(W2-FIX-1)* a concurrent edit+approve never yields `synced`-with-stale-content in either interleaving — *(W2-FIX-3)* including when the edit and the decision hit **different pods** (the `FOR UPDATE` re-read serializes them in the database; TC-NEWS-021). (g)–(i) asserted in `scripts/smoke-test.mjs` §17 (TC-NEWS-013/014/017/018/019, Doc 12 v1.9.0) and §18 cross-pod (TC-NEWS-021, Doc 12 v1.10.0).
+Status: **AS-BUILT (W2-1, v1.2.0; W2-FIX-1 extension — legacy-decision denial + atomicity/serialization — v1.6.0, commit `2c97cc3`; W2-FIX-3 mechanism/cross-pod truth — v1.7.0, commit `bccd441`)** — implemented in `server.ts` (`stripNewsWorkflowFields` validation-layer strip; guards on submit-approval/approve/reject; `news.submitted_by`/`submitted_at` columns in `scripts/schema.sql` and the server DDL, lockstep per NFR-MAINT-004; `withNewsLock` same-pod serialization plus `runNewsTransition` `FOR UPDATE` cross-pod transitions per Doc 10 §9.3 v1.7.0). *Note:* any future admin override capability must be introduced as a separate, explicitly risk-accepted **break-glass requirement** — it is explicitly out of scope for the current requirements.
+
+**FR-NEWS-010 — Withdraw a live item from the public web (state-only).**
+Ratified DCR-9 policy (withdrawal needs **no checker** — the safe direction: un-publish), implemented without the stale-snapshot defect of the former PUT-based action (codex REVISE blocker 3; **W2-FIX-1, commit `2c97cc3`**). Complements FR-NEWS-009, which constrains the path **to** `'synced'` but grants no withdrawal right — hence a separate requirement id.
+Actor: maker, admin (checker explicitly excluded from this action; any author-side role may un-publish, per the DCR-9 ruling).
+Inputs: `POST /api/news/:id/withdraw` — **no request body**; any body is ignored (state-only by design: the server withdraws its *current* content, so a stale browser snapshot can never overwrite a concurrent maker's edits).
+Outputs: `200` with the item at `externalSyncStatus:'draft'`, `syncToExternal:false`, and `approvedBy`/`approvedAt`/`submittedBy`/`submittedAt` cleared — **every content field preserved byte-for-byte**; `409` when the item is not `'synced'` (Thai-first message "ประกาศไม่ได้อยู่ในสถานะเผยแพร่ / Item is not live on the public web", body carries the current state, no state change, **no** audit row); `404` unknown id; `500` atomic-commit failure (item stays `synced` — FR-NEWS-009 atomicity). The transition writes an `UPDATE`/SUCCESS audit row with `prior_status='synced'` in `details` (AUD-P01 shape, Doc 10 §9.3) committed atomically with the state change; **no** sync log (nothing new left the building).
+Acceptance: (a) withdrawal of a `'synced'` item returns it to `'draft'` and drops it from the live public set while every content field is byte-identical before/after; (b) withdrawal of a non-`'synced'` item → 409 with the current state exposed, no state change, no audit row; (c) staff/checker → 403 (maker/admin only); (d) the audit row and the state change commit together or not at all (FR-NEWS-009(h)); (e) verified by TC-NEWS-015/016 (`scripts/smoke-test.mjs` §17, Doc 12 v1.9.0); (f) *(W2-FIX-3)* the concurrency guarantee behind every acceptance clause above is **enforced in PostgreSQL across all news writers** — every writer route rides the `runNewsTransition` transactional executor (`BEGIN` → `SELECT … FOR UPDATE` re-read → pure guard plan on the locked fresh row → `UPDATE` + optional audit/sync-log inserts → `COMMIT`; `ROLLBACK` on any failure), so item-level serialization holds **across pods: safe at the shipped `replicas: 2` topology** (an edit and a withdraw hitting different pods are serialized by the row lock — withdraw-first keeps content byte-identical, edit-first leaves the withdraw 409 on the re-read `draft`; `withNewsLock` remains the same-pod serializer; in-memory dev mode keeps single-process semantics). Verified cross-pod by TC-NEWS-020..022 (`scripts/smoke-test.mjs` §18 — two pods, one shared PostgreSQL — Doc 12 v1.10.0).
+Status: **AS-BUILT (W2-FIX-1, `2c97cc3`; cross-pod extension W2-FIX-3, `bccd441`)** — new requirement introduced by this fix cycle; the §4 inventory grew **94 → 95 REQ (64 FR + 31 NFR)** at v1.6.0; the v1.7.0 cross-pod acceptance (f) is an **extension of the same requirement — the inventory stays 95**.
 
 #### 3.1.5 Hero banners (BANNER)
 
@@ -523,19 +545,20 @@ Outputs: 200 `{data:[AuditLog...]}` newest-first; maker/staff → 403; anonymous
 Acceptance: (a) checker and admin can list entries; (b) maker/staff cannot.
 
 **FR-AUDIT-003 — Audited action coverage.**
-Actor: system. Inputs: —. Outputs: at minimum these actions are audited: `LOGIN`, `LOGIN_FAILED`, `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`, `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `FILE_UPLOAD` — each with actor, role label, target resource, details, IP and status.
+Actor: system. Inputs: —. Outputs: at minimum these actions are audited: `LOGIN`, `LOGIN_FAILED`, `LOGOUT`, `USER_CREATE`, `USER_ACTIVATE`, `USER_DEACTIVATE`, `SUBMIT_APPROVAL`, `APPROVE`, `REJECT`, `FILE_UPLOAD` — each with actor, role label, target resource, details, IP and status. *(W2-1, as built):* news-workflow guard rejections reuse the workflow values (`SUBMIT_APPROVAL`/`APPROVE`/`REJECT`, status `WARNING`) and the forced edit-reset audit reuses `UPDATE` — reuses, not new vocabulary (Doc 10 §9.1).
 Acceptance: exercising each source action produces the corresponding entry (status `SUCCESS` / `WARNING` for failed login / `REJECTED` for rejection).
+**Wave-2 extension (W2-3; per Doc 10 §9.1 — **AS-BUILT, landed `4650335`**):** three further call-site classes are audited: (i) **sync trigger** — `POST /api/sync/trigger` writes a `SYNC_TRIGGER`/SUCCESS row (actor = admin, target `Public Edge Gateway`, `resourceId: BULK-ALL` correlating the sync-log item); (ii) **system export** — `GET /api/system/export` writes a `SYSTEM_EXPORT`/SUCCESS row (`resourceId` = the export's `exportTimestamp`, correlating the audit row with the exact snapshot; response shape unchanged); (iii) **access denials, lead-ruled trim** — every authenticated 403 and every 401 where a `kbj_session` cookie was presented but failed validation write an `ACCESS_DENIED`/`WARNING` row; no-cookie 401s are request-log-only by design (full coverage considered and rejected — Doc 10 §9.1).
+Acceptance (extension, as built since `4650335`): exercising each class produces its corresponding row while response codes/bodies stay unchanged (no RBAC expectation flips). Verified by: TC-SYNC-004 / TC-AUDIT-009 / TC-AUDIT-010 (Doc 12 v1.8.0 — asserted in `scripts/smoke-test.mjs` §16).
 
 **FR-AUDIT-004 — No manual audit fabrication `[REMOVED per DCR-8]`.**
-Target state (doc-first; the as-built endpoint remains live until the W2-2
-code phase lands — see DCR-8 in §2.6): the audit trail can never be written
-through the API by any actor, admin included; audit rows are appended
-**exclusively by server-side `recordAudit()`** as a side effect of the
-actions in FR-AUDIT-003.
+As built (W2-2 landed `f6fa52d`; DCR-8 — see §2.6): the audit trail can
+never be written through the API by any actor, admin included; audit rows
+are appended **exclusively by server-side `recordAudit()`** as a side
+effect of the actions in FR-AUDIT-003.
 Actor: — (constraint). Inputs: `POST /api/audit-logs` (any body).
 Outputs: HTTP 404 `{success:false, error:"No API endpoint for POST /api/audit-logs"}` (JSON `/api` catch-all) for every caller — anonymous, staff, maker, checker, admin.
 Acceptance (post-removal, Wave-2): (a) `POST /api/audit-logs` → 404 for **every** role including admin; (b) no API path appends `audit_logs` rows outside server-side `recordAudit()`; (c) the audit action set enumerated in FR-AUDIT-003 remains the complete set (no client-selectable `action` values enter the trail); (d) GET `/api/audit-logs` (FR-AUDIT-002) is unchanged.
-*[As-built today (until W2-2): admin → 201 with defaults; other roles → 403; actor server-stamped — documented in doc 08 §11.3 and doc 10 §5 AUD-11; flip-pins TC-AUDIT-008 / TC-RBAC-026.]*
+*[Historical as-built until `f6fa52d` (W2-2): admin → 201 with defaults; other roles → 403; actor server-stamped — documented in doc 08 §11.3 and doc 10 §5 AUD-11; TC-AUDIT-008 / TC-RBAC-026 now assert the 404.]*
 
 **FR-AUDIT-005 — Append-only integrity.**
 Actor: — (constraint). Inputs: —.
@@ -547,7 +570,7 @@ Acceptance: (a) no PUT/PATCH/DELETE route exists for audit logs; (b) schema.sql 
 **FR-SYNC-001 — Public-sync state machine.**
 Actor: makers/checkers. Inputs: lifecycle operations on a news item.
 Outputs: `externalSyncStatus` transitions `draft` → `pending_approval` (submit) → `synced` (approve, stamps `approvedBy`/`approvedAt`) or `rejected` (reject, records reason); approve/reject are restricted to checker+. **Runtime values are exactly `draft`, `pending_approval`, `synced`, `rejected` (DCR-5)** — the TypeScript union (`src/types.ts:28`) additionally declares `'pending'`, which is never produced at runtime (dead union member), and no `'approved'` status exists. Every transition writes an audit entry (FR-AUDIT-003).
-Acceptance: (a) the four-way flow completes draft→pending→synced with stamps; (b) draft→pending→rejected records the reason; (c) a maker cannot approve or reject (403); (d) direct create/update publish path exists as built (DCR-3, FR-NEWS-002/003 — remediation FR-NEWS-009 `[PLANNED]`); (e) no other status value is ever persisted or returned.
+Acceptance: (a) the four-way flow completes draft→pending→synced with stamps; (b) draft→pending→rejected records the reason; (c) a maker cannot approve or reject (403); (d) no direct create/update publish path exists — create/update always persist `'draft'` and the only path to `'synced'` is checker approve (FR-NEWS-009, DCR-3 resolved in W2-1); (e) no other status value is ever persisted or returned; (f) editing a non-draft item resets it to `'draft'` (FR-NEWS-009: content change ⇒ draft).
 
 **FR-SYNC-002 — Automatic sync logging.**
 Actor: system. Inputs: news create/update/delete with `syncToExternal`, and approve.
@@ -671,7 +694,7 @@ as-built implementation.
 
 #### 3.2.4 Compliance — BOT & PDPA (COMP)
 
-**NFR-COMP-001 — Segregation of duties (BOT).** Public-sync approval authority is segregated from authoring and submission **for all roles**: under the CTO strict ruling (FR-NEWS-009 `[PLANNED]`), post-fix **no role — admin included — may reach `externalSyncStatus:'synced'` by any path other than the checker approve endpoint**, with server-enforced state guards (approve/reject only from `'pending_approval'`, else 400; submit only from `'draft'`, else 400) and a submitter ≠ approver identity guard (else 403); every approval decision is attributable (FR-NEWS-006/007). *As-built gap (DCR-3):* until FR-NEWS-009 lands in Wave 2, the direct-publish path on create/update (available to all authorized roles) weakens strict dual control — documented as built in FR-NEWS-002/003.
+**NFR-COMP-001 — Segregation of duties (BOT).** Public-sync approval authority is segregated from authoring and submission **for all roles**: **no role — admin included — may reach `externalSyncStatus:'synced'` by any path other than the checker approve endpoint** (FR-NEWS-009, enforced in W2-1), with server-enforced state guards (approve/reject only from `'pending_approval'`, else 400; submit only from `'draft'`, else 400) and a submitter ≠ approver identity guard (else 403); every approval decision is attributable (FR-NEWS-006/007). *The Wave-1 as-built gap (DCR-3 direct-publish path) is resolved — verified by TC-SEC-011/TC-COMP-001.*
 *Acceptance:* (a) a maker cannot approve/reject (403 evidenced); (b) approved items carry checker identity + timestamp.
 
 **NFR-COMP-002 — PDPA accountability.** Sensitive operations are recorded in an append-only, actor-stamped trail with IP and outcome (FR-AUDIT-001/003/005); accounts are deactivated, never deleted, preserving linkage of historical actions (FR-USER-004); request logs (time, method, path, status, duration, IP) support investigation.
@@ -726,7 +749,7 @@ as-built implementation.
 | FR | AUTH | 6 | FR-AUTH-001…006 |
 | FR | SES | 6 | FR-SES-001…006 |
 | FR | USER | 5 | FR-USER-001…005 |
-| FR | NEWS | 9 | FR-NEWS-001…009 (009 `[PLANNED]`) |
+| FR | NEWS | 10 | FR-NEWS-001…010 |
 | FR | BANNER | 4 | FR-BANNER-001…004 |
 | FR | CONTACT | 4 | FR-CONTACT-001…004 |
 | FR | DOC | 3 | FR-DOC-001…003 |
@@ -742,7 +765,7 @@ as-built implementation.
 | NFR | COMP | 4 | NFR-COMP-001…004 |
 | NFR | I18N | 3 | NFR-I18N-001…003 |
 | NFR | MAINT | 7 | NFR-MAINT-001…007 |
-| **Total** | | **94** | 63 functional (1 `[PLANNED]`) + 31 non-functional |
+| **Total** | | **95** | 64 functional (1 `[PLANNED]`: FR-SYNC-004 outbound call) + 31 non-functional |
 
 Cross-references: each requirement above is traced to design artifacts, test
 cases (`TC-<DOMAIN>-<nnn>`) and UAT items (`UAT-<nnn>`) in

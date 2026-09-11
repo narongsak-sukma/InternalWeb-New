@@ -681,7 +681,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
 
   await step('C1', 'Create news article via CMS form', async () => {
     await click(page.getByRole('button', { name: /\+ New Post/i }));
-    await page.locator('text=Create & Publish New Announcement').waitFor({ state: 'visible', timeout: 5000 });
+    await page.locator('text=Create New Announcement').waitFor({ state: 'visible', timeout: 5000 });
     await page.locator('input[placeholder*="ประกาศมาตรการ"]').fill(NEWS_TITLE);
     await page.locator('input[placeholder*="BOT Regulatory"]').fill('E2E Test Article EN');
     await page.locator('textarea[placeholder*="Brief description"]').fill('E2E summary for the walkthrough test');
@@ -696,7 +696,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
 
   await step('C2', 'Image upload via file input returns a server URL', async () => {
     await click(page.getByRole('button', { name: /\+ New Post/i }));
-    await page.locator('text=Create & Publish New Announcement').waitFor({ state: 'visible', timeout: 5000 });
+    await page.locator('text=Create New Announcement').waitFor({ state: 'visible', timeout: 5000 });
     const fileInput = page.locator('input[type="file"][accept*="png"]').first();
     await fileInput.setInputFiles(FIXTURE_PNG);
     await page.waitForTimeout(1500);
@@ -717,7 +717,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
   await step('C-FR', 'Failed save keeps the form open with entered data (fix #26)', async () => {
     await click(page.getByRole('button', { name: /News & Alerts tab/i }).first());
     await click(page.getByRole('button', { name: /\+ New Post/i }).first());
-    const heading = page.locator('text=Create & Publish New Announcement').first();
+    const heading = page.locator('text=Create New Announcement').first();
     await heading.waitFor({ state: 'visible', timeout: 5000 });
     const TITLE = '[E2E] failed save retention probe';
     await page.locator('input[placeholder*="ประกาศมาตรการ"]').fill(TITLE);
@@ -766,7 +766,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
   await step('C3', 'Edit article preserves fields', async () => {
     const editBtn = page.locator(`button[aria-label^="แก้ไขประกาศ: ${NEWS_TITLE}"]`).first();
     await click(editBtn);
-    await page.locator('text=Edit Article & Sync Settings').waitFor({ state: 'visible', timeout: 5000 });
+    await page.locator('text=Edit Announcement').waitFor({ state: 'visible', timeout: 5000 });
     const preserved = await page.locator('input[placeholder*="ประกาศมาตรการ"]').inputValue();
     if (!preserved.includes(NEWS_TITLE)) throw new Error(`title not preserved (got "${preserved}")`);
     const summary = await page.locator('textarea[placeholder*="Brief description"]').inputValue();

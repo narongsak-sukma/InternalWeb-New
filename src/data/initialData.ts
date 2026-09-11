@@ -695,7 +695,7 @@ export const INITIAL_AUDIT_LOGS: AuditLog[] = [
     timestamp: '2026-07-25 11:22:18',
     actor: 'it.secops@kbjcapital.co.th',
     actorRole: 'Security Officer',
-    action: 'SYNC_PUBLIC',
+    action: 'SYNC_TRIGGER',
     targetResource: 'Public Edge Gateway',
     resourceId: 'GATEWAY-HANDSHAKE',
     details: 'Purged public edge cache and verified CDN certificate validity.',

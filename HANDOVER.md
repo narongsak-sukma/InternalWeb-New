@@ -233,9 +233,11 @@ exposes 3000, and has a Docker-level `HEALTHCHECK` on `/healthz`.
 - **No user deletion by design:** the User Management tab (admin) lists,
   creates, and deactivates/reactivates accounts; records are kept for
   audit-trail integrity, so plan retention accordingly.
-- Rate limiting and failed-login tracking are per-process/per-pod; with many
-  replicas behind the ingress, use consistent hashing or a shared store if
-  stricter enforcement is required.
+- Login rate limiting uses a shared PostgreSQL-backed store (the
+  `rate_limit_hits` atomic upsert in the repository layer), so the 5
+  failed-attempts/min/IP budget is enforced per cluster, not per pod.
+  In-memory dev mode stays per-process, and a transient database error fails
+  open with a WARNING rather than locking out all users.
 
 ## 11. Verification
 
