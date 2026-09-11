@@ -36,16 +36,21 @@
  *     → also opt-in for section 17: two further PG-mode servers (ports
  *       3214/3215) exercise the W2-FIX-1 transaction COMMIT and ROLLBACK
  *       paths plus the concurrency race against real PostgreSQL.
- *     → also opt-in for section 18 (W2-FIX-3, restructured in W2-FIX-4):
- *       four PG-mode pods share ONE PostgreSQL — clean pair :3216/:3217,
- *       delayed pod :3218 (SMOKE_DELAY_NEWS_COMMIT_MS=400 holds the FOR
- *       UPDATE row lock mid-transaction), sim pod :3219
- *       (SMOKE_SIMULATE_STALE_READ=1 reproduces the pre-fix stale read).
- *       Families: S sequential (await + assert the first response before
- *       the second), O deterministic lock-handoff overlap, N negative
- *       control (asserts the BUG signature under the sim pod — the
- *       detection-power proof), F informational single-iteration fuzz
- *       (invariant assertions only).
+ *     → also opt-in for section 18 (W2-FIX-3, restructured in W2-FIX-4,
+ *       barrier-coordinated in W2-FIX-5): four PG-mode pods share ONE
+ *       PostgreSQL — clean pair :3216/:3217, delayed pod :3218
+ *       (SMOKE_DELAY_NEWS_COMMIT_MS=400 holds the FOR UPDATE row lock
+ *       mid-transaction), sim pod :3219 (SMOKE_SIMULATE_STALE_READ=1
+ *       reproduces the pre-fix stale read). Families: S sequential
+ *       (await + assert the first response before the second — branch
+ *       coverage only, cannot detect a race), O barrier-coordinated
+ *       overlap (a direct pg client observes the first transaction 'idle
+ *       in transaction' in pg_stat_activity, then the second request's
+ *       FOR UPDATE query BLOCKED on that transaction's row lock, before
+ *       the first is explicitly released), N negative control (asserts
+ *       the BUG signature under the sim pod and that the shared
+ *       final-state invariant REJECTS it), F informational
+ *       single-iteration fuzz (invariant assertions only).
  *   Section 17 (W2-FIX-1) always runs: it spawns its own NODE_ENV=test
  *   servers (ports 3212/3213) that set SMOKE_SEED_W2FIX1_FIXTURES /
  *   SMOKE_INJECT_AUDIT_FAILURE — the hooks are non-production-guarded, so the
@@ -1959,15 +1964,16 @@ async function runW2Fix1Suite() {
 
 // ---------------------------------------------------------------------------
 // Section 18 (W2-FIX-3, codex cycle-2 mandate; restructured by W2-FIX-4 after
-// the codex cycle-3 verdict): the multi-process PostgreSQL regressions.
-// Opt-in under SMOKE_DATABASE_URL (same opt-in as sections 15 and 17-PG).
+// the cycle-3 verdict; barrier-coordinated by W2-FIX-5 after the cycle-4
+// verdict): the multi-process PostgreSQL regressions. Opt-in under
+// SMOKE_DATABASE_URL (same opt-in as sections 15 and 17-PG).
 // FOUR spawned server processes share ONE PostgreSQL (spawned sequentially,
 // health-wait one by one, so boot seeding never races):
 //   :3216 (pod A) and :3217 (pod B) — clean pair (fixture hook only)
 //   :3218 (pod D, delayed) — SMOKE_DELAY_NEWS_COMMIT_MS=400: every committed
 //           runNewsTransition holds its transaction open 400ms between the
 //           plan and the UPDATE, i.e. it HOLDS the FOR UPDATE row lock across
-//           the delay (the deterministic lock-handoff control)
+//           the delay (the lock-handoff control pod)
 //   :3219 (pod S, sim) — SMOKE_SIMULATE_STALE_READ=1 + the same delay: reads
 //           the row UNLOCKED, plans on that stale snapshot, and holds only a
 //           lock-free 400ms window — a faithful reproduction of the
@@ -1975,28 +1981,45 @@ async function runW2Fix1Suite() {
 // This is the shipped k8s/deployment.yaml replicas:2 topology: the
 // process-local withNewsLock mutex CANNOT serialize these pods, so every
 // invariant below is enforced solely by the SELECT ... FOR UPDATE re-read
-// inside runNewsTransition. W2-FIX-4 removed the former 150ms-stagger
-// branch-pinning (a scheduler-dependent timing assumption the codex cycle-3
-// verdict rejected) in favor of four families:
+// inside runNewsTransition. W2-FIX-4 replaced the former 150ms stagger with
+// four families; W2-FIX-5 replaced every remaining elapsed-time coordination
+// with TEST BARRIERS observed through a direct out-of-process pg client
+// polling pg_stat_activity (the codex cycle-4 mandate):
 //   Family S — sequential: every case AWAITS and asserts the FIRST response
-//              before sending the second (zero timing assumptions).
-//   Family O — overlap: a transition or PUT fired on :3218 holds the row
-//              lock mid-transaction for 400ms; the paired request fires on a
-//              clean pod ~100ms later and its SELECT ... FOR UPDATE cannot be
-//              granted before the delayed COMMIT — the lock handoff is
-//              exercised deterministically, and the asserted outcomes hold
-//              no matter where in the window the second request lands.
-//   Family N — negative control: the same overlap shape against :3219
-//              (stale-read simulation). The check ASSERTS the bug signature
-//              (approve/withdraw 200 on a stale snapshot; the final row
-//              clobbered back to the stale base content) and therefore
-//              PASSES only while the former defective implementation is
-//              faithfully reproduced — the detection-power proof the codex
-//              verdict demanded: run against the pre-W2-FIX-3 code, the
-//              Family S/O assertions would fail on exactly this signature.
+//              before sending the second — each request fully completes
+//              before the next is issued. No overlap by construction, so
+//              this family pins branch outcomes; it CANNOT detect a race.
+//   Family O — overlap, coordinated by barriers: (1) fire the first request
+//              on :3218 and wait until its transaction is observed 'idle in
+//              transaction' in pg_stat_activity — it has acquired the FOR
+//              UPDATE row lock and reached its pause; (2) only then fire the
+//              second request on a clean pod; (3) wait until a backend is
+//              observed blocked on a Lock wait running the FOR UPDATE query —
+//              the second request provably queued behind the first
+//              transaction's row lock; (4) await the first response (its
+//              COMMIT is the explicit release of the lock), then await the
+//              second (it re-reads the winner's committed row under READ
+//              COMMITTED). Bounded timeouts (5s) fail the check loudly when
+//              the overlap cannot be established — a zero-overlap execution
+//              can no longer pass silently.
+//   Family N — negative control on :3219 (stale-read simulation). The same
+//              idle-in-transaction barrier pauses the simulated stale
+//              operation after its unlocked read/plan; the competing edit is
+//              fired AND AWAITED (asserted 200) inside that window, then the
+//              stale operation is released. The check asserts the BUG
+//              signature (approve/withdraw 200 granted on the stale snapshot;
+//              the final row clobbered back to the stale base content) AND —
+//              the cycle-4 detection demonstration — that the SAME
+//              final-state invariant the fixed regression asserts (draft +
+//              edited title + byte-same across pods) REJECTS the result for
+//              BOTH bug signatures. Against this simulation the Family O
+//              overlap outcomes and the shared final-state invariant would
+//              fail; Family S cannot detect the race — sequential requests
+//              never overlap.
 //   Family F — informational fuzz: ONE Promise.all iteration per race,
 //              invariant assertions only (final draft+edited via both pods,
-//              AUD-P01 present) — outcome mixes are reported, never asserted.
+//              exactly one AUD-P01 row) — outcome mixes are reported, never
+//              asserted.
 // Users follow the §17-PG pattern — the bootstrap admin (shared DB) plays
 // the maker; a fresh checker is created via POST /api/users for dual-control
 // (submitter ≠ actor).
@@ -2007,15 +2030,74 @@ const W2FIX3_POD_B_PORT = Number(process.env.SMOKE_W2FIX3_POD_B_PORT || 3217);
 const W2FIX3_POD_DELAYED_PORT = Number(process.env.SMOKE_W2FIX3_POD_DELAYED_PORT || 3218);
 const W2FIX3_POD_SIM_PORT = Number(process.env.SMOKE_W2FIX3_POD_SIM_PORT || 3219);
 const W2FIX4_OVERLAP_DELAY_MS = 400; // matches :3218/:3219 SMOKE_DELAY_NEWS_COMMIT_MS
-const W2FIX4_SECOND_FIRE_OFFSET_MS = 100; // second request fires this far into the 400ms window
+const W2FIX5_BARRIER_POLL_MS = 50; // pg_stat_activity poll cadence for the test barriers
+const W2FIX5_BARRIER_TIMEOUT_MS = 5000; // bounded timeout: fail the check loudly, never hang
 
 async function runW2Fix3Suite() {
   const databaseUrl = process.env.SMOKE_DATABASE_URL;
   if (!databaseUrl) return; // opt-in, like sections 15/17-PG
 
-  section('18. W2-FIX-3/FIX-4 cross-pod regression: four pods, one PostgreSQL, FOR UPDATE transitions');
+  section('18. W2-FIX-3/FIX-5 cross-pod regression: four pods, one PostgreSQL, barrier-coordinated FOR UPDATE transitions');
 
   const { killSpawned, spawnAux, reqAt, loginAt, findNewsAt, auditRowsAt, contentFingerprint } = makeAuxToolkit();
+
+  // W2-FIX-5 test barriers: a DIRECT out-of-process pg client (the §15
+  // pattern) used only to OBSERVE pg_stat_activity. It never writes server
+  // data; it exists so the O/N families can coordinate on observed
+  // PostgreSQL state instead of elapsed time (codex cycle-4 mandate).
+  const { Client } = await import('pg');
+  const barrierClient = new Client({ connectionString: databaseUrl });
+  await barrierClient.connect();
+
+  // Poll until the SQL returns count > 0; bounded by timeoutMs. Returns the
+  // observed synchronization evidence ({polls, ms}) for the PASS detail.
+  const pollBarrier = async (label, sql, params, timeoutMs) => {
+    const startedAt = Date.now();
+    let polls = 0;
+    for (;;) {
+      polls += 1;
+      const { rows } = await barrierClient.query(sql, params);
+      if (Number(rows[0].count) > 0) return { polls, ms: Date.now() - startedAt };
+      if (Date.now() - startedAt > timeoutMs) {
+        throw new Error(`${label}: not observed within ${timeoutMs}ms after ${polls} polls — the overlap could not be established, so this check refuses to pass (W2-FIX-5 barrier timeout)`);
+      }
+      await sleep(W2FIX5_BARRIER_POLL_MS);
+    }
+  };
+
+  // Barrier 1 — the first transaction reached its in-transaction pause. During
+  // a single §18 check the ONLY session that is mid-transaction with no
+  // running query is the first request inside its in-transaction delay
+  // (every setup request has committed; pooled connections sit plain 'idle').
+  // In normal mode the SELECT ... FOR UPDATE has completed by then, i.e. the
+  // row lock is HELD; in SIMULATE_STALE_READ mode the unlocked read + plan
+  // are done and the lock-free window is open.
+  const waitForIdleInTransaction = (label, timeoutMs = W2FIX5_BARRIER_TIMEOUT_MS) =>
+    pollBarrier(
+      `${label} (idle-in-transaction barrier)`,
+      `SELECT count(*) AS count FROM pg_stat_activity
+         WHERE datname = current_database()
+           AND state = 'idle in transaction'
+           AND pid <> pg_backend_pid()`,
+      [],
+      timeoutMs,
+    );
+
+  // Barrier 2 — the second request's SELECT ... FOR UPDATE is BLOCKED by the
+  // first transaction. Matched on the query text because the server sends the
+  // statement parameterized (the news id never appears literally); during the
+  // check the only in-flight requests are the two under test, so a backend
+  // waiting on a Lock while running the FOR UPDATE select is unambiguously
+  // the second request queued behind the first transaction's row lock.
+  const waitForBlockedQuery = (label, timeoutMs = W2FIX5_BARRIER_TIMEOUT_MS) =>
+    pollBarrier(
+      `${label} (blocked-query barrier)`,
+      `SELECT count(*) AS count FROM pg_stat_activity
+         WHERE wait_event_type = 'Lock'
+           AND query LIKE '%' || $1 || '%'`,
+      ['FOR UPDATE'],
+      timeoutMs,
+    );
 
   try {
     let podA = null;
@@ -2114,20 +2196,32 @@ async function runW2Fix3Suite() {
         reqAt(pod, 'PUT', `/api/news/${id}`, { cookie, json: { title, summary: 'race edited' } });
       const approveOn = (pod, cookie, id) => reqAt(pod, 'POST', `/api/news/${id}/approve`, { cookie });
       const withdrawOn = (pod, cookie, id) => reqAt(pod, 'POST', `/api/news/${id}/withdraw`, { cookie });
-      const assertFinalDraftEdited = async (id, editedTitle, pods, label) => {
+      // W2-FIX-5: the fixed regression's final-state invariant as a BOOLEAN
+      // predicate — shared by the asserting wrapper below and by the Family N
+      // detection demonstration (the SAME invariant must REJECT the simulated
+      // pre-fix results; codex cycle-4 mandate).
+      const finalStateMeetsFixedInvariant = async (id, editedTitle, pods, label) => {
         const reads = [];
         for (const [podLabel, pod] of pods) {
           const item = await findNewsAt(pod, id);
-          assert(item.externalSyncStatus === 'draft',
-            `${label} (${podLabel}): final state must be draft, got "${item.externalSyncStatus}"`);
-          assert(item.title === editedTitle,
-            `${label} (${podLabel}): final content must be the EDITED snapshot, got "${item.title}"`);
+          if (item.externalSyncStatus !== 'draft') {
+            return { ok: false, reason: `${label} (${podLabel}): final state must be draft, got "${item.externalSyncStatus}"` };
+          }
+          if (item.title !== editedTitle) {
+            return { ok: false, reason: `${label} (${podLabel}): final content must be the EDITED snapshot, got "${item.title}"` };
+          }
           reads.push(item);
         }
         for (const item of reads.slice(1)) {
-          assert(contentFingerprint(reads[0]) === contentFingerprint(item),
-            `${label}: every pod must read the byte-same final row`);
+          if (contentFingerprint(reads[0]) !== contentFingerprint(item)) {
+            return { ok: false, reason: `${label}: every pod must read the byte-same final row` };
+          }
         }
+        return { ok: true, reason: `${label}: final draft + edited title, byte-same across pods` };
+      };
+      const assertFinalDraftEdited = async (id, editedTitle, pods, label) => {
+        const v = await finalStateMeetsFixedInvariant(id, editedTitle, pods, label);
+        assert(v.ok, v.reason);
       };
       const findResetAudit = async (pod, cookie, id) =>
         (await auditRowsAt(pod, cookie, id))
@@ -2139,8 +2233,9 @@ async function runW2Fix3Suite() {
 
       // ------------------------------------------------------------------
       // Family S — sequential (W2-FIX-4): await + assert the FIRST response
-      // BEFORE issuing the second; zero timing assumptions. This is the
-      // branch coverage the codex cycle-3 verdict demanded.
+      // BEFORE issuing the second — each request fully completes before the
+      // next is issued. Branch coverage only: sequential requests never
+      // overlap, so this family cannot detect the stale-read race.
       // ------------------------------------------------------------------
 
       await check('W2-FIX-4 §18 S/race1-A sequential: approve commits first (awaited + asserted), then the edit force-resets it (TC-NEWS-021)', async () => {
@@ -2154,7 +2249,7 @@ async function runW2Fix3Suite() {
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'S/race1-A');
         assert(await findResetAudit(podB, makerA, id),
           'S/race1-A: the PUT that followed the approval must have audited the forced reset (AUD-P01)');
-        return 'sequential approve→PUT: approve=200 (awaited first), PUT=200 forced reset, final draft+edited via both pods, AUD-P01 present';
+        return 'sequential approve→PUT: first response awaited+asserted before the second was issued (approve=200, PUT=200 forced reset), final draft+edited via both pods, AUD-P01 present';
       });
 
       await check('W2-FIX-4 §18 S/race1-B sequential: edit commits first (awaited + asserted), then approve re-reads draft and is refused 400 (TC-NEWS-021)', async () => {
@@ -2168,7 +2263,7 @@ async function runW2Fix3Suite() {
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'S/race1-B');
         assert(await findResetAudit(podA, makerA, id),
           'S/race1-B: the forced-reset PUT must have audited AUD-P01');
-        return 'sequential PUT→approve: PUT=200 (awaited first), approve=400 (draft re-read), final draft+edited via both pods';
+        return 'sequential PUT→approve: first response awaited+asserted before the second was issued (PUT=200, approve=400 draft re-read), final draft+edited via both pods';
       });
 
       await check('W2-FIX-4 §18 S/race2-A sequential: withdraw commits first (awaited + asserted, content + AUD-P01 checked), then the edit lands on the draft (TC-NEWS-022)', async () => {
@@ -2190,7 +2285,7 @@ async function runW2Fix3Suite() {
         const putRes = await putEdit(podA, makerA, id, editedTitle);
         expectStatus(putRes, 200, 'S/race2-A PUT (after the withdrawal committed)');
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'S/race2-A');
-        return 'sequential withdraw→PUT: withdraw=200 (awaited first; content preserved, AUD-P01 prior_status=synced), PUT=200, final draft+edited via both pods';
+        return 'sequential withdraw→PUT: first response awaited+asserted before the second was issued (withdraw=200 content preserved + AUD-P01 prior_status=synced, PUT=200), final draft+edited via both pods';
       });
 
       await check('W2-FIX-4 §18 S/race2-B sequential: edit commits first (awaited + asserted), then withdraw re-reads draft and is refused 409 (TC-NEWS-022)', async () => {
@@ -2204,46 +2299,51 @@ async function runW2Fix3Suite() {
         assert(withdrawRes.json && withdrawRes.json.currentState === 'draft',
           `S/race2-B: withdraw 409 must report the ACTUAL current (draft) state, got: ${withdrawRes.text.slice(0, 160)}`);
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'S/race2-B');
-        return 'sequential PUT→withdraw: PUT=200 (awaited first), withdraw=409 (currentState=draft), final draft+edited via both pods';
+        return 'sequential PUT→withdraw: first response awaited+asserted before the second was issued (PUT=200, withdraw=409 currentState=draft), final draft+edited via both pods';
       });
 
       // ------------------------------------------------------------------
-      // Family O — deterministic lock-handoff overlap (W2-FIX-4). The first
-      // request runs on the DELAYED pod :3218: its transaction holds the FOR
-      // UPDATE row lock across the 400ms pre-UPDATE delay. The second request
-      // fires on a clean pod ~100ms into that window: its SELECT ... FOR
-      // UPDATE cannot be granted before the delayed COMMIT, and under READ
-      // COMMITTED it then re-reads the winner's committed row. The asserted
-      // outcomes hold regardless of where inside the window the second
-      // request lands — the lock handoff itself is the deterministic part.
+      // Family O — barrier-coordinated overlap (W2-FIX-5, codex cycle-4
+      // mandate). Sequence per case: fire the first request on the DELAYED
+      // pod :3218 → wait until its transaction is observed 'idle in
+      // transaction' (it acquired the FOR UPDATE row lock and reached its
+      // pause) → fire the second request on a clean pod → wait until the
+      // second's FOR UPDATE select is observed BLOCKED on the lock → await
+      // the FIRST response (the explicit release — its COMMIT frees the row
+      // lock) → await the SECOND response (it re-reads the winner's
+      // committed row under READ COMMITTED). No elapsed-time coordination
+      // remains; a barrier that cannot be established fails the check.
       // ------------------------------------------------------------------
 
-      await check('W2-FIX-4 §18 O/race1 overlap: approve holds the row lock on the delayed pod; the overlapping PUT blocks, re-reads synced, force-resets (TC-NEWS-021)', async () => {
-        const id = `news-w2fix4-o-r1a-${stamp()}`;
-        const editedTitle = `W2-FIX-4 O/race1 edited ${stamp()}`;
-        await makePending(podA, makerA, id, 'W2-FIX-4 O/race1 base');
-        const approvePromise = approveOn(podD, checkerD, id); // takes the lock, holds it 400ms mid-tx
-        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
-        const putRes = await putEdit(podA, makerA, id, editedTitle); // blocks until the delayed COMMIT
-        const approveRes = await approvePromise;
-        expectStatus(approveRes, 200, 'O/race1 approve (lock holder)');
-        expectStatus(putRes, 200, 'O/race1 PUT (blocked on FOR UPDATE, then re-read synced)');
+      await check('W2-FIX-5 §18 O/race1 overlap: approve holds the row lock on the delayed pod; the overlapping PUT is observed BLOCKED on that lock, then re-reads synced and force-resets (TC-NEWS-021)', async () => {
+        const id = `news-w2fix5-o-r1a-${stamp()}`;
+        const editedTitle = `W2-FIX-5 O/race1 edited ${stamp()}`;
+        await makePending(podA, makerA, id, 'W2-FIX-5 O/race1 base');
+        const approvePromise = approveOn(podD, checkerD, id); // takes the row lock, pauses mid-transaction
+        const held = await waitForIdleInTransaction('O/race1 first tx (approve on :3218)');
+        const putPromise = putEdit(podA, makerA, id, editedTitle); // fired only after the pause was observed
+        const blocked = await waitForBlockedQuery('O/race1 second request (PUT FOR UPDATE queued)');
+        const approveRes = await approvePromise; // explicit release: the delayed COMMIT frees the row lock
+        expectStatus(approveRes, 200, 'O/race1 approve (lock holder, released after the blocked proof)');
+        const putRes = await putPromise; // unblocked by the COMMIT, re-reads the approved row
+        expectStatus(putRes, 200, 'O/race1 PUT (observed blocked on FOR UPDATE, then re-read synced)');
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'O/race1');
         assert(await findResetAudit(podA, makerA, id),
           'O/race1: the PUT that followed the locked approval must have audited the forced reset (AUD-P01)');
-        return `overlap approve(holds lock ${W2FIX4_OVERLAP_DELAY_MS}ms)→PUT(+${W2FIX4_SECOND_FIRE_OFFSET_MS}ms): approve=200, PUT=200 after blocking on the row lock, final draft+edited via both pods, AUD-P01 present`;
+        return `barrier overlap approve→PUT: idle-in-transaction observed after ${held.polls} polls / ${held.ms}ms; blocked query on FOR UPDATE observed after ${blocked.polls} polls / ${blocked.ms}ms; first released (approve=200), second unblocked (PUT=200); final draft+edited via both pods, AUD-P01 present`;
       });
 
-      await check('W2-FIX-4 §18 O/race2 overlap: withdraw holds the row lock on the delayed pod; the overlapping PUT blocks and lands on the withdrawn draft (TC-NEWS-022)', async () => {
-        const id = `news-w2fix4-o-r2a-${stamp()}`;
-        const editedTitle = `W2-FIX-4 O/race2 edited ${stamp()}`;
-        await makeSynced(podA, makerA, checkerB, id, 'W2-FIX-4 O/race2 base');
+      await check('W2-FIX-5 §18 O/race2 overlap: withdraw holds the row lock on the delayed pod; the overlapping PUT is observed BLOCKED, then lands on the withdrawn draft (TC-NEWS-022)', async () => {
+        const id = `news-w2fix5-o-r2a-${stamp()}`;
+        const editedTitle = `W2-FIX-5 O/race2 edited ${stamp()}`;
+        await makeSynced(podA, makerA, checkerB, id, 'W2-FIX-5 O/race2 base');
         const syncedBefore = await findNewsAt(podA, id);
         const fingerprintBefore = contentFingerprint(syncedBefore);
-        const withdrawPromise = withdrawOn(podD, makerD, id); // holds the lock 400ms mid-tx
-        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
-        const putRes = await putEdit(podA, makerA, id, editedTitle); // blocks until the delayed COMMIT
-        const withdrawRes = await withdrawPromise;
+        const withdrawPromise = withdrawOn(podD, makerD, id); // takes the row lock, pauses mid-transaction
+        const held = await waitForIdleInTransaction('O/race2 first tx (withdraw on :3218)');
+        const putPromise = putEdit(podA, makerA, id, editedTitle); // fired only after the pause was observed
+        const blocked = await waitForBlockedQuery('O/race2 second request (PUT FOR UPDATE queued)');
+        const withdrawRes = await withdrawPromise; // explicit release
         expectStatus(withdrawRes, 200, 'O/race2 withdraw (lock holder; synced precondition held under the lock)');
         const wdData = withdrawRes.json && withdrawRes.json.data;
         assert(wdData, `O/race2: withdraw 200 must return {success:true, data:item}, got: ${withdrawRes.text.slice(0, 160)}`);
@@ -2253,68 +2353,78 @@ async function runW2Fix3Suite() {
         assert(row, 'O/race2: withdraw 200 must carry the AUD-P01 withdrawal row');
         assert(String(row.details).includes("prior_status='synced'"),
           `O/race2: AUD-P01 details must record prior_status='synced', got: "${row.details}"`);
-        expectStatus(putRes, 200, 'O/race2 PUT (blocked on FOR UPDATE, then landed on the withdrawn draft)');
+        const putRes = await putPromise; // unblocked by the COMMIT, lands on the withdrawn draft
+        expectStatus(putRes, 200, 'O/race2 PUT (observed blocked on FOR UPDATE, then landed on the withdrawn draft)');
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'O/race2');
-        return `overlap withdraw(holds lock ${W2FIX4_OVERLAP_DELAY_MS}ms)→PUT(+${W2FIX4_SECOND_FIRE_OFFSET_MS}ms): withdraw=200 (content preserved), PUT=200 after blocking on the row lock, final draft+edited via both pods`;
+        return `barrier overlap withdraw→PUT: idle-in-transaction observed after ${held.polls} polls / ${held.ms}ms; blocked query on FOR UPDATE observed after ${blocked.polls} polls / ${blocked.ms}ms; first released (withdraw=200, content preserved), second unblocked (PUT=200); final draft+edited via both pods`;
       });
 
-      await check('W2-FIX-4 §18 O/race1 (reversed) overlap: the PUT holds the row lock on the delayed pod; the overlapping approve blocks, re-reads draft, is refused 400 (TC-NEWS-021)', async () => {
-        const id = `news-w2fix4-o-r1b-${stamp()}`;
-        const editedTitle = `W2-FIX-4 O/race1-B edited ${stamp()}`;
-        await makePending(podA, makerA, id, 'W2-FIX-4 O/race1-B base');
-        const putPromise = putEdit(podD, makerD, id, editedTitle); // forced reset, holds the lock 400ms
-        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
-        const approveRes = await approveOn(podA, checkerA, id); // blocks, re-reads the committed draft
-        const putRes = await putPromise;
+      await check('W2-FIX-5 §18 O/race1 (reversed) overlap: the PUT holds the row lock on the delayed pod; the overlapping approve is observed BLOCKED, re-reads draft, is refused 400 (TC-NEWS-021)', async () => {
+        const id = `news-w2fix5-o-r1b-${stamp()}`;
+        const editedTitle = `W2-FIX-5 O/race1-B edited ${stamp()}`;
+        await makePending(podA, makerA, id, 'W2-FIX-5 O/race1-B base');
+        const putPromise = putEdit(podD, makerD, id, editedTitle); // forced reset, takes the row lock, pauses
+        const held = await waitForIdleInTransaction('O/race1-B first tx (PUT on :3218)');
+        const approvePromise = approveOn(podA, checkerA, id); // fired only after the pause was observed
+        const blocked = await waitForBlockedQuery('O/race1-B second request (approve FOR UPDATE queued)');
+        const putRes = await putPromise; // explicit release
         expectStatus(putRes, 200, 'O/race1-B PUT (lock holder)');
-        expectStatus(approveRes, 400, 'O/race1-B approve (blocked on FOR UPDATE, re-read draft)');
+        const approveRes = await approvePromise; // unblocked by the COMMIT, re-reads the committed draft
+        expectStatus(approveRes, 400, 'O/race1-B approve (observed blocked on FOR UPDATE, re-read draft)');
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'O/race1-B');
         assert(await findResetAudit(podA, makerA, id),
           'O/race1-B: the lock-holding forced-reset PUT must have audited AUD-P01');
         const denial = (await auditRowsAt(podA, makerA, id))
           .find((e) => String(e.action).toUpperCase() === 'APPROVE' && String(e.status).toUpperCase() === 'WARNING');
         assert(denial, 'O/race1-B: the refused approve must have its WARNING denial audit row');
-        return `overlap PUT(holds lock)→approve(+${W2FIX4_SECOND_FIRE_OFFSET_MS}ms): PUT=200, approve=400 after blocking on the row lock (draft re-read) with its denial audit, final draft+edited via both pods`;
+        return `barrier overlap PUT→approve: idle-in-transaction observed after ${held.polls} polls / ${held.ms}ms; blocked query on FOR UPDATE observed after ${blocked.polls} polls / ${blocked.ms}ms; first released (PUT=200), second unblocked (approve=400 draft re-read + denial audit); final draft+edited via both pods`;
       });
 
-      await check('W2-FIX-4 §18 O/race2 (reversed) overlap: the PUT holds the row lock on the delayed pod; the overlapping withdraw blocks, re-reads draft, is refused 409 (TC-NEWS-022)', async () => {
-        const id = `news-w2fix4-o-r2b-${stamp()}`;
-        const editedTitle = `W2-FIX-4 O/race2-B edited ${stamp()}`;
-        await makeSynced(podA, makerA, checkerB, id, 'W2-FIX-4 O/race2-B base');
-        const putPromise = putEdit(podD, makerD, id, editedTitle); // forced reset, holds the lock 400ms
-        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
-        const withdrawRes = await withdrawOn(podA, makerA, id); // blocks, re-reads the committed draft
-        const putRes = await putPromise;
+      await check('W2-FIX-5 §18 O/race2 (reversed) overlap: the PUT holds the row lock on the delayed pod; the overlapping withdraw is observed BLOCKED, re-reads draft, is refused 409 (TC-NEWS-022)', async () => {
+        const id = `news-w2fix5-o-r2b-${stamp()}`;
+        const editedTitle = `W2-FIX-5 O/race2-B edited ${stamp()}`;
+        await makeSynced(podA, makerA, checkerB, id, 'W2-FIX-5 O/race2-B base');
+        const putPromise = putEdit(podD, makerD, id, editedTitle); // forced reset, takes the row lock, pauses
+        const held = await waitForIdleInTransaction('O/race2-B first tx (PUT on :3218)');
+        const withdrawPromise = withdrawOn(podA, makerA, id); // fired only after the pause was observed
+        const blocked = await waitForBlockedQuery('O/race2-B second request (withdraw FOR UPDATE queued)');
+        const putRes = await putPromise; // explicit release
         expectStatus(putRes, 200, 'O/race2-B PUT (lock holder)');
-        expectStatus(withdrawRes, 409, 'O/race2-B withdraw (blocked on FOR UPDATE, re-read draft)');
+        const withdrawRes = await withdrawPromise; // unblocked by the COMMIT, re-reads the committed draft
+        expectStatus(withdrawRes, 409, 'O/race2-B withdraw (observed blocked on FOR UPDATE, re-read draft)');
         assert(withdrawRes.json && withdrawRes.json.currentState === 'draft',
           `O/race2-B: withdraw 409 must report the ACTUAL current (draft) state, got: ${withdrawRes.text.slice(0, 160)}`);
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'O/race2-B');
-        return `overlap PUT(holds lock)→withdraw(+${W2FIX4_SECOND_FIRE_OFFSET_MS}ms): PUT=200, withdraw=409 (currentState=draft) after blocking on the row lock, final draft+edited via both pods`;
+        return `barrier overlap PUT→withdraw: idle-in-transaction observed after ${held.polls} polls / ${held.ms}ms; blocked query on FOR UPDATE observed after ${blocked.polls} polls / ${blocked.ms}ms; first released (PUT=200), second unblocked (withdraw=409 currentState=draft); final draft+edited via both pods`;
       });
 
       // ------------------------------------------------------------------
-      // Family N — negative control / detection-power proof (W2-FIX-4). The
-      // sim pod :3219 reproduces the PRE-W2-FIX-3 implementation (unlocked
-      // snapshot read; no FOR UPDATE; UPDATE clobbers by id). The assertions
-      // below therefore demand the BUG signature and pass only while the
-      // former defect is faithfully simulated — against the real (fixed)
-      // code this shape cannot occur. That is the codex-demanded proof that
-      // the regression suite would have CAUGHT the pre-fix implementation.
+      // Family N — negative control / detection demonstration (W2-FIX-5).
+      // The sim pod :3219 reproduces the PRE-W2-FIX-3 implementation
+      // (unlocked snapshot read; no FOR UPDATE; UPDATE clobbers by id).
+      // Barrier coordination (codex cycle-4 mandate): the stale operation is
+      // paused after its unlocked read/plan (observed 'idle in transaction'),
+      // the competing edit is fired AND AWAITED (asserted 200) INSIDE that
+      // window, and only then is the stale operation released. The check
+      // asserts the BUG signature AND that the SAME final-state invariant the
+      // fixed regression asserts REJECTS the result — passing only while the
+      // former defect is faithfully simulated. Against this simulation the
+      // Family O overlap outcomes and the shared invariant would fail;
+      // Family S cannot detect the race (sequential requests never overlap).
       // ------------------------------------------------------------------
 
-      await check('W2-FIX-4 §18 N/race1 negative control: under stale-read simulation the pre-fix defect reproduces — approve 200 on a stale pending snapshot clobbers the edit (detection-power proof, TC-NEWS-021)', async () => {
-        const id = `news-w2fix4-n-r1-${stamp()}`;
-        const baseTitle = 'W2-FIX-4 N/race1 base';
-        const editedTitle = `W2-FIX-4 N/race1 edited ${stamp()}`;
+      await check('W2-FIX-5 §18 N/race1 negative control: the stale approve is paused mid-window, the edit commits INSIDE the window, the release clobbers it — REJECTED by the shared invariant (TC-NEWS-021)', async () => {
+        const id = `news-w2fix5-n-r1-${stamp()}`;
+        const baseTitle = 'W2-FIX-5 N/race1 base';
+        const editedTitle = `W2-FIX-5 N/race1 edited ${stamp()}`;
         await makePending(podA, makerA, id, baseTitle);
-        const approvePromise = approveOn(podS, checkerS, id); // sim: UNLOCKED read sees pending; the 400ms window holds NO lock
-        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
-        const putRes = await putEdit(podA, makerA, id, editedTitle); // lock is free → forced reset commits draft+edited
-        const approveRes = await approvePromise;
-        expectStatus(putRes, 200, 'N/race1 PUT (the sim pod holds no lock)');
+        const approvePromise = approveOn(podS, checkerS, id); // sim: UNLOCKED read sees pending; lock-free window opens
+        const paused = await waitForIdleInTransaction('N/race1 stale op paused in its lock-free window');
+        const putRes = await putEdit(podA, makerA, id, editedTitle); // committed INSIDE the window, AWAITED before the release
+        expectStatus(putRes, 200, 'N/race1 PUT (competing edit committed inside the stale window)');
+        const approveRes = await approvePromise; // release: the stale UPDATE clobbers the committed edit
         // BUG signature (simulated pre-fix behavior, asserted ON PURPOSE):
-        expectStatus(approveRes, 200, 'N/race1 approve — under stale-read simulation the guard saw the stale pending snapshot');
+        expectStatus(approveRes, 200, 'N/race1 approve — granted on the stale pending snapshot');
         const finalRow = await findNewsAt(podA, id);
         assert(finalRow.externalSyncStatus === 'synced',
           `N/race1 bug signature: the stale approve must have clobbered the row to synced, got "${finalRow.externalSyncStatus}"`);
@@ -2323,23 +2433,28 @@ async function runW2Fix3Suite() {
         const viaB = await findNewsAt(podB, id);
         assert(viaB.externalSyncStatus === 'synced' && viaB.title === baseTitle,
           'N/race1 bug signature: both pods must read the clobbered stale row');
-        return 'negative control PASSED: the simulated pre-fix stale read reproduced the defect (approve=200 on a stale snapshot; final row synced+BASE clobber). The Family S/O assertions would FAIL against this implementation — the suite detects the former bug';
+        // Detection demonstration (codex cycle-4): the SAME final-state
+        // invariant the fixed regression asserts must REJECT this result.
+        const verdict = await finalStateMeetsFixedInvariant(id, editedTitle, bothCleanPods(), 'N/race1 detection');
+        assert(!verdict.ok,
+          `DETECTION DEMONSTRATION (W2-FIX-5): the shared final-state invariant (draft + edited title + byte-same across pods) must REJECT the simulated pre-fix result, but it evaluated satisfied (${verdict.reason}) — the former bug signature would have escaped detection`);
+        return `negative control: idle-in-transaction (stale window) observed after ${paused.polls} polls / ${paused.ms}ms; edit committed inside the window (PUT=200); released stale approve=200 clobbered the row to synced+BASE; the shared final-state invariant REJECTS the result (${verdict.reason}) — the Family O overlap outcomes and this invariant would FAIL against the sim; Family S cannot detect the race (sequential requests never overlap)`;
       });
 
-      await check('W2-FIX-4 §18 N/race2 negative control: under stale-read simulation the pre-fix defect reproduces — withdraw 200 on a stale synced snapshot clobbers the edit (detection-power proof, TC-NEWS-022)', async () => {
-        const id = `news-w2fix4-n-r2-${stamp()}`;
-        const baseTitle = 'W2-FIX-4 N/race2 base';
-        const editedTitle = `W2-FIX-4 N/race2 edited ${stamp()}`;
+      await check('W2-FIX-5 §18 N/race2 negative control: the stale withdraw is paused mid-window, the edit commits INSIDE the window, the release clobbers it — REJECTED by the shared invariant (TC-NEWS-022)', async () => {
+        const id = `news-w2fix5-n-r2-${stamp()}`;
+        const baseTitle = 'W2-FIX-5 N/race2 base';
+        const editedTitle = `W2-FIX-5 N/race2 edited ${stamp()}`;
         await makeSynced(podA, makerA, checkerB, id, baseTitle);
         const syncedBefore = await findNewsAt(podA, id);
         const fingerprintBefore = contentFingerprint(syncedBefore);
-        const withdrawPromise = withdrawOn(podS, makerS, id); // sim: UNLOCKED read sees synced; 400ms window, no lock
-        await sleep(W2FIX4_SECOND_FIRE_OFFSET_MS);
-        const putRes = await putEdit(podA, makerA, id, editedTitle); // lock free → forced reset commits draft+edited
-        const withdrawRes = await withdrawPromise;
-        expectStatus(putRes, 200, 'N/race2 PUT (the sim pod holds no lock)');
+        const withdrawPromise = withdrawOn(podS, makerS, id); // sim: UNLOCKED read sees synced; lock-free window opens
+        const paused = await waitForIdleInTransaction('N/race2 stale op paused in its lock-free window');
+        const putRes = await putEdit(podA, makerA, id, editedTitle); // committed INSIDE the window, AWAITED before the release
+        expectStatus(putRes, 200, 'N/race2 PUT (competing edit committed inside the stale window)');
+        const withdrawRes = await withdrawPromise; // release: the stale state-only transition clobbers the edit
         // BUG signature (simulated pre-fix behavior, asserted ON PURPOSE):
-        expectStatus(withdrawRes, 200, 'N/race2 withdraw — under stale-read simulation the precondition saw the stale synced snapshot');
+        expectStatus(withdrawRes, 200, 'N/race2 withdraw — granted on the stale synced snapshot');
         const finalRow = await findNewsAt(podA, id);
         assert(finalRow.externalSyncStatus === 'draft' && finalRow.syncToExternal === false,
           `N/race2 bug signature: the stale withdraw must have landed its own state-only transition, got ${finalRow.externalSyncStatus}/${finalRow.syncToExternal}`);
@@ -2349,7 +2464,12 @@ async function runW2Fix3Suite() {
           'N/race2 bug signature: the final content must be the pre-race base fingerprint');
         const row = await findWithdrawAudit(podA, makerA, id);
         assert(row, 'N/race2: the stale withdraw still writes its AUD-P01 row');
-        return 'negative control PASSED: the simulated pre-fix stale read reproduced the defect (withdraw=200 on a stale snapshot; final row draft+BASE clobber). The Family S/O assertions would FAIL against this implementation — the suite detects the former bug';
+        // Detection demonstration (codex cycle-4): the SAME final-state
+        // invariant the fixed regression asserts must REJECT this result.
+        const verdict = await finalStateMeetsFixedInvariant(id, editedTitle, bothCleanPods(), 'N/race2 detection');
+        assert(!verdict.ok,
+          `DETECTION DEMONSTRATION (W2-FIX-5): the shared final-state invariant (draft + edited title + byte-same across pods) must REJECT the simulated pre-fix result, but it evaluated satisfied (${verdict.reason}) — the former bug signature would have escaped detection`);
+        return `negative control: idle-in-transaction (stale window) observed after ${paused.polls} polls / ${paused.ms}ms; edit committed inside the window (PUT=200); released stale withdraw=200 clobbered the row to draft+BASE; the shared final-state invariant REJECTS the result (${verdict.reason}) — the Family O overlap outcomes and this invariant would FAIL against the sim; Family S cannot detect the race (sequential requests never overlap)`;
       });
 
       // ------------------------------------------------------------------
@@ -2373,7 +2493,7 @@ async function runW2Fix3Suite() {
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'F/race1');
         assert(await findResetAudit(podB, makerA, id),
           'F/race1 invariant: the forced-reset PUT must have audited AUD-P01');
-        return `informational (outcome not asserted): approve=${approveRes.status} — final draft+edited via both pods, AUD-P01 present`;
+        return `informational (fired concurrently via one Promise.all; outcome not asserted): approve=${approveRes.status} — final draft+edited via both pods, AUD-P01 present`;
       });
 
       await check('W2-FIX-4 §18 F/race2 informational: one concurrent cross-pod edit-vs-withdraw iteration — invariants only (TC-NEWS-022)', async () => {
@@ -2399,18 +2519,22 @@ async function runW2Fix3Suite() {
             'F/race2 (409 branch): withdraw must report the ACTUAL current (draft) state');
         }
         await assertFinalDraftEdited(id, editedTitle, bothCleanPods(), 'F/race2');
-        // Interleaving-agnostic AUD-P01 invariant: exactly one of the two
-        // transitions hit a non-draft row and owns the AUD-P01 row — the PUT
-        // (forced reset) when it won the lock, the withdrawal otherwise (the
-        // trailing PUT then landed on the already-withdrawn draft and is
-        // legitimately audit-less). Demanding the RESET row unconditionally
-        // would be a scheduler assumption (W2-FIX-4 lead review catch).
-        assert((await findResetAudit(podB, makerA, id)) || (await findWithdrawAudit(podB, makerA, id)),
-          'F/race2 invariant: an AUD-P01 row must exist — the forced-reset row (PUT won the lock) or the withdrawal row (withdraw won)');
-        return `informational (outcome not asserted): withdraw=${withdrawRes.status} — final draft+edited via both pods, AUD-P01 present (reset or withdrawal row per the lock winner)`;
+        // Interleaving-agnostic AUD-P01 invariant with EXACTLY-ONE
+        // cardinality (W2-FIX-5, verdict-4 point 3): in either interleaving
+        // exactly one transition hit a non-draft row and owns the AUD-P01
+        // row — the PUT (forced reset) when it won the lock, the withdrawal
+        // otherwise (the trailing PUT then landed on the already-withdrawn
+        // draft and is legitimately audit-less; a 409-denied withdraw writes
+        // no UPDATE row at all).
+        const resetRow = await findResetAudit(podB, makerA, id);
+        const withdrawalRow = await findWithdrawAudit(podB, makerA, id);
+        assert(Boolean(resetRow) !== Boolean(withdrawalRow),
+          `F/race2 invariant: exactly one AUD-P01 row must exist (forced reset XOR withdrawal), got reset=${Boolean(resetRow)} withdrawal=${Boolean(withdrawalRow)}`);
+        return `informational (fired concurrently via one Promise.all; outcome not asserted): withdraw=${withdrawRes.status} — final draft+edited via both pods, exactly one AUD-P01 row (${resetRow ? 'forced reset' : 'withdrawal'})`;
       });
     }
   } finally {
+    try { await barrierClient.end(); } catch { /* already closed */ }
     await killSpawned();
   }
 }
