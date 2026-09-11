@@ -1,6 +1,12 @@
 # Deliverable 21 — คู่มือผู้ใช้งาน (User Manual)
 
-**Version:** 0.1.0 · **Status:** Reviewed (lead review PASS 2026-09-11 — 46/46 figure citations verified against both run-id archives; all quoted UI strings + error messages verified verbatim against `server.ts`/`src/`; six judgment calls upheld; awaiting CTO gate) · **Date:** 2026-09-11 · **Author:** worker-3 → Lead review → CTO approval
+**Version:** 0.2.0 · **Status:** Reviewed (lead review PASS 2026-09-11 — 46/46 figure citations verified against both run-id archives; all quoted UI strings + error messages verified verbatim against `server.ts`/`src/`; six judgment calls upheld; awaiting CTO gate) · **Date:** 2026-09-11 · **Author:** worker-3 → Lead review → CTO approval
+
+> **v0.2.0 (2026-09-11):** §12 ปิดครบแล้ว — ภาพประกอบทั้งสามรายการจาก W3-4 UAT
+> (run `run-2026-09-11T1255Z-uat`) ถูกใส่เข้ามาพร้อมแฮช SHA-256
+> (นำหน้าด้วย `0903b918…`, `860695…`, `2f1aec…`) — ดู §12. นอกจากนี้ยังมีภาพ
+> สนับสนุนเพิ่ม v4 (External Web Sync มุมมอง maker) และ v5/v5b
+> (staff deep-link / session restore) จากรันเดียวกัน
 
 > ภาษา: คู่มือฉบับนี้เป็นภาษาไทยเป็นหลัก (Thai-first) สำหรับพนักงาน KB J Capital ข้อความในระบบ (UI labels) ถูกอ้างอิง **ตรงตามที่แสดงบนหน้าจอเป๊ะทุกตัวอักษร** — ส่วนที่ระบบแสดงภาษาไทยจะอ้างเป็นภาษาไทย ส่วนที่ระบบแสดงภาษาอังกฤษจะอ้างเป็นภาษาอังกฤษ
 >
@@ -9,6 +15,7 @@
 **รูปประกอบ (Figures):** ภาพทั้งหมดอ้างอิงจากคลังภาพถาวร (archived screenshot runs) สองชุดซึ่งมีชื่อไฟล์เหมือนกันทั้ง 46 ภาพ + `MANIFEST.sha256`:
 - `.omc/reports/screenshots-archive/run-2026-09-11T1031Z-e2e-w3r1/` (ชุดหลักที่อ้างอิงในเอกสารนี้)
 - `.omc/reports/screenshots-archive/run-2026-09-11T1000Z-e2e/` (ชุดสำรอง ชื่อไฟล์ตรงกัน)
+- `.omc/reports/screenshots/run-2026-09-11T1255Z-uat/` (ชุด W3-4 UAT visuals — ภาพ §12 ทั้งหมด + v4/v5/v5b สนับสนุน พร้อม `MANIFEST.sha256`)
 
 ---
 
@@ -528,14 +535,27 @@
 
 ---
 
-## 12. หมายเหตุ: รอภาพประกอบจาก W3-4 (UAT)
+## 12. ภาพประกอบจาก W3-4 (UAT) — ปิดครบแล้ว (v0.2.0)
 
-รายการต่อไปนี้มีหลักฐานจากโค้ด/เอกสารออกแบบ (as built) แต่**ยังไม่มีภาพหน้าจอในคลังภาพถาวร** ทั้งสองชุด (run-2026-09-11T1000Z และ run-2026-09-11T1031Z) — จะเติมภาพจริงเมื่อได้ภาพจากการทดสอบ UAT ของ W3-4:
+ภาพทั้งสามรายการด้านล่าง captured แล้วในรัน W3-4 UAT visuals
+(`tests/uat-visuals.mjs`, run `run-2026-09-11T1255Z-uat`, 8 ภาพ +
+`MANIFEST.sha256` — `shasum -a 256 -c` ผ่าน) และตรวจสอบแล้วใน Doc 18 §8:
 
-1. **กล่องยืนยัน "เพิกถอนจากเว็บไซต์สาธารณะ / Withdraw from public web"** (§9.5) — ขั้นตอนเพิกถอนยังไม่ถูกเดินในสคริปต์ e2e ฉบับปัจจุบัน จึงไม่มีภาพ
-2. **ป้าย NEW บนการ์ดเอกสารใหม่** (§6.2) — มีหลักฐานการแสดงผลในโค้ด แต่ไม่มีภาพที่แสดงป้ายชัดเจน
-3. **หน้าจอเข้าสู่ระบบบนมือถือ** (§2) — มีภาพมือถือเฉพาะหน้าหลักและ CMS (f-mobile-home-375 / f-mobile-cms-375)
+1. **กล่องยืนยัน "เพิกถอนจากเว็บไซต์สาธารณะ / Withdraw from public web"** (§9.5) —
+   `v1-withdraw-confirm-dialog.png` (sha256 `0903b9182f2a65a5…`) + ภาพซูม
+   `v1c-withdraw-dialog-closeup.png` (`9be8ad3c20ee2323…`) + หลังยืนยัน
+   `v1b-withdrawn-row-draft.png` (`e43cbc762c1807ed…` — แถวกลับเป็น ร่าง) —
+   ตรวจ 4 ทาง (DOM assert ตรงตัวรวมข้อความ ร่าง / ภาพซูม / ค่าความสว่างพิกเซล
+   meanLum 129.5 เทียบ 234.5 เมื่อไม่มี dialog / ภาพปรับสว่าง)
+2. **ป้าย NEW บนการ์ดเอกสารใหม่** (§6.2) — `v2-new-badge-documents-card.png`
+   (sha256 `86069503472bc51c…` — บังคับ isNew ฝั่งเซิร์ฟเวอร์บนการ์ดที่ลงทะเบียนใหม่)
+3. **หน้าจอเข้าสู่ระบบบนมือถือ 375px** (§2) — `v3-login-mobile-375.png`
+   (sha256 `2f1aec80f91e45b5…` — overflow = 0px, ป้ายไทยครบ verbatim,
+   สายด่วน 1258)
+
+ภาพสนับสนุนจากรันเดียวกัน: `v4-maker-external-web-sync.png` (§10.2 มุมมอง maker),
+`v5-staff-deeplink-no-cms.png` + `v5b-session-restore-after-reload.png` (§2/§9)
 
 ---
 
-*จบเอกสาร — Deliverable 21 v0.1.0 (Draft) โดย worker-3, 2026-09-11*
+*จบเอกสาร — Deliverable 21 v0.2.0 (Reviewed) — v0.1.0 โดย worker-3, 2026-09-11; v0.2.0 §12 closure โดย lead, 2026-09-11*
