@@ -13,3 +13,9 @@ coverage/
 !.omc/skills/
 uploads/
 uploads*/
+# nested OMC session state (workers with shifted cwd)
+docs/deliverables/.omc/
+.claude/
+
+# k8s local secret fixture (RISK-004: never commit real secret.yaml)
+k8s/secret.yaml

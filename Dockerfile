@@ -21,6 +21,9 @@ WORKDIR /app
 # Install the exact dependency tree first so this layer is cached across
 # source-only edits (needs devDependencies: vite + esbuild + typescript).
 COPY package.json package-lock.json ./
+# playwright is a devDependency (test harness); its postinstall would
+# download browsers here — never needed inside the build stage.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci
 
 # Build frontend (vite → dist/) and server bundle (esbuild → dist/server.cjs)

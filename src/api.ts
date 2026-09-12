@@ -333,6 +333,18 @@ export const api = {
     });
   },
 
+  /**
+   * W2-FIX-1 (codex blocker 3): state-only withdrawal of a live (synced) item.
+   * Deliberately carries NO payload — the server withdraws its CURRENT
+   * content so a stale browser snapshot can never overwrite a concurrent
+   * edit. 409 (not live) throws an ApiError carrying the server's Thai-first
+   * explanation.
+   */
+  async withdrawNews(id: string): Promise<NewsItem> {
+    if (!id) throw new ApiError(400, 'Cannot withdraw an item without an id');
+    return apiRequest<NewsItem>(`/api/news/${id}/withdraw`, { method: 'POST' });
+  },
+
   // Immutable Enterprise Audit Logs (checker+)
   async getAuditLogs(): Promise<AuditLog[]> {
     return apiRequest<AuditLog[]>('/api/audit-logs');

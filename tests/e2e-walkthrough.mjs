@@ -36,17 +36,33 @@
  *    envelope; malformed JSON -> clean 400 JSON envelope.
  *
  * Output:
- *  - Screenshots: .omc/reports/screenshots/*.png
- *  - Machine-readable results: .omc/reports/e2e-results.json (E2E_RESULTS overrides)
+ *  - Screenshots: .omc/reports/screenshots/<runId>/*.png — per-run retention
+ *    (Doc 12 §9.5): runId = run-<YYYY-MM-DDTHHMM>Z-e2e from the run-start UTC
+ *    clock (filename-safe, no colons — matches the screenshots-archive naming
+ *    convention), so runs never overwrite each other's capture set (Doc 17 §5.2 r4).
+ *  - Per-run integrity manifest: <runDir>/MANIFEST.sha256 (shasum -a 256 format:
+ *    `<hash>  <filename>` per file, sorted, names relative to the run dir) —
+ *    verify in place with `shasum -a 256 -c MANIFEST.sha256`.
+ *  - Machine-readable results: .omc/reports/e2e-results.json (E2E_RESULTS
+ *    overrides; carries a top-level runId for manifest linkage)
  */
 import { chromium } from 'playwright';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const SHOT_DIR = path.join(ROOT, '.omc', 'reports', 'screenshots');
+// Run id from the run-start UTC clock (Doc 12 §9.5 per-run retention):
+// run-<YYYY-MM-DDTHHMM>Z-e2e — filename-safe (no colons), matching the
+// screenshots-archive naming convention (e.g. run-2026-09-11T1031Z-e2e*).
+const RUN_STARTED_AT = new Date();
+const RUN_ID = (() => {
+  const t = RUN_STARTED_AT.toISOString(); // YYYY-MM-DDTHH:mm:ss.sssZ
+  return `run-${t.slice(0, 10)}T${t.slice(11, 13)}${t.slice(14, 16)}Z-e2e`;
+})();
+const SHOT_DIR = path.join(ROOT, '.omc', 'reports', 'screenshots', RUN_ID);
 const RESULTS_JSON = process.env.E2E_RESULTS || path.join(ROOT, '.omc', 'reports', 'e2e-results.json');
 const FIXTURE_PNG = path.join(__dirname, 'fixtures', 'test-image.png');
 const FIXTURE_PDF = path.join(__dirname, 'fixtures', 'test-doc.pdf');
@@ -129,7 +145,7 @@ function trackContext(page, name) {
 async function shot(page, name) {
   const file = `${name}.png`;
   try { await page.screenshot({ path: path.join(SHOT_DIR, file), fullPage: false }); } catch { /* ignore */ }
-  return `screenshots/${file}`;
+  return `screenshots/${RUN_ID}/${file}`;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -681,12 +697,12 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
 
   await step('C1', 'Create news article via CMS form', async () => {
     await click(page.getByRole('button', { name: /\+ New Post/i }));
-    await page.locator('text=Create & Publish New Announcement').waitFor({ state: 'visible', timeout: 5000 });
+    await page.locator('text=Create New Announcement').waitFor({ state: 'visible', timeout: 5000 });
     await page.locator('input[placeholder*="ประกาศมาตรการ"]').fill(NEWS_TITLE);
     await page.locator('input[placeholder*="BOT Regulatory"]').fill('E2E Test Article EN');
     await page.locator('textarea[placeholder*="Brief description"]').fill('E2E summary for the walkthrough test');
     await page.locator('textarea[placeholder*="Full announcement"]').fill('E2E full content body. Lorem ipsum verification.');
-    await click(page.getByRole('button', { name: /Publish Immediately/i }));
+    await click(page.getByRole('button', { name: /Save Draft/i }));
     await page.waitForTimeout(1200);
     const row = await page.locator(`tr:has-text("${NEWS_TITLE}")`).count();
     if (!row) throw new Error('created article row not found in list');
@@ -696,7 +712,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
 
   await step('C2', 'Image upload via file input returns a server URL', async () => {
     await click(page.getByRole('button', { name: /\+ New Post/i }));
-    await page.locator('text=Create & Publish New Announcement').waitFor({ state: 'visible', timeout: 5000 });
+    await page.locator('text=Create New Announcement').waitFor({ state: 'visible', timeout: 5000 });
     const fileInput = page.locator('input[type="file"][accept*="png"]').first();
     await fileInput.setInputFiles(FIXTURE_PNG);
     await page.waitForTimeout(1500);
@@ -717,7 +733,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
   await step('C-FR', 'Failed save keeps the form open with entered data (fix #26)', async () => {
     await click(page.getByRole('button', { name: /News & Alerts tab/i }).first());
     await click(page.getByRole('button', { name: /\+ New Post/i }).first());
-    const heading = page.locator('text=Create & Publish New Announcement').first();
+    const heading = page.locator('text=Create New Announcement').first();
     await heading.waitFor({ state: 'visible', timeout: 5000 });
     const TITLE = '[E2E] failed save retention probe';
     await page.locator('input[placeholder*="ประกาศมาตรการ"]').fill(TITLE);
@@ -732,7 +748,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
       else void route.continue().catch(() => {});
     });
     try {
-      await click(page.getByRole('button', { name: /Publish Immediately/i }));
+      await click(page.getByRole('button', { name: /Save Draft/i }));
       await page.waitForTimeout(1500); // let the failure propagate through api + handler
       const stillOpen = (await heading.count()) === 1;
       const keptTitle = await page.locator('input[placeholder*="ประกาศมาตรการ"]').inputValue();
@@ -766,7 +782,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
   await step('C3', 'Edit article preserves fields', async () => {
     const editBtn = page.locator(`button[aria-label^="แก้ไขประกาศ: ${NEWS_TITLE}"]`).first();
     await click(editBtn);
-    await page.locator('text=Edit Article & Sync Settings').waitFor({ state: 'visible', timeout: 5000 });
+    await page.locator('text=Edit Announcement').waitFor({ state: 'visible', timeout: 5000 });
     const preserved = await page.locator('input[placeholder*="ประกาศมาตรการ"]').inputValue();
     if (!preserved.includes(NEWS_TITLE)) throw new Error(`title not preserved (got "${preserved}")`);
     const summary = await page.locator('textarea[placeholder*="Brief description"]').inputValue();
@@ -969,7 +985,7 @@ const NEWS_TITLE_2 = `[E2E] ประกาศทดสอบ Reject ${Date.now(
     await mkPage.locator('input[placeholder*="ประกาศมาตรการ"]').fill(NEWS_TITLE_2);
     await mkPage.locator('textarea[placeholder*="Brief description"]').fill('E2E reject flow summary');
     await mkPage.locator('textarea[placeholder*="Full announcement"]').fill('E2E reject flow content');
-    await click(mkPage.getByRole('button', { name: /Publish Immediately/i }).first());
+    await click(mkPage.getByRole('button', { name: /Save Draft/i }).first());
     await mkPage.waitForTimeout(1200);
     const row = mkPage.locator(`tr:has-text("${NEWS_TITLE_2}")`).first();
     await click(row.locator('button').filter({ hasText: /\+ Request Approval/i }).first());
@@ -1404,12 +1420,27 @@ const counts = results.reduce((acc, r) => { acc[r.status.toLowerCase()] = (acc[r
 
 fs.writeFileSync(RESULTS_JSON, JSON.stringify({
   base: BASE,
+  runId: RUN_ID,
   startedAt: new Date().toISOString(),
   counts,
   results,
   consoleIssues,
   buttonInventory,
 }, null, 2));
+
+// Per-run integrity manifest (Doc 12 §9.5): hash every file in the run dir
+// (`shasum -a 256` format: `<hash>  <filename>` per file, sorted, filenames
+// relative to the run dir) so `shasum -a 256 -c MANIFEST.sha256` verifies the
+// capture set in place. The manifest never lists itself.
+const manifestFiles = fs.readdirSync(SHOT_DIR, { withFileTypes: true })
+  .filter((e) => e.isFile() && e.name !== 'MANIFEST.sha256')
+  .map((e) => e.name)
+  .sort();
+const manifestLines = manifestFiles.map((name) => {
+  const digest = crypto.createHash('sha256').update(fs.readFileSync(path.join(SHOT_DIR, name))).digest('hex');
+  return `${digest}  ${name}`;
+});
+fs.writeFileSync(path.join(SHOT_DIR, 'MANIFEST.sha256'), manifestLines.length ? `${manifestLines.join('\n')}\n` : '');
 
 console.log('\n================ SUMMARY ================');
 console.log(`PASS=${counts.pass || 0} FAIL=${counts.fail || 0} FLAKY=${counts.flaky || 0} SKIP=${counts.skipped || 0}`);
@@ -1418,5 +1449,6 @@ for (const e of pageErrors.slice(0, 10)) console.log(`  [pageerror:${e.context}]
 console.log(`console.error entries: ${consoleErrors.length}`);
 for (const e of consoleErrors.slice(0, 15)) console.log(`  [${e.context}] ${e.text.slice(0, 150)}`);
 console.log(`Results JSON: ${RESULTS_JSON}`);
+console.log(`Screenshot run dir: ${SHOT_DIR} — ${manifestFiles.length} files, MANIFEST.sha256 written`);
 
 await browser.close();

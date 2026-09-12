@@ -45,6 +45,10 @@ npm run build    # vite build + esbuild server bundle → dist/
 npm start        # node dist/server.cjs (production server)
 ```
 
+The e2e test harness (`tests/e2e-walkthrough.mjs`) runs on the `playwright`
+devDependency — a fresh environment needs `npx playwright install` once to
+fetch the browser binaries into the local cache before the e2e suite.
+
 ## 2. Production — Docker Compose (app + PostgreSQL)
 
 One machine, one command, real database with persistent volumes.
@@ -200,9 +204,11 @@ One process, one port; the same image runs in compose and Kubernetes.
 - **Uploads on RWO storage:** multi-replica Kubernetes scheduling is
   constrained by the ReadWriteOnce PVC (single writer — see the note in
   `k8s/pvc.yaml`); move to RWX or object storage before scaling out.
-- **Login rate limiting is per process/pod** (5 attempts/min/IP, in-memory).
-  With many replicas behind an ingress, add consistent hashing or a shared
-  store if stricter enforcement is required.
+- **Login rate limiting is shared across pods** (5 failed
+  attempts/min/IP) via a PostgreSQL-backed counter when `DATABASE_URL` is set;
+  in-memory dev mode remains per-process. If the shared store is temporarily
+  unreachable the limiter fails open with a logged warning — availability wins
+  over this defense-in-depth layer.
 - **Schema upgrades on existing databases are manual** — the postgres
   init-once mechanism only applies `schema.sql` to an empty volume (see §2).
 - **User accounts are deactivated, never deleted** (audit-trail integrity);

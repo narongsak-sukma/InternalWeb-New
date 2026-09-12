@@ -38,7 +38,7 @@ import { ArticleDetailModal } from './components/ArticleDetailModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { BrandLogo } from './components/BrandLogo';
 import { LoginPage } from './components/LoginPage';
-import { api, isOffline, subscribeOffline } from './api';
+import { api, ApiError, isOffline, subscribeOffline } from './api';
 import { useAuth, roleAtLeast } from './auth/AuthContext';
 
 import {
@@ -178,6 +178,13 @@ export default function App() {
         if (contactsData && contactsData.length > 0) setContacts(contactsData);
         if (docsData && docsData.length > 0) setDocuments(docsData);
       } catch (err) {
+        // FR-CMS-004(b) / D7: authenticated data is never substituted with
+        // bundled samples — on hydration failure surface the error and empty
+        // the slices so these views render empty, not sample data.
+        if (isMounted) {
+          setContacts([]);
+          setDocuments([]);
+        }
         showToast(`Directory/documents sync failed: ${errMessage(err)}`, 'error');
       }
       // Checker+: immutable audit trail
@@ -224,18 +231,11 @@ export default function App() {
     }
     setNews((prev) => [created, ...prev]);
 
-    if (item.syncToExternal) {
-      const newLog: SyncLog = {
-        id: `sync-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        itemId: created.id,
-        itemTitle: created.title,
-        action: 'CREATE',
-        status: 'SUCCESS',
-        targetEndpoint: 'api.kbjcapital.co.th/v1/public/news',
-        syncedBy: user?.email ?? user?.username ?? 'unknown',
-      };
-      setSyncLogs((prev) => [newLog, ...prev]);
+    // DCR-9: toast reflects the SERVER-returned item, never the payload flag —
+    // every create enters as draft (W2-1), so no "synced" claim is possible and
+    // no SyncLog is fabricated client-side; real sync rows exist only after
+    // checker approve and are fetched from the server.
+    if (created.syncToExternal || created.externalSyncStatus === 'synced') {
       showToast('Announcement Published & Synced to www.kbjcapital.co.th in real time!');
     } else {
       showToast('New Announcement Published to Employee Intranet successfully!');
@@ -248,6 +248,7 @@ export default function App() {
       showToast(noId.message, 'error');
       throw noId;
     }
+    const prior = news.find((n) => n.id === item.id);
     let updated: NewsItem;
     try {
       updated = await api.updateNews(item.id, item);
@@ -257,19 +258,14 @@ export default function App() {
     }
     setNews((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
 
-    if (item.syncToExternal) {
-      const newLog: SyncLog = {
-        id: `sync-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        itemId: updated.id,
-        itemTitle: updated.title,
-        action: 'UPDATE',
-        status: 'SUCCESS',
-        targetEndpoint: 'api.kbjcapital.co.th/v1/public/news',
-        syncedBy: user?.email ?? user?.username ?? 'unknown',
-      };
-      setSyncLogs((prev) => [newLog, ...prev]);
-      showToast('Changes saved & synchronized to www.kbjcapital.co.th!');
+    // DCR-9: feedback derives from the SERVER-returned item. A PUT can never
+    // re-sync content (W2-1): editing a live/pending item force-resets it to
+    // draft — say so instead of claiming a sync. No local SyncLog fabrication.
+    const wasNonDraft = !!prior?.externalSyncStatus && prior.externalSyncStatus !== 'draft';
+    if (updated.syncToExternal || updated.externalSyncStatus === 'synced') {
+      showToast('Changes saved & live on www.kbjcapital.co.th.');
+    } else if (wasNonDraft) {
+      showToast('Changes saved — item returned to draft and needs re-approval before it is live again.');
     } else {
       showToast('Changes saved to Employee Intranet!');
     }
@@ -287,41 +283,46 @@ export default function App() {
     showToast(`Removed announcement: ${target?.title.substring(0, 24)}...`);
   };
 
-  const handleToggleExternalSync = async (id: string) => {
-    const item = news.find((n) => n.id === id);
-    if (!item) return;
-
-    const nextSync = !item.syncToExternal;
-    const updated = {
-      ...item,
-      syncToExternal: nextSync,
-      externalSyncStatus: (nextSync ? 'synced' : 'draft') as 'synced' | 'draft',
-    };
-
+  // DCR-9 / W2-FIX-1 (codex blocker 3): withdraw a live (synced) item from the
+  // public site via the DEDICATED state-only endpoint. The old flow PUT the
+  // whole cached item, so a stale browser snapshot silently overwrote any
+  // concurrent edit (and a non-synced server state produced no AUD-P01 row).
+  // The endpoint carries no payload: the server withdraws its CURRENT content
+  // atomically (synced → draft, stamps cleared, syncToExternal false, AUD-P01)
+  // and returns the post-transition item — state and toast derive from that
+  // server response, never from the local cache.
+  const handleWithdrawFromPublic = async (id: string) => {
+    let withdrawn: NewsItem;
     try {
-      await api.updateNews(id, updated);
+      withdrawn = await api.withdrawNews(id);
     } catch (err) {
-      showToast(`Sync toggle failed: ${errMessage(err)}`, 'error');
+      // 409 = the server state moved on (already withdrawn / rejected /
+      // pending). Refresh the list to server truth and surface its Thai-first
+      // explanation verbatim.
+      if (err instanceof ApiError && err.status === 409) {
+        try {
+          const fresh = await api.getNews();
+          if (fresh && fresh.length > 0) setNews(fresh);
+        } catch {
+          /* best-effort refresh; the toast below still explains the refusal */
+        }
+        showToast(err.message, 'error');
+      } else {
+        showToast(`Withdraw failed: ${errMessage(err)}`, 'error');
+      }
       throw err;
     }
-    setNews((prev) => prev.map((n) => (n.id === id ? updated : n)));
+    setNews((prev) => prev.map((n) => (n.id === withdrawn.id ? withdrawn : n)));
 
-    const newLog: SyncLog = {
-      id: `sync-${Date.now()}`,
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      itemId: item.id,
-      itemTitle: item.title,
-      action: nextSync ? 'CREATE' : 'DELETE',
-      status: 'SUCCESS',
-      targetEndpoint: 'api.kbjcapital.co.th/v1/public/news',
-      syncedBy: user?.email ?? user?.username ?? 'unknown',
-    };
-    setSyncLogs((prevLogs) => [newLog, ...prevLogs]);
-    showToast(
-      nextSync
-        ? `"${item.title.substring(0, 28)}..." is now LIVE on www.kbjcapital.co.th!`
-        : `Unpublished from external site. Now visible on Intranet only.`
-    );
+    if (withdrawn.externalSyncStatus === 'draft') {
+      showToast(
+        `"${withdrawn.title.substring(0, 28)}..." withdrawn from www.kbjcapital.co.th — returned to draft (needs re-approval to go live again).`
+      );
+    } else {
+      showToast(
+        `Withdrawal sent — server status: ${withdrawn.externalSyncStatus ?? 'unknown'}.`
+      );
+    }
   };
 
   // Role-gated refresh helpers (audit: checker+, sync logs: admin)
@@ -929,7 +930,7 @@ export default function App() {
             onAddNews={handleAddNews}
             onUpdateNews={handleUpdateNews}
             onDeleteNews={handleDeleteNews}
-            onToggleExternalSync={handleToggleExternalSync}
+            onWithdrawFromPublic={handleWithdrawFromPublic}
             onSubmitForApproval={handleSubmitNewsApproval}
             onApproveNews={handleApproveNews}
             onRejectNews={handleRejectNews}

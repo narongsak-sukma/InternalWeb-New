@@ -31,6 +31,9 @@ export interface NewsItem {
   attachmentName?: string;
   approvedBy?: string;
   approvedAt?: string;
+  /** User id of the maker/admin who submitted the item for approval (FR-NEWS-009 self-approval guard). */
+  submittedBy?: string;
+  submittedAt?: string;
 }
 
 export interface BannerSlide {
@@ -113,7 +116,7 @@ export interface AuditLog {
   timestamp: string;
   actor: string;
   actorRole: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SUBMIT_APPROVAL' | 'APPROVE' | 'REJECT' | 'SYNC_PUBLIC' | 'LOGIN' | 'LOGIN_FAILED' | 'LOGOUT' | 'USER_CREATE' | 'USER_ACTIVATE' | 'USER_DEACTIVATE' | 'FILE_UPLOAD';
+  action: 'UPDATE' | 'SUBMIT_APPROVAL' | 'APPROVE' | 'REJECT' | 'LOGIN' | 'LOGIN_FAILED' | 'LOGOUT' | 'USER_CREATE' | 'USER_ACTIVATE' | 'USER_DEACTIVATE' | 'FILE_UPLOAD' | 'SYNC_TRIGGER' | 'SYSTEM_EXPORT' | 'ACCESS_DENIED';
   targetResource: string;
   resourceId: string;
   details: string;
