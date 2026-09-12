@@ -239,7 +239,7 @@ try {
       await newsForm.locator('textarea[placeholder*="Full announcement"]').fill('W34UAT2 J1 full content v1 — ไฟล์แนบต้องคงอยู่ตลอดการเดินทาง');
       const categorySelect = newsForm.locator('select').filter({ has: page.locator('option[value="bot-news"]') }).first();
       await categorySelect.selectOption('bot-news');
-      await click(page.getByRole('button', { name: /Publish Immediately/i }).first()); // create = saves as DRAFT (DCR-9)
+      await click(page.getByRole('button', { name: /Save Draft/i }).first()); // create = saves as DRAFT (DCR-9)
       const row = page.locator(`tr:has-text("${J1_TITLE}")`).first();
       const rowShown = await until(() => row.count().then((c) => c > 0), true, 9000);
       if (!rowShown) throw new Error('draft row not found in CMS list after save');

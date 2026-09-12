@@ -1610,7 +1610,7 @@ export const AdminCMS: React.FC<AdminCMSProps> = ({
                         ? 'กำลังบันทึก... / Saving...'
                         : editingNewsId
                           ? 'Save Changes'
-                          : 'Publish Immediately'}
+                          : 'บันทึกเป็นร่าง / Save Draft'}
                     </span>
                   </button>
                 </div>

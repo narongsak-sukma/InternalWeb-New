@@ -702,7 +702,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
     await page.locator('input[placeholder*="BOT Regulatory"]').fill('E2E Test Article EN');
     await page.locator('textarea[placeholder*="Brief description"]').fill('E2E summary for the walkthrough test');
     await page.locator('textarea[placeholder*="Full announcement"]').fill('E2E full content body. Lorem ipsum verification.');
-    await click(page.getByRole('button', { name: /Publish Immediately/i }));
+    await click(page.getByRole('button', { name: /Save Draft/i }));
     await page.waitForTimeout(1200);
     const row = await page.locator(`tr:has-text("${NEWS_TITLE}")`).count();
     if (!row) throw new Error('created article row not found in list');
@@ -748,7 +748,7 @@ const NEWS_TITLE = `[E2E] ประกาศทดสอบ Maker ${Date.now() %
       else void route.continue().catch(() => {});
     });
     try {
-      await click(page.getByRole('button', { name: /Publish Immediately/i }));
+      await click(page.getByRole('button', { name: /Save Draft/i }));
       await page.waitForTimeout(1500); // let the failure propagate through api + handler
       const stillOpen = (await heading.count()) === 1;
       const keptTitle = await page.locator('input[placeholder*="ประกาศมาตรการ"]').inputValue();
@@ -985,7 +985,7 @@ const NEWS_TITLE_2 = `[E2E] ประกาศทดสอบ Reject ${Date.now(
     await mkPage.locator('input[placeholder*="ประกาศมาตรการ"]').fill(NEWS_TITLE_2);
     await mkPage.locator('textarea[placeholder*="Brief description"]').fill('E2E reject flow summary');
     await mkPage.locator('textarea[placeholder*="Full announcement"]').fill('E2E reject flow content');
-    await click(mkPage.getByRole('button', { name: /Publish Immediately/i }).first());
+    await click(mkPage.getByRole('button', { name: /Save Draft/i }).first());
     await mkPage.waitForTimeout(1200);
     const row = mkPage.locator(`tr:has-text("${NEWS_TITLE_2}")`).first();
     await click(row.locator('button').filter({ hasText: /\+ Request Approval/i }).first());
