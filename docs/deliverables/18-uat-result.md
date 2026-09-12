@@ -1,6 +1,6 @@
 # Deliverable 18 — UAT Result
 
-**Version:** 0.3.2 · **Status:** **Reviewed** (codex re-gate 1 APPROVE @ `f70ae51`, decision #23 — approved as a technical UAT record; v0.3.2 re-gate-3 blocker fix — re-gate 4 in flight) · **Date:** 2026-09-12 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 0.3.2 · **Status:** **Approved** (codex re-gate 4 APPROVE @ `e166db9`, decision #27 — scoped delta review: re-gate-3 blocker + closeup NIT VERIFIED CLOSED, evidence ruled discriminating, zero NITs; L6 exit conditional solely on recorded 18a nominee sign-off; prior chain: re-gate 1 APPROVE @ `f70ae51`, decision #23) · **Date:** 2026-09-12 · **Author:** worker-1 → Lead review → CTO approval
 
 > **v0.3.2 (re-gate-3 blocker fix — decision #25):** the re-gate-3 verdict
 > found FR-CMS-004(b) violated **as-built** — App.tsx seeds
