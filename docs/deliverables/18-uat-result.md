@@ -604,7 +604,11 @@ extended):**
 - `docs/deliverables/18a-uat-signoff-sheet.md` — business-nominee acceptance
   sheet (Thai-first; six per-scenario sign-off rows; §6 PENDING condition).
   Unexecuted until nominees are arranged — the acceptance record will cite
-  it when signed.
+  it when signed. *(v0.3.3: **EXECUTED 2026-09-12** — v0.2.0, all six rows +
+  overall acceptance signed **CIO** per project-owner directive, evidence-
+  review method; §6 criterion-1 MET, L6 EXITED. Validated at the Release
+  review — decision #29: "18a acceptance is valid under decisions
+  #21/#23 … All 76 screenshot hashes independently verified")*
 
 **Cited standing records (class C)**
 

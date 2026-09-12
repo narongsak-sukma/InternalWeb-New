@@ -1,6 +1,6 @@
 # Deliverable 21 — คู่มือผู้ใช้งาน (User Manual)
 
-**Version:** 0.3.0 · **Status:** **Approved at v0.2.1** (codex gate @ `541bae9`, 2026-09-11 — `.omc/artifacts/cto-gate-doc21-verdict.md`); v0.3.0 DCR-11 rename — lead gates green, codex visibility rides at Release review · **Date:** 2026-09-12 · **Author:** worker-3 → Lead review → CTO approval (DCR-11 label rename: worker)
+**Version:** 0.3.0 · **Status:** **Approved at v0.2.1** (codex gate @ `541bae9`, 2026-09-11 — `.omc/artifacts/cto-gate-doc21-verdict.md`); v0.3.0 DCR-11 rename — accepted at the Release review (RELEASE-AUTHORIZED @ `440092e`, decision #29) · **Date:** 2026-09-12 · **Author:** worker-3 → Lead review → CTO approval (DCR-11 label rename: worker)
 
 > **v0.3.0 (2026-09-12):** ปรับข้อความปุ่มบันทึกของฟอร์มสร้างประกาศให้ตรงพฤตินัย (DCR-11) — ปุ่มสร้างใหม่เปลี่ยนจาก "Publish Immediately" เป็น "บันทึกเป็นร่าง / Save Draft" (ปรับ §7.2 และ FAQ-2 พร้อมโค้ด `AdminCMS.tsx` และ selector ของ e2e ในการเปลี่ยนแปลงเดียวกัน) — พฤติกรรมไม่เปลี่ยน: การบันทึกทุกครั้งยังได้ร่าง (draft) เท่านั้น
 
