@@ -45,6 +45,10 @@ npm run build    # vite build + esbuild server bundle → dist/
 npm start        # node dist/server.cjs (production server)
 ```
 
+The e2e test harness (`tests/e2e-walkthrough.mjs`) runs on the `playwright`
+devDependency — a fresh environment needs `npx playwright install` once to
+fetch the browser binaries into the local cache before the e2e suite.
+
 ## 2. Production — Docker Compose (app + PostgreSQL)
 
 One machine, one command, real database with persistent volumes.

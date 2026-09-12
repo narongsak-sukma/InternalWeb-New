@@ -1,6 +1,6 @@
 # Deliverable 20 — Security Remediation Report
 
-**Version:** 0.1.1 · **Status:** **Approved** (codex gate @ `aec9779`, 2026-09-11 — `.omc/artifacts/cto-gate-doc20-verdict.md`) · **Date:** 2026-09-11 · **Author:** worker-5 (fresh spawn) → Lead review → CTO approval
+**Version:** 0.1.2 · **Status:** **Approved** (codex gate @ `aec9779`, 2026-09-11 — `.omc/artifacts/cto-gate-doc20-verdict.md`) · **Date:** 2026-09-11 · **Author:** worker-5 (fresh spawn) → Lead review → CTO approval
 
 > Scope basis: conditional companion to Deliverable 19 — VA/Pentest Report
 > `docs/deliverables/19-va-pentest-report.md` **v0.4.1 Approved** (codex re-gate 2
@@ -27,6 +27,20 @@
 > `lead-gates.log`, `build.log` prints a rounded size); (3) §1 Doc 19
 > provenance precision — `9d84dc1` is the reviewed v0.4.0 commit, the
 > v0.4.1 Approved flip landed in `f2fd57a`. Status flipped to Approved.
+>
+> v0.1.2 (2026-09-12, P3 hardening lane — as-built disposition flips,
+> annotate-not-rewrite): **DEP-001 → RESOLVED** via the npm `overrides`
+> pin (`"qs": "6.16.0"` in package.json — the version already gate-proven
+> via body-parser; no new version introduced). As-built tree: `npm ls qs`
+> shows a **single qs@6.16.0** (express direct `overridden`,
+> body-parser `deduped` — no 6.15.x anywhere) and `npm audit` →
+> **0 vulnerabilities** (`.omc/reports/p3b-lane.log` §B2 verbatim).
+> **OBS-1 → RESOLVED** in the same lane: `app.set('x-powered-by',
+> false)` in server.ts; probe :3228 (§A2 of the same log): 200/400/200
+> with no `x-powered-by`, five security headers intact on the 400 path.
+> Fix-tree standing gates: tsc 0 · build 0 · smoke 108/108 · e2e :3229
+> 63 PASS / 1 FLAKY-known-S0 / 0 FAIL, exit 0. Both code changes ship
+> in the same change set as this annotation (lead commit).
 
 ## 1. Purpose & scope
 
@@ -184,8 +198,8 @@ framework — no new severities assigned here.
 
 | ID | Residual | Severity | Disposition |
 |---|---|---|---|
-| DEP-001 | `express` 4.22.2 direct `qs ~6.15.1` pin resolves to 6.15.3 — inside the GHSA-x5fp-wj9c-mxmx / GHSA-4mjr-xmp4-gh2g advisory range (2 moderates remain; zero High/Critical) | rides VUL-002's S3 | **Accepted exception** per Test Plan §7 "exceptions accepted"; tracked in the dependency-refresh backlog (PROJECT-STATE W3-FIX-2 row). Plan: npm `overrides` pin of qs ≥ patched range, or next express/qs refresh — whichever lands first (§5) |
-| OBS-1 | `X-Powered-By: Express` returned on all responses — outside TC-SEC-001's expected header set, hence not a TC violation | advisory observation (no severity minted) | P3 hardening candidate: `app.disable('x-powered-by')` one-liner — **doc-first, no code landed** (§5) |
+| DEP-001 | `express` 4.22.2 direct `qs ~6.15.1` pin resolves to 6.15.3 — inside the GHSA-x5fp-wj9c-mxmx / GHSA-4mjr-xmp4-gh2g advisory range (2 moderates remain; zero High/Critical) | rides VUL-002's S3 | **Accepted exception** per Test Plan §7 "exceptions accepted"; tracked in the dependency-refresh backlog (PROJECT-STATE W3-FIX-2 row). Plan: npm `overrides` pin of qs ≥ patched range, or next express/qs refresh — whichever lands first (§5) *(v0.1.2: **RESOLVED** — npm `overrides` pin qs@6.16.0; single tree-wide version, `npm audit` 0 — v0.1.2 changelog + `.omc/reports/p3b-lane.log` §B2)* |
+| OBS-1 | `X-Powered-By: Express` returned on all responses — outside TC-SEC-001's expected header set, hence not a TC violation | advisory observation (no severity minted) | P3 hardening candidate: `app.disable('x-powered-by')` one-liner — **doc-first, no code landed** (§5) *(v0.1.2: **RESOLVED** — suppression landed in the same P3 lane; v0.1.2 changelog + `.omc/reports/p3b-lane.log` §A2)* |
 | OBS-2 | `GET /uploads/` answers 200 with the SPA shell; no directory listing (`index:false` holds; SPA catch-all absorbs the path) — TC-SEC-008 "No index" satisfied | informational | None required; recorded so Doc 08/17 readers are not surprised by the 200 (Doc 19 §3 Observations) |
 
 ## 4. Re-test & verification summary
@@ -204,6 +218,12 @@ the W3-FIX-2 tree is recorded in PROJECT-STATE or `.omc/reports/w3fix2/` —
 **NOT RECORDED**, not inferred.
 
 ## 5. Recommendations (P3 hardening backlog — [PLANNED], no code claims)
+
+*(v0.1.2 annotation: both [PLANNED] items below landed in the 2026-09-12
+P3 hardening lane — OBS-1 via `app.set('x-powered-by', false)` (server.ts),
+DEP-001 via the npm `overrides` qs@6.16.0 pin. Evidence: v0.1.2 changelog
+entry + `.omc/reports/p3b-lane.log`. Original v0.1.1 text retained per
+annotate-not-rewrite.)*
 
 - **[PLANNED] OBS-1 X-Powered-By suppression** — add
   `app.disable('x-powered-by')` (one-liner per Doc 19 §3 OBS-1) in a future

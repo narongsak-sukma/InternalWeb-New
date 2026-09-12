@@ -38,6 +38,8 @@ const app = express();
 // Single reverse-proxy hop (Docker / K8s ingress) so req.ip reflects the real client
 // for rate limiting and audit logs instead of the proxy address.
 app.set('trust proxy', 1);
+// OBS-1 (Doc 19): suppress Express framework disclosure
+app.set('x-powered-by', false);
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
