@@ -5,6 +5,19 @@
  * (Doc 18 re-gate-2 fix) with the O4 route-abort leg family — no other
  * test/script/doc is modified. Modeled on tests/uat-visuals.mjs and
  * tests/uat-journey-evidence.mjs (same harness idioms).
+ * EXTENDED IN PLACE for W3-4O-3 (codex re-gate-3, FR-CMS-004(b) as-built
+ * fix): src/App.tsx now EMPTIES contacts/documents inside the authenticated
+ * hydration catch, so authenticated views render empty (never samples) during
+ * a data outage. O0 additionally provisions a unique server-only CONTACT +
+ * DOCUMENT (maker01 via the API); O4b asserts on the REAL Directory and
+ * Documents surfaces (UI clicks only) that BOTH the server-only markers AND
+ * known bundled INITIAL_CONTACTS/INITIAL_DOCUMENTS sample names are ABSENT
+ * (strict 0) during the outage; O4c asserts both markers RETURN after
+ * unrouteAll + reload. The O4a closeup was recaptured (NIT fix, run 2 — run 1
+ * INVALID: the first clip-union attempt still cropped the card) so the
+ * COMPLETE news card AND badge are provably framed: the page is scrolled
+ * until card + title + badge boxes all sit fully inside the 1440x900
+ * viewport (asserted before saving), then a plain viewport shot is taken.
  *
  * Trigger analysis (src/api.ts + src/App.tsx, verified before writing):
  *   - ANY fetch that fails at network level raises the D7 offline flag
@@ -70,8 +83,10 @@
  *        action of opening the "Meeting Rooms Plan" tab — the grid is behind
  *        activeTab='directory' by default) and the banner carousel showing a
  *        bundled slide title — all three public surfaces. Shots:
- *        full page (badge + bundled content) + element-level closeup of the
- *        news card together with the badge (clip-union screenshot).
+ *        full page (badge + bundled content) + closeup framing the COMPLETE
+ *        news card together with the badge (viewport shot after scrolling
+ *        both fully into the 1440x900 viewport — card/title/badge bounding
+ *        boxes asserted inside the viewport before saving).
  *   O4b — FR-CMS-004(b): contacts+documents also aborted -> the authenticated
  *        hydration ERRORS OUT with the toast "Directory/documents sync
  *        failed: Cannot reach server (network error)" (exact string from
@@ -81,11 +96,22 @@
  *        window, DETERMINISTICALLY re-triggers it via page.reload() with the
  *        aborts still active (session restore -> loadAuthenticatedData fails
  *        again -> fresh toast).
+ *        W3-4O-3 extension (the as-built fix this lane now covers): the
+ *        hydration catch EMPTIES the slices (src/App.tsx), so on the REAL
+ *        Directory surface (#tab-phonebook click — O4a left the rooms tab
+ *        active) and the REAL Documents surface (left-rail "แบบฟอร์มเอกสาร
+ *        (Official Forms)" navigation click) BOTH the unique server-only
+ *        contact/document AND a known bundled INITIAL_CONTACTS/
+ *        INITIAL_DOCUMENTS sample are ABSENT (strict count 0) — authenticated
+ *        views render empty, NEVER samples. Both surfaces are screenshotted
+ *        during the outage.
  *   O4c — FR-CMS-004(c) recovery: ctx.unrouteAll() (ALL interception removed)
  *        -> page.reload() (real user action; SPA loads because connectivity
  *        is real) -> session restore via /api/auth/me -> hydration re-runs ->
  *        public GETs succeed -> badge GONE (strict count 0) AND the
- *        server-only marker VISIBLE again (server data back).
+ *        server-only marker VISIBLE again (server data back). W3-4O-3: the
+ *        unique server-only CONTACT and DOCUMENT are also asserted BACK
+ *        (visible) on the recovered authenticated surfaces.
  *
  * Judgment calls (JC, numbered; also embedded in the results JSON):
  *   JC1 — In-memory server boot requires ADMIN_PASSWORD to be set explicitly:
@@ -130,6 +156,22 @@
  *         is asserted after the real user action of clicking the "Meeting
  *         Rooms Plan" tab (the rooms grid renders only under activeTab=
  *         'rooms'; default is 'directory') — exact "Kookmin Room" <h4> text.
+ *   JC8 — W3-4O-3 surface navigation is REAL UI ONLY: the Directory surface is
+ *         reached by clicking the #tab-phonebook segmented-control tab (the
+ *         O4a room check leaves activeTab='rooms'; idempotent if a toast
+ *         re-trigger reload already reset it to 'directory') and scrolling
+ *         via the left-rail "Internal Phonebook" button; the Documents
+ *         surface is reached via the left-rail "แบบฟอร์มเอกสาร (Official
+ *         Forms)" button (scrolls #governance-section into view — the list
+ *         renders under the default activeCategory='all', no category click
+ *         required). No URL hacks. Sample markers are copied BYTE-FOR-BYTE
+ *         from src/data/initialData.ts (INITIAL_CONTACTS[0].name,
+ *         INITIAL_DOCUMENTS[0].title); the O4a closeup NIT fix (run 2 — run 1
+ *         INVALID: the clip-union still cropped the card, see
+ *         w3-4-offlinesim3-run-1.log.INVALID) SCROLLS the COMPLETE card +
+ *         badge fully into the 1440x900 viewport and ASSERTS card/title/badge
+ *         bounding boxes all sit fully inside the viewport before saving a
+ *         plain viewport shot.
  *
  * Output:
  *   Screenshots: .omc/reports/screenshots/run-<YYYY-MM-DDTHHMM>Z-offlinesim/*.png
@@ -191,6 +233,20 @@ const BUNDLED_BANNER_TITLES = [
   'KB J-E-DMS Electronic Document System',
   'KB J Capital Corporate Identity Guidelines',
 ];
+// W3-4O-3 (FR-CMS-004(b) re-gate-3): bundled authenticated-surface sample
+// markers, copied BYTE-FOR-BYTE from src/data/initialData.ts —
+// INITIAL_CONTACTS[0].name (dir-1) and INITIAL_DOCUMENTS[0].title (doc-1).
+// Under the W3-4O-3 App.tsx fix the authenticated hydration catch EMPTIES
+// the slices, so authenticated views render NEITHER server rows NOR these
+// samples during a data outage (both asserted strict count 0 in O4b).
+const SAMPLE_CONTACT = 'คุณวรวุฒิ เกียรติศิริ';
+const SAMPLE_DOC_TITLE = 'จรรยาบรรณในการดำเนินธุรกิจ (Code of Business Conduct & Ethics)';
+// Real-UI navigation selectors for the authenticated surfaces (JC8): the
+// phonebook segmented-control tab id and the left-rail buttons that scroll
+// to the directory / governance-documents sections.
+const TAB_PHONEBOOK_SEL = '#tab-phonebook';
+const SIDEBAR_PHONEBOOK_TEXT = 'Internal Phonebook';
+const SIDEBAR_FORMS_TEXT = 'แบบฟอร์มเอกสาร (Official Forms)';
 
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 
@@ -268,6 +324,14 @@ async function login(page, username) {
 
 const TS = Date.now() % 100000;
 const SERVER_TITLE = `W34O ข่าวยืนยันเซิร์ฟเวอร์ออนไลน์ ${TS}`; // server-only marker (JC2)
+// W3-4O-3 server-only directory/documents markers: unique via a random
+// 5-digit number, provisioned in O0 by maker01 through the API (same style
+// as the news marker — the in-memory server seeds the exact
+// INITIAL_CONTACTS/INITIAL_DOCUMENTS bundles, so these rows are the only
+// server-only content on those surfaces).
+const RAND5 = String(Math.floor(10000 + Math.random() * 90000));
+const SERVER_CONTACT = `W34O3 Directory Probe ${RAND5}`;
+const SERVER_DOCUMENT = `W34O3 Document Probe ${RAND5}`;
 
 const browser = await chromium.launch();
 let finalized = false;
@@ -283,7 +347,11 @@ async function finalize() {
       obs: results.filter((r) => r.status === 'OBS').length,
     },
     badge: { assertedText: `${BADGE_TH}\n${BADGE_EN}`, sourceRef: 'src/App.tsx:589-599' },
-    markers: { serverSeeded: SERVER_TITLE, bundledSample: SAMPLE_TITLE },
+    markers: {
+      serverSeeded: SERVER_TITLE, bundledSample: SAMPLE_TITLE,
+      serverContact: SERVER_CONTACT, serverDocument: SERVER_DOCUMENT,
+      bundledContact: SAMPLE_CONTACT, bundledDocument: SAMPLE_DOC_TITLE,
+    },
     judgmentCalls: [
       'JC1 boot: ADMIN_PASSWORD passed via env (never logged) — production boot would otherwise print a generated admin password into the transcript',
       'JC2 markers: unique approved news item = server-only marker (in-memory server seeds the exact INITIAL_NEWS bundle, so server/bundle start identical)',
@@ -292,6 +360,7 @@ async function finalize() {
       'JC5 O4 is a surgical data-endpoint route-abort outage, NOT context.setOffline (full-offline legs O2a/O2b stay as-is): route.abort() drives the identical client code path (fetch rejection -> publicGet fallback + offline flag) while the SPA is still served — FR-CMS-004(a) data-unreachable state, deterministic, honestly labeled route-abort everywhere',
       'JC6 O4b aborts contacts+documents from setup (one deterministic outage config, no mid-flight route changes); the 3800ms auto-dismiss toast is polled immediately after login and, if the window was lost, deterministically re-triggered via page.reload() with aborts still active; the EXACT string "Directory/documents sync failed: Cannot reach server (network error)" is asserted strict === (src/App.tsx:181 + src/api.ts:90)',
       'JC7 banner surface asserted via the carousel current slide title being one of the bundled INITIAL_BANNERS titles (HeroCarousel renders exactly one slide title at any instant; during the abort /api/banners can never answer, so any rendered banner is necessarily the bundled fallback); room surface asserted via exact "Kookmin Room" <h4> text after the real user action of opening the "Meeting Rooms Plan" tab (rooms grid renders only under activeTab=rooms, default directory)',
+      'JC8 W3-4O-3 surface navigation is REAL UI ONLY: Directory via the #tab-phonebook segmented-control tab (O4a leaves activeTab=rooms; the click is idempotent if a toast re-trigger reload reset it) + the left-rail "Internal Phonebook" scroll button; Documents via the left-rail "แบบฟอร์มเอกสาร (Official Forms)" scroll button (list renders under default activeCategory=all, no category click required); no URL hacks. Sample markers byte-for-byte from src/data/initialData.ts (INITIAL_CONTACTS[0].name, INITIAL_DOCUMENTS[0].title). O4a closeup NIT fix (run 2 — run 1 INVALID: the clip-union reproduced the old cropped 1332x108 strip because at scroll 0 the card title band overlaps the fixed badge band, and a clip derived from the measured boxes cannot detect its own framing bug): the page is SCROLLED until the COMPLETE card + badge sit fully inside the 1440x900 viewport, card/title/badge bounding boxes are ASSERTED inside the viewport before saving, then a plain viewport screenshot is taken (no clip math) — plus the <h4> text strict === SAMPLE_TITLE',
     ],
     results,
   }, null, 2));
@@ -356,6 +425,39 @@ try {
     record('O0-MARKER', 'Server-seeded marker: unique news item approved (synced) via the dual-control API', synced ? 'PASS' : 'FAIL',
       `create=${created.status} submit=${sub.status} approve=${app.status} externalSyncStatus=${app.body?.data?.externalSyncStatus} id=${newsId}`);
     if (!synced) throw new Error('server marker not synced — lane cannot proceed honestly');
+  }
+  {
+    // W3-4O-3: server-only CONTACT + DOCUMENT markers (maker01 via the API,
+    // same provisioning style as the news marker above). Both feeds start as
+    // the exact bundled INITIAL_CONTACTS/INITIAL_DOCUMENTS seed in the
+    // in-memory repo, so these unique rows are the only server-only content
+    // the Directory/Documents surfaces can render.
+    const makerCookie = await apiLogin('maker01');
+    const contact = await api(makerCookie, 'POST', '/api/contacts', {
+      name: SERVER_CONTACT,
+      nameEn: `W34O3 Directory Probe EN ${RAND5}`,
+      position: 'Outage Simulation Probe',
+      department: 'General Affairs',
+      extension: '1997',
+      directPhone: '02-009-1997',
+      email: `w34o3-probe-${RAND5}@kbjcapital.co.th`,
+      floor: '14th Floor',
+    });
+    const document = await api(makerCookie, 'POST', '/api/documents', {
+      title: SERVER_DOCUMENT,
+      titleEn: `W34O3 Document Probe EN ${RAND5}`,
+      category: 'form',
+      department: 'General Affairs',
+      version: 'Probe v1.0',
+      fileSize: '1 KB',
+      downloadUrl: '#w34o3-probe',
+    });
+    const contactId = contact.body?.data?.id;
+    const docId = document.body?.data?.id;
+    const probesOk = contact.status === 201 && document.status === 201 && contactId && docId;
+    record('O0-PROBES', 'Server-only markers: unique CONTACT + DOCUMENT created by maker01 via the API', probesOk ? 'PASS' : 'FAIL',
+      `contact=${contact.status} id=${contactId}; document=${document.status} id=${docId}`);
+    if (!probesOk) throw new Error(`probe provisioning failed: contact HTTP ${contact.status}, document HTTP ${document.status}`);
   }
 
   // ---------- O1: online baseline (staff01, real UI login) ----------
@@ -553,24 +655,55 @@ try {
       if (!bannerOk4) throw new Error(`carousel title ${JSON.stringify(bannerTitle4)} is not one of the bundled INITIAL_BANNERS titles`);
 
       // Screenshots — the reviewer must SEE rendered bundled content + badge
-      // together: one full-viewport shot, one element-level closeup of the
-      // news card TOGETHER WITH the badge (clip-union of both bounding boxes).
+      // together: one full-viewport shot, one closeup framing the COMPLETE
+      // news card TOGETHER WITH the badge.
       const shotFull4 = await shot(page4, 'o4a-routeaborted-portal-bundled-content-badge');
-      await page4.evaluate(() => window.scrollTo(0, 0));
-      const cardBox = await page4.locator('#featured-alert-card').boundingBox();
-      const badgeBox = await badge4.boundingBox();
-      if (!cardBox || !badgeBox) throw new Error(`boundingBox unavailable for closeup (card=${Boolean(cardBox)}, badge=${Boolean(badgeBox)})`);
-      const pad = 12;
-      const clipX = Math.max(0, Math.min(cardBox.x, badgeBox.x) - pad);
-      const clipY = Math.max(0, Math.min(cardBox.y, badgeBox.y) - pad);
-      const clipW = Math.min(1440 - clipX, Math.max(cardBox.x + cardBox.width, badgeBox.x + badgeBox.width) + pad - clipX);
-      const clipH = Math.max(cardBox.y + cardBox.height, badgeBox.y + badgeBox.height) + pad - clipY;
+      // NIT fix v2 (W3-4O-3, run 2; run 1 INVALID): the clip-union of the card/
+      // title/badge boxes produced the SAME 1332x108 strip as the pre-fix code
+      // — at scroll 0 the card's title band sits in the same viewport band
+      // (y~778-830) as the FIXED bottom-left badge (y~830-880), so the union
+      // is a thin strip that decapitates the card body (and a clip derived
+      // FROM the boxes cannot detect that). Robust framing instead: SCROLL so
+      // the COMPLETE card sits fully inside the 1440x900 viewport together
+      // with the always-visible fixed badge, ASSERT card + title <h4> + badge
+      // boxes are ALL fully inside the viewport BEFORE saving, then save a
+      // plain viewport screenshot — no clip math at all.
+      const VIEWPORT_W4 = 1440;
+      const VIEWPORT_H4 = 900;
+      const titleLoc4 = page4.locator('#featured-alert-card h4').first();
+      const titleText4 = await titleLoc4.innerText();
+      strictEqual(titleText4.trim(), SAMPLE_TITLE, 'featured card <h4> is not the bundled sample title — the closeup would frame the wrong card');
+      const boxInsideViewport4 = (b) =>
+        b.x >= -0.5 && b.y >= -0.5 && b.x + b.width <= VIEWPORT_W4 + 0.5 && b.y + b.height <= VIEWPORT_H4 - 16;
+      let closeupFramed4 = false;
+      let closeupGeom4 = '';
+      for (let attempt4 = 1; attempt4 <= 3 && !closeupFramed4; attempt4++) {
+        const cardBox4 = await page4.locator('#featured-alert-card').boundingBox();
+        if (!cardBox4) throw new Error(`boundingBox unavailable for #featured-alert-card (closeup attempt ${attempt4})`);
+        const scrollBefore4 = await page4.evaluate(() => window.scrollY);
+        // Page-absolute card bottom -> scroll target that parks it fully above
+        // the viewport bottom (24px breathing room under the badge band).
+        const targetScroll4 = Math.max(0, Math.ceil(cardBox4.y + cardBox4.height + scrollBefore4 + 24 - VIEWPORT_H4));
+        await page4.evaluate((s) => window.scrollTo(0, s), targetScroll4);
+        await sleep(300); // let the scroll + any reflow settle before judging
+        const cardBoxNow4 = await page4.locator('#featured-alert-card').boundingBox();
+        const titleBox4 = await titleLoc4.boundingBox();
+        const badgeBox4 = await badge4.boundingBox();
+        if (!cardBoxNow4 || !titleBox4 || !badgeBox4) {
+          throw new Error(`boundingBox unavailable after scroll (attempt ${attempt4}: card=${Boolean(cardBoxNow4)}, title=${Boolean(titleBox4)}, badge=${Boolean(badgeBox4)})`);
+        }
+        closeupGeom4 = `attempt=${attempt4} scrollY=${scrollBefore4}->${targetScroll4} card(y=${Math.round(cardBoxNow4.y)},h=${Math.round(cardBoxNow4.height)}) title(y=${Math.round(titleBox4.y)}) badge(y=${Math.round(badgeBox4.y)})`;
+        closeupFramed4 = boxInsideViewport4(cardBoxNow4) && boxInsideViewport4(titleBox4) && boxInsideViewport4(badgeBox4);
+      }
+      if (!closeupFramed4) {
+        throw new Error(`closeup framing failed after 3 attempts — the COMPLETE news card + badge could not be framed inside the viewport (${closeupGeom4})`);
+      }
       const CLOSEUP = 'o4a-routeaborted-newscard-badge-closeup.png';
-      await page4.screenshot({ path: path.join(SHOT_DIR, CLOSEUP), clip: { x: clipX, y: clipY, width: clipW, height: clipH } });
+      await page4.screenshot({ path: path.join(SHOT_DIR, CLOSEUP) }); // plain viewport shot — card + badge asserted in-frame
       const shotClose4 = `screenshots/${RUN_ID}/${CLOSEUP}`;
 
       record('O4a', 'Route-abort data outage, logged-in portal: bundled news/banners/rooms RENDERED + offline badge byte-for-byte; server-only marker ABSENT — FR-CMS-004(a)', 'PASS',
-        `badgeText=${JSON.stringify(badgeText4)} === "${BADGE_TH}\\n${BADGE_EN}" (strict); src cross-check ok; bundledSample "${SAMPLE_TITLE}" count=${sampleCount4}; serverMarker count=0 (strict); room "${SAMPLE_ROOM}" count=${roomCount4} (exact); bannerSlide=${JSON.stringify(bannerTitle4.trim())} (bundled); ${shotFull4}; ${shotClose4}`);
+        `badgeText=${JSON.stringify(badgeText4)} === "${BADGE_TH}\\n${BADGE_EN}" (strict); src cross-check ok; bundledSample "${SAMPLE_TITLE}" count=${sampleCount4}; serverMarker count=0 (strict); room "${SAMPLE_ROOM}" count=${roomCount4} (exact); bannerSlide=${JSON.stringify(bannerTitle4.trim())} (bundled); closeup=complete card + badge framed inside the viewport (asserted pre-save): ${closeupGeom4}; ${shotFull4}; ${shotClose4}`);
     } catch (err) {
       record('O4a', 'Route-abort data outage, logged-in portal: bundled news/banners/rooms RENDERED + offline badge byte-for-byte; server-only marker ABSENT — FR-CMS-004(a)', 'FAIL', String(err.message || err).slice(0, 250));
     }
@@ -598,10 +731,48 @@ try {
       const toastText4 = await page4.locator(`${TOAST_SEL} span.text-xs.font-semibold`).first().innerText();
       strictEqual(toastText4, AUTH_SYNC_TOAST, 'toast text differs from src/App.tsx:181 + src/api.ts:90 composition');
       const shotToast4 = await shot(page4, 'o4b-routeaborted-directory-docs-sync-failed-toast');
-      record('O4b', 'Route-abort outage on /api/contacts + /api/documents: authenticated hydration ERRORS OUT with the exact toast — no silent substitution — FR-CMS-004(b)', 'PASS',
-        `toastText=${JSON.stringify(toastText4)} === "${AUTH_SYNC_TOAST}" (strict); capturePath=${toastVia}; ${shotToast4}`);
+
+      // W3-4O-3 (FR-CMS-004(b) as-built fix): the hydration catch EMPTIES the
+      // slices (src/App.tsx), so during the outage the REAL Directory and
+      // Documents surfaces render NEITHER the unique server-only rows NOR the
+      // bundled samples — strict count 0 on all four markers (JC8 navigation).
+      // (a) Directory surface: segmented-control tab click back from the rooms
+      // tab O4a left active (idempotent if the toast re-trigger reload already
+      // reset activeTab to 'directory'), then scroll via the left rail.
+      await click(page4.locator(TAB_PHONEBOOK_SEL));
+      const dirToolbar4 = await until(
+        () => page4.locator('#directory-rooms-section input[placeholder*="Search by name"]').isVisible().catch(() => false),
+        true, 4000, 200,
+      );
+      if (!dirToolbar4) throw new Error('directory tab did not activate after the #tab-phonebook click');
+      await click(page4.locator('aside').getByText(SIDEBAR_PHONEBOOK_TEXT, { exact: true }));
+      await sleep(1000); // app scrolls smoothly — let it settle before evidence
+      const serverContactCount4 = await page4.getByText(SERVER_CONTACT, { exact: false }).count();
+      strictEqual(serverContactCount4, 0, `server-only contact must be ABSENT under the data outage (found ${serverContactCount4})`);
+      const sampleContactCount4 = await page4.getByText(SAMPLE_CONTACT, { exact: false }).count();
+      strictEqual(sampleContactCount4, 0, `bundled INITIAL_CONTACTS sample must be ABSENT under the data outage — authenticated views never render samples (found ${sampleContactCount4})`);
+      const shotDir4 = await shot(page4, 'o4b-routeaborted-directory-empty-no-samples');
+      // (b) Documents surface: left-rail "แบบฟอร์มเอกสาร (Official Forms)"
+      // navigation click scrolls #governance-section into view; the list
+      // renders under the default activeCategory='all' (no category click
+      // required by the real UI).
+      await click(page4.locator('aside').getByText(SIDEBAR_FORMS_TEXT, { exact: true }));
+      await sleep(1000);
+      const govHeading4 = await until(
+        () => page4.locator('#governance-section h3').first().isVisible().catch(() => false),
+        true, 4000, 300,
+      );
+      if (!govHeading4) throw new Error('governance/documents section not reachable after the sidebar navigation click');
+      const serverDocCount4 = await page4.getByText(SERVER_DOCUMENT, { exact: false }).count();
+      strictEqual(serverDocCount4, 0, `server-only document must be ABSENT under the data outage (found ${serverDocCount4})`);
+      const sampleDocCount4 = await page4.getByText(SAMPLE_DOC_TITLE, { exact: false }).count();
+      strictEqual(sampleDocCount4, 0, `bundled INITIAL_DOCUMENTS sample must be ABSENT under the data outage — authenticated views never render samples (found ${sampleDocCount4})`);
+      const shotDocs4 = await shot(page4, 'o4b-routeaborted-documents-empty-no-samples');
+
+      record('O4b', 'Route-abort outage on /api/contacts + /api/documents: authenticated hydration ERRORS OUT with the exact toast AND the Directory/Documents surfaces render EMPTY — no server rows, no bundled samples — FR-CMS-004(b)', 'PASS',
+        `toastText=${JSON.stringify(toastText4)} === "${AUTH_SYNC_TOAST}" (strict); capturePath=${toastVia}; directory: serverContact=${serverContactCount4} (strict 0), bundledSample=${sampleContactCount4} (strict 0); documents: serverDocument=${serverDocCount4} (strict 0), bundledSample=${sampleDocCount4} (strict 0); ${shotToast4}; ${shotDir4}; ${shotDocs4}`);
     } catch (err) {
-      record('O4b', 'Route-abort outage on /api/contacts + /api/documents: authenticated hydration ERRORS OUT with the exact toast — no silent substitution — FR-CMS-004(b)', 'FAIL', String(err.message || err).slice(0, 250));
+      record('O4b', 'Route-abort outage on /api/contacts + /api/documents: authenticated hydration ERRORS OUT with the exact toast AND the Directory/Documents surfaces render EMPTY — no server rows, no bundled samples — FR-CMS-004(b)', 'FAIL', String(err.message || err).slice(0, 250));
     }
 
     // ---------- O4c: FR-CMS-004(c) recovery — remove ALL interception + real reload ----------
@@ -616,13 +787,28 @@ try {
       // server data (marker) back, badge cleared (setOfflineMode(false)).
       const markerBack4 = await until(() => page4.locator(`text=${SERVER_TITLE}`).count().then((c) => c > 0), true, 12000);
       const badgeGone4 = await until(() => page4.locator(BADGE_SEL).count().then((c) => c === 0), true, 9000, 300);
+      // W3-4O-3: the server-only CONTACT + DOCUMENT markers must be BACK on
+      // the recovered authenticated surfaces (after the reload the directory
+      // tab is the default and the documents list renders under
+      // activeCategory='all' — both reachable in the DOM without further
+      // clicks; the clicks below are for the evidence screenshots, JC8).
+      const contactBack4 = await until(() => page4.getByText(SERVER_CONTACT, { exact: false }).count().then((c) => c > 0), true, 12000);
+      const docBack4 = await until(() => page4.getByText(SERVER_DOCUMENT, { exact: false }).count().then((c) => c > 0), true, 12000);
       const shotRec4 = await shot(page4, 'o4c-unrouteall-reload-server-news-back-badge-gone');
+      await click(page4.locator('aside').getByText(SIDEBAR_PHONEBOOK_TEXT, { exact: true }));
+      await sleep(1000);
+      const shotRecDir4 = await shot(page4, 'o4c-recovered-directory-server-contact-back');
+      await click(page4.locator('aside').getByText(SIDEBAR_FORMS_TEXT, { exact: true }));
+      await sleep(1000);
+      const shotRecDocs4 = await shot(page4, 'o4c-recovered-documents-server-doc-back');
       if (!markerBack4) throw new Error(`server-only marker "${SERVER_TITLE}" did not return after unrouteAll + reload`);
       if (!badgeGone4) throw new Error('offline badge did not clear after unrouteAll + reload');
-      record('O4c', 'Recovery (unrouteAll + real page.reload()): server-seeded news RETURNS and the badge is GONE — FR-CMS-004(c)', 'PASS',
-        `unrouteAll(behavior:wait) then page.reload(); serverMarker back; badgeCount=0 (strict); ${shotRec4}`);
+      if (!contactBack4) throw new Error(`server-only contact "${SERVER_CONTACT}" did not return after unrouteAll + reload`);
+      if (!docBack4) throw new Error(`server-only document "${SERVER_DOCUMENT}" did not return after unrouteAll + reload`);
+      record('O4c', 'Recovery (unrouteAll + real page.reload()): server-seeded news + server-only contact/document RETURN and the badge is GONE — FR-CMS-004(c)', 'PASS',
+        `unrouteAll(behavior:wait) then page.reload(); serverMarker back; badgeCount=0 (strict); serverContact back; serverDocument back; ${shotRec4}; ${shotRecDir4}; ${shotRecDocs4}`);
     } catch (err) {
-      record('O4c', 'Recovery (unrouteAll + real page.reload()): server-seeded news RETURNS and the badge is GONE — FR-CMS-004(c)', 'FAIL', String(err.message || err).slice(0, 250));
+      record('O4c', 'Recovery (unrouteAll + real page.reload()): server-seeded news + server-only contact/document RETURN and the badge is GONE — FR-CMS-004(c)', 'FAIL', String(err.message || err).slice(0, 250));
     }
   } finally {
     await ctx4.close();

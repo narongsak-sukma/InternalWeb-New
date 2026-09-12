@@ -1,6 +1,22 @@
 # Deliverable 18 — UAT Result
 
-**Version:** 0.3.1 · **Status:** **Reviewed** (codex re-gate 1 APPROVE @ `f70ae51`, decision #23 — approved as a technical UAT record; v0.3.1 re-gate-2 blocker closure — re-gate 3 in flight) · **Date:** 2026-09-11 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 0.3.2 · **Status:** **Reviewed** (codex re-gate 1 APPROVE @ `f70ae51`, decision #23 — approved as a technical UAT record; v0.3.2 re-gate-3 blocker fix — re-gate 4 in flight) · **Date:** 2026-09-12 · **Author:** worker-1 → Lead review → CTO approval
+
+> **v0.3.2 (re-gate-3 blocker fix — decision #25):** the re-gate-3 verdict
+> found FR-CMS-004(b) violated **as-built** — App.tsx seeds
+> contacts/documents from bundled samples and, on authenticated hydration
+> failure, only toasted, leaving samples feeding the authenticated
+> Directory/Documents views (contradicting the documented D7 semantics at
+> App.tsx:147). **Fixed (W3-4O-3, this document's commit)**: the
+> authenticated catch now empties both slices (empty + error toast — never
+> samples). Evidence re-executed with unique server-only
+> contact+document probes (O0-PROBES): run `run-2026-09-11T2358Z-offlinesim`
+> — **11 PASS / 0 FAIL / +1 OBS**, exit 0 — O4b now asserts the exact toast
+> AND both authenticated surfaces render **empty** (server probe strict-0,
+> bundled sample strict-0); O4c asserts both probes return on recovery;
+> O4a closeup recaptured complete (re-gate-3 NIT). Defect registered as
+> DEF-002 (§7, fixed in-cycle). e2e regression 63 PASS / 0 FAIL / 1 known
+> FLAKY, exit 0.
 
 > **v0.3.1 (re-gate-2 blocker closure — decision #24):** the re-gate-2
 > verdict ruled UAT-043's v0.3.0 PASS overclaimed (O2a evidences the badge
@@ -131,7 +147,7 @@ redacted). Each UAT-0nn verdict cites one of six evidence classes:
 | **P** | Lane probe (scripted curl/node, Doc 19 style) | `.omc/reports/w3-4-uat/probe-*.log` — **43 literal verdicts in the main families: 42 PASS + 1 FAIL**, plus one successful PDF-upload record logged without an explicit verdict line (3 logged probes, 2 verdict lines — `probe-uat2-uploads.log`) (the FAIL is a probe-script assertion bug, not a product behavior — corrected re-probe `probe-export-shape-corrected.log` → PASS; judgment call J-7), **plus 5 addendum PASS** (§5 rows UAT-028/032) = **48 literal PASS verdicts + 1 retained FAIL record** overall *(v0.2.0: counts restated as literal `VERDICT:` lines per the gate-1 ruling; the original logs are unchanged)* |
 | **V** | Visual/UI capture leg (`tests/uat-visuals.mjs`, new lane file) | runId **`run-2026-09-11T1255Z-uat`** — `visuals-results.json`: **PASS=6 FAIL=0** (V0 prep + V1..V5), exit 0; 8 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0, re-verified fresh) |
 | **J** | Journey-evidence leg (gate-1 fix cycle; `tests/uat-journey-evidence.mjs`, new lane file) | runId **`run-2026-09-11T1344Z-uat2`** — `journey-results.json`: **15 PASS / 0 FAIL** (S0 bootstrap + J1/J2/J3 legs), exit 0; 10 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0); J3 toast ledger: 8 sweeps, summed error surfacing = **0** |
-| **O** | Offline-simulation leg (obs-U1 closure v0.3.0; re-gate-2 blocker closure v0.3.1; `tests/uat-offline-sim.mjs`, new lane file) | runId **`run-2026-09-11T1501Z-offlinesim`** — `offline-results.json`: **10 PASS / 0 FAIL** (+1 non-gating OBS), exit 0 (full-offline legs O0–O3 + route-abort data-outage legs O4-SETUP/O4a/O4b/O4c); 8 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0). *(v0.3.0 history: first execution `run-2026-09-11T1419Z-offlinesim` — 6 PASS / 0 FAIL, 4 PNGs — superseded by this extended run of the same file; both runs' transcripts retained)* |
+| **O** | Offline-simulation leg (obs-U1 closure v0.3.0; re-gate-2 covering evidence v0.3.1; re-gate-3 blocker fix + re-execution v0.3.2; `tests/uat-offline-sim.mjs`, new lane file) | runId **`run-2026-09-11T2358Z-offlinesim`** — `offline-results.json`: **11 PASS / 0 FAIL** (+1 non-gating OBS), exit 0 (O0 + O0-MARKER + **O0-PROBES** server-only contact/document probes · full-offline legs O1–O3 · route-abort data-outage legs O4-SETUP/O4a/O4b/O4c); 12 screenshots + `MANIFEST.sha256` (`shasum -a 256 -c` → exit 0). *(run history: v0.3.0 `…T1419Z` 6 PASS/4 PNGs → v0.3.1 `…T1501Z` 10 PASS/8 PNGs → v0.3.2 `…T2358Z` — all transcripts retained; each superseded only by extending the same file)* |
 | **C** | Cited standing-suite record (no re-execution this lane) | Doc 17 (L2/L4) and Doc 19 (L5) archived records — used only where the behavior is environment-bound (PG persistence, prod-boot secret guard, timing) and the standing record already asserts it |
 
 **FLAKY disposition (Doc 12 §9 rule 4):** the single W FLAKY is row `S0`
@@ -214,7 +230,7 @@ evidence; **NOT TESTED** where no executable path exists (never inferred).
 | UAT-040 CMS view gating | PASS | B14 nav-limited + A6 gate (W) + V5 deep-link `#nav-cms=0`, System Dashboard=0 (V) |
 | UAT-041 role-conditional CMS controls | PASS | C5 maker sees no Approve/Reject; C6 no delete/User-Mgmt tab; D4 checker edit allowed / delete forbidden (W) |
 | UAT-042 inline errors/toasts | PASS | C-FR failed save keeps form open with entered data (W) |
-| UAT-043 offline fallback | **PASS** (v0.3.0; evidence completed v0.3.1) | Class **O** (§3): run `run-2026-09-11T1501Z-offlinesim` — FR-CMS-004 acceptance covered in two complementary legs. **(a) rendered sample content with the badge (O4a, v0.3.1 — surgical data-endpoint route-abort at login-hydration; deterministic; honestly labeled route-abort, not `context.setOffline` — JC5):** the logged-in portal (staff01 real UI login) renders bundled news `บริษัทฯ ขอแจ้งเตือนภัยทุจริต (Anti-Fraud Alert)`, bundled room `Kookmin Room` (after the real Meeting-Rooms-tab click), and bundled banner `เรื่องเงินจบไว ไว้ใจ KASHJOY !` under the offline badge — badge text asserted **strict `===` byte-for-byte** (actual string is two lines, Thai line then English line; transcribed inline with a slash as `โหมดออฟไลน์ — แสดงข้อมูลตัวอย่าง / Offline mode — showing bundled sample data` — re-gate-2 NIT label; runtime src/App.tsx re-read cross-check); server-only dual-control marker strictly absent (count 0; the server seeds the same bundle, so a unique approved item is the discriminator). **(b) authenticated data never silently substituted (O4b):** exact toast `Directory/documents sync failed: Cannot reach server (network error)` strict `===` (composed from src/App.tsx:181 + src/api.ts:90) — contacts/documents hydration errors out; sample substitution is confined to public surfaces. **(c) badge clears on reconnect (O4c):** `unrouteAll` + real `page.reload()` → server-seeded news returns (polled) and badge count = 0 (strict). **Full-offline corroboration (O2 legs, v0.3.0):** logout-while-offline shows the badge byte-for-byte; offline login retry is refused with the real network error and the badge persists (no fake success); recovery returns server data with the badge gone. *Scope note (honest): the stable logged-in bundled view is not reachable under full offline (offline login refused; an offline reload cannot load the same-origin SPA) — which is precisely why acceptance (a) is evidenced by the surgical data-outage leg O4: `route.abort()` drives the identical client code path (fetch rejection → `publicGet` bundled fallback + offline flag) while the SPA is still served; the recovery first-paint transient was not captured (recorded as a non-gating OBS).* *(v0.3.0 history: the initial PASS rested on the O2 legs alone — re-gate 2, decision #24, ruled the rendered-bundled-content acceptance uncovered; the O4 leg supplied the covering evidence. v0.1.0–v0.2.1 history: NOT TESTED — no scripted offline-sim asset existed L2–L6; obs-U1 §7 CTO-ratified exception required this leg before Release review — RTM maps FR-CMS-004→UAT-043 at `04-rtm.md:129`)* |
+| UAT-043 offline fallback | **PASS** (v0.3.0; evidence completed v0.3.1; (b) conformance fixed + re-evidenced v0.3.2) | Class **O** (§3): run `run-2026-09-11T2358Z-offlinesim` — FR-CMS-004 acceptance covered in two complementary legs. **(a) rendered sample content with the badge (O4a — surgical data-endpoint route-abort at login-hydration; deterministic; honestly labeled route-abort, not `context.setOffline` — JC5):** the logged-in portal (staff01 real UI login) renders bundled news `บริษัทฯ ขอแจ้งเตือนภัยทุจริต (Anti-Fraud Alert)`, bundled room `Kookmin Room` (after the real Meeting-Rooms-tab click), and bundled banner `เรื่องเงินจบไว ไว้ใจ KASHJOY !` under the offline badge — badge text asserted **strict `===` byte-for-byte** (actual string is two lines, Thai line then English line; transcribed inline with a slash as `โหมดออฟไลน์ — แสดงข้อมูลตัวอย่าง / Offline mode — showing bundled sample data` — re-gate-2 NIT label; runtime src/App.tsx re-read cross-check); server-only dual-control marker strictly absent (count 0; the server seeds the same bundle, so a unique approved item is the discriminator). **(b) authenticated data never substituted with samples (O4b, v0.3.2 — product fix + extended assertions):** re-gate 3 (decision #25) found the as-built client left bundled samples feeding the authenticated views on hydration failure (DEF-002, §7 — fixed in-cycle by W3-4O-3: the authenticated catch now empties both slices). Evidence on the fixed build: exact toast `Directory/documents sync failed: Cannot reach server (network error)` strict `===` (composed from src/App.tsx:181 + src/api.ts:90) AND both authenticated surfaces render **empty during the outage** — the Directory shows neither the unique server-only contact probe nor the bundled sample `คุณวรวุฒิ เกียรติศิริ` (both strict 0), Documents shows neither the server-only document probe nor the bundled sample `จรรยาบรรณในการดำเนินธุรกิจ (Code of Business Conduct & Ethics)` (both strict 0) — no substitution anywhere. **(c) badge clears on reconnect (O4c):** `unrouteAll` + real `page.reload()` → server-seeded news returns (polled), both server-only probes return on their surfaces, and badge count = 0 (strict). **Full-offline corroboration (O2 legs, v0.3.0):** logout-while-offline shows the badge byte-for-byte; offline login retry is refused with the real network error and the badge persists (no fake success); recovery returns server data with the badge gone. *Scope note (honest): the stable logged-in bundled view is not reachable under full offline (offline login refused; an offline reload cannot load the same-origin SPA) — which is precisely why acceptance (a) is evidenced by the surgical data-outage leg O4: `route.abort()` drives the identical client code path (fetch rejection → `publicGet` bundled fallback + offline flag) while the SPA is still served; the recovery first-paint transient was not captured (recorded as a non-gating OBS).* *(v0.3.1 history: (b) was then evidenced by the toast assertion alone — re-gate 3, decision #25, ruled that insufficient and identified the as-built violation; the fix + extended O4b supplied the conforming evidence. v0.3.0 history: the initial PASS rested on the O2 legs alone — re-gate 2, decision #24, ruled the rendered-bundled-content acceptance uncovered; the O4 leg supplied the covering evidence. v0.1.0–v0.2.1 history: NOT TESTED — no scripted offline-sim asset existed L2–L6; obs-U1 §7 CTO-ratified exception required this leg before Release review — RTM maps FR-CMS-004→UAT-043 at `04-rtm.md:129`)* |
 | UAT-044 session restore | PASS | V5b reload → still authenticated, no login form (V) |
 | UAT-045 public portal components | PASS | `anon-tools-public` 200 (P) + A1/B1 portal chrome and carousel render (W) |
 | UAT-046 audit actor stamping | PASS | D3 correct actors (maker01/checker01) on trail (W) + server-derived actor fields on LOGIN_FAILED samples (P) |
@@ -244,25 +260,37 @@ ids accounted.** *(v0.2.1 history: 61 PASS · 1 NOT TESTED (UAT-043).)*
 | Criterion (quoted from Doc 12 §7) | Assessment | Evidence |
 |---|---|---|
 | "All 6 UAT scenarios accepted by role proxies" | **PENDING** — technical execution complete: 6/6 scenarios PASS on executed evidence (§4; scripted role proxies on ENV-PROD-MODE, seeded demo data, recorded captures per Doc 12 §4 L6 row). **Doc 12 §11 acceptance is NOT yet satisfied**: recorded business-nominee acceptance must exist for all six scenarios (CTO gate-1 ruling, decision #21 — scripted execution cannot substitute for acceptance). Instrument: `docs/deliverables/18a-uat-signoff-sheet.md` (Thai-first, per-scenario sign-off; nominees test on a live server or review the recorded evidence). **L6 stays PENDING until the recorded acceptance exists** | §4; W/P/V/J records; 18a sheet |
-| "defects ≥S2 = 0 open" | **MET** — zero product defects found at any severity in the lane; nothing ≥S2 open (§7) | §7 register |
+| "defects ≥S2 = 0 open" | **MET** — zero product defects found at any severity in the lane; nothing ≥S2 open (§7). *(v0.3.2 qualification: DEF-002 (S3, below the S2 bar) was identified at CTO re-gate-3 review and is FIXED in-cycle — §7 register; open ≥S2 remains 0)* | §7 register |
 
 **L6 verdict: PENDING.** Executed evidence: 6/6 scenarios technically
-complete (§4), defects ≥S2 = 0 (§7), and (v0.3.0) the obs-U1
-offline-simulation leg **EXECUTED** (class O, §3/§10), completed at v0.3.1
-with the re-gate-2 covering-evidence leg O4 — FR-CMS-004 acceptance
-(a)/(b)/(c) all evidenced (§5 UAT-043). Outstanding: **recorded
-business-nominee acceptance** for all six scenarios (18a sheet) per the
-CTO gate-1 ruling — acceptance cannot be substituted by scripted
-execution. *(v0.2.1 history: outstanding item (2) "obs-U1 offline-sim
-before Release-gate review" — closed by the v0.3.0 class-O lane. v0.3.0
-history: re-gate 2, decision #24, ruled the outstanding list could not yet
-reduce solely to 18a — resolved by the v0.3.1 O4 covering evidence.)*
+complete (§4), defects ≥S2 = 0 open (§7; DEF-002 S3 found at gate review,
+fixed in-cycle), and (v0.3.0) the obs-U1 offline-simulation leg
+**EXECUTED** (class O, §3/§10), completed at v0.3.1 with the re-gate-2
+covering-evidence leg O4 and at v0.3.2 with the re-gate-3 conformance fix —
+FR-CMS-004 acceptance (a)/(b)/(c) all evidenced on the fixed build (§5
+UAT-043). Outstanding: **recorded business-nominee acceptance** for all six
+scenarios (18a sheet) per the CTO gate-1 ruling — acceptance cannot be
+substituted by scripted execution. *(v0.2.1 history: outstanding item (2)
+"obs-U1 offline-sim before Release-gate review" — closed by the v0.3.0
+class-O lane. v0.3.0 history: re-gate 2, decision #24, ruled the
+outstanding list could not yet reduce solely to 18a — resolved by the
+v0.3.1 O4 covering evidence. v0.3.1 history: re-gate 3, decision #25, found
+(b) unestablished and violated as-built — resolved by the v0.3.2 fix +
+re-execution.)*
 
 ## 7. Findings register (Doc 12 §8 format)
 
-**Product defects: none (0 findings, S1–S4).** No error toast, wrong status
-transition, boundary escape, or data issue was observed in any scenario,
-probe, or capture leg.
+**Product defects: none (0 findings, S1–S4)** *(as executed v0.1.0–v0.3.1:
+no error toast, wrong status transition, boundary escape, or data issue was
+observed in any scenario, probe, or capture leg. One defect was subsequently
+identified by the CTO re-gate-3 **source review** — not by lane execution —
+and is registered below as DEF-002, fixed in-cycle at v0.3.2.)*
+
+**Defect register (v0.3.2):**
+
+| id | Severity | Finding | Disposition |
+|---|---|---|---|
+| DEF-002 | S3 | FR-CMS-004(b) as-built violation (codex re-gate 3, decision #25): on authenticated hydration failure the client left bundled sample contacts/documents in state, feeding the authenticated Directory/Documents views — misleading data during an outage, contradicting the documented D7 semantics (App.tsx:147 "authenticated endpoints surface failures instead of falling back") | **FIXED in-cycle (W3-4O-3, this document's commit)**: the authenticated catch empties both slices (empty + error toast — never samples); verified by extended O4b (both surfaces strict-0 for the server probe AND the bundled samples during the outage) + O4c (probes return on recovery) + e2e regression 63 PASS / 0 FAIL / 1 known FLAKY, exit 0 |
 
 **Coverage-gap observation (non-defect):**
 
@@ -504,6 +532,59 @@ extended):**
   member (during the abort `/api/banners` can never answer, so any
   rendered banner is necessarily the fallback); room surface via exact
   `Kookmin Room` `<h4>` after the real Meeting-Rooms tab click.
+
+**v0.3.2 extension (re-gate-3 blocker fix + re-execution — W3-4O-3 lane):**
+
+- `src/App.tsx` — **DEF-002 fix** (+7 lines): the authenticated
+  contacts/documents catch now empties both slices (`setContacts([]);
+  setDocuments([])`, `isMounted`-guarded) before the toast, restoring the
+  documented D7 semantics. Lands in this document's commit.
+- `tests/uat-offline-sim.mjs` — extended (+216/−23): new **O0-PROBES**
+  check (unique server-only contact `W34O3 Directory Probe 47275` +
+  document `W34O3 Document Probe 47275`, provisioned via maker01); O4b
+  adds real-UI navigation to both authenticated surfaces (Directory via
+  the Phonebook tab + left rail; Documents via the left-rail
+  `แบบฟอร์มเอกสาร (Official Forms)`) asserting the server probe AND the
+  bundled sample (`คุณวรวุฒิ เกียรติศิริ` / `จรรยาบรรณในการดำเนินธุรกิจ
+  (Code of Business Conduct & Ethics)`) are both strict-0 during the
+  outage, with per-surface screenshots; O4c asserts both probes return;
+  O4a closeup recaptured with the complete card (NIT — containment of
+  card+title+badge inside the 1440×900 viewport asserted **before
+  saving**).
+- `.omc/reports/w3-4-offlinesim3.log` — evidence-run transcript (run 2):
+  header pins git `5417bc8` + the verbatim ` M src/App.tsx` /
+  ` M tests/uat-offline-sim.mjs` working-tree status (the fix ran
+  uncommitted; it lands with this document's commit); gate matrix
+  appendix (node-check 0 · tsc 0 · build 0 · smoke 108/108 in 7.5s ·
+  suite exit 0 · e2e 63 PASS / 0 FAIL / 1 known FLAKY / 0 SKIP, 0
+  uncaught page errors, exit 0 · secrets diff scan clean); SUMMARY
+  PASS=11 FAIL=0 OBS=1; teardown `PORT_3225_RELEASED=OK` +
+  `PORT_3226_RELEASED=OK` (e2e), `no_tmp_residue=CONFIRMED`; secrets
+  staged via 0600 temp files, removed and verified gone. Run 1
+  INVALID-marked (closeup v1 clip-union could not detect its own framing
+  bug — the strip decapitated the card; harness-side only, all 11 checks
+  had passed) — sibling `.INVALID` file with the preserved log.
+- `.omc/reports/w3-4-uat/offline-results.json` — runId
+  `run-2026-09-11T2358Z-offlinesim`, **11 PASS / 0 FAIL / +1 non-gating
+  OBS** (O0 · O0-MARKER · **O0-PROBES** · O1 · O2a · O2b · O3-TRANSIENT:OBS
+  · O3 · O4-SETUP · O4a · O4b · O4c), markers incl. the probe + bundled
+  sample names, JC1–JC8.
+- `.omc/reports/screenshots/run-2026-09-11T2358Z-offlinesim/` — 12 PNGs +
+  `MANIFEST.sha256` (shasum → exit 0): the four base captures, O4a portal
+  + **complete closeup**, O4b toast + **directory-empty-no-samples** +
+  **documents-empty-no-samples**, O4c recovery + **directory probe back**
+  + **documents probe back**. e2e regression archive:
+  `.omc/reports/screenshots/run-2026-09-12T0004Z-e2e/` (46 PNGs +
+  MANIFEST).
+- Extension judgment calls (JC8 + lead rulings, accepted): **JC8**
+  real-UI-only navigation (no URL hacks) with byte-exact sample markers;
+  the closeup assertion target changed from a self-derived clip to the
+  independent viewport (a clip built from the same boxes cannot detect
+  its own framing bug — the run-1 lesson); the harness CDN image path
+  served a stale run-1 object for the re-uploaded filename, so the
+  run-2 closeup was verified by deterministic pixel analysis (title band
+  16.7% dark px, card body present, badge border 603 px; run-1 strip
+  control 0 px in every card region) — documented in the transcript.
 
 **Sign-off instrument**
 

@@ -178,6 +178,13 @@ export default function App() {
         if (contactsData && contactsData.length > 0) setContacts(contactsData);
         if (docsData && docsData.length > 0) setDocuments(docsData);
       } catch (err) {
+        // FR-CMS-004(b) / D7: authenticated data is never substituted with
+        // bundled samples — on hydration failure surface the error and empty
+        // the slices so these views render empty, not sample data.
+        if (isMounted) {
+          setContacts([]);
+          setDocuments([]);
+        }
         showToast(`Directory/documents sync failed: ${errMessage(err)}`, 'error');
       }
       // Checker+: immutable audit trail
