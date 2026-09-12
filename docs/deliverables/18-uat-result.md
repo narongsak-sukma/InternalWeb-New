@@ -1,6 +1,18 @@
 # Deliverable 18 — UAT Result
 
-**Version:** 0.3.2 · **Status:** **Approved** (codex re-gate 4 APPROVE @ `e166db9`, decision #27 — scoped delta review: re-gate-3 blocker + closeup NIT VERIFIED CLOSED, evidence ruled discriminating, zero NITs; L6 exit conditional solely on recorded 18a nominee sign-off; prior chain: re-gate 1 APPROVE @ `f70ae51`, decision #23) · **Date:** 2026-09-12 · **Author:** worker-1 → Lead review → CTO approval
+**Version:** 0.3.3 · **Status:** **Approved — L6 EXITED** (codex re-gate 4 APPROVE @ `e166db9`, decision #27 — scoped delta review: re-gate-3 blocker + closeup NIT VERIFIED CLOSED, evidence ruled discriminating, zero NITs; **v0.3.3: the sole outstanding condition — recorded 18a nominee acceptance — now exists** (18a v0.2.0, signed CIO 2026-09-12 by project-owner directive, evidence-review method; §6); prior chain: re-gate 1 APPROVE @ `f70ae51`, decision #23) · **Date:** 2026-09-12 · **Author:** worker-1 → Lead review → CTO approval
+
+> **v0.3.3 (L6 exit — 18a acceptance recorded):** the sole condition the
+> re-gate-4 verdict left outstanding — the recorded business-nominee
+> acceptance — now exists: `18a-uat-signoff-sheet.md` **v0.2.0** (2026-09-12)
+> carries signed acceptance for all six scenarios + the overall acceptance,
+> signatory **CIO**, named by the project owner under the full-authority
+> grant (PROJECT-STATE decision #28); method = informed review of the
+> archived evidence (§10 index), the CTO-ruling-sanctioned option 2. §6
+> criterion-1 flips to MET; **L6 EXITED**. Release proceeds to the
+> consolidated Release review (codex), which reviews this record together
+> with the post-approval T2 deltas (DCR-11 doc 21 v0.3.0, doc 19 v0.4.2,
+> doc 20 v0.1.2 + their code changes).
 
 > **v0.3.2 (re-gate-3 blocker fix — decision #25):** the re-gate-3 verdict
 > found FR-CMS-004(b) violated **as-built** — App.tsx seeds
@@ -109,7 +121,8 @@ steps verbatim through the real UI and API as each role) per the W3-4
 dispatch. The CTO gate-1 ruling (decision #21) holds: scripted execution is
 technical evidence only — §11 acceptance requires **recorded business-nominee
 sign-off** (instrument `docs/deliverables/18a-uat-signoff-sheet.md`; §6
-PENDING until the recorded acceptance exists).
+PENDING until the recorded acceptance exists — *recorded 2026-09-12, 18a
+v0.2.0 signed CIO; §6 MET at v0.3.3*).
 
 **Out of scope (per Doc 12 §10):** L0–L4 → Doc 17; L5 → Doc 19; remediation
 re-runs → Doc 20.
@@ -259,24 +272,24 @@ ids accounted.** *(v0.2.1 history: 61 PASS · 1 NOT TESTED (UAT-043).)*
 
 | Criterion (quoted from Doc 12 §7) | Assessment | Evidence |
 |---|---|---|
-| "All 6 UAT scenarios accepted by role proxies" | **PENDING** — technical execution complete: 6/6 scenarios PASS on executed evidence (§4; scripted role proxies on ENV-PROD-MODE, seeded demo data, recorded captures per Doc 12 §4 L6 row). **Doc 12 §11 acceptance is NOT yet satisfied**: recorded business-nominee acceptance must exist for all six scenarios (CTO gate-1 ruling, decision #21 — scripted execution cannot substitute for acceptance). Instrument: `docs/deliverables/18a-uat-signoff-sheet.md` (Thai-first, per-scenario sign-off; nominees test on a live server or review the recorded evidence). **L6 stays PENDING until the recorded acceptance exists** | §4; W/P/V/J records; 18a sheet |
+| "All 6 UAT scenarios accepted by role proxies" | **MET (v0.3.3)** — the recorded business-nominee acceptance now exists: 18a v0.2.0 (2026-09-12) carries signed acceptance for all six scenarios — signatory **CIO**, named by the project owner under the full-authority grant (PROJECT-STATE decision #28), method = informed review of the archived evidence (the CTO-ruling-sanctioned option 2; the reviewed set = the §10 evidence index: 76 manifest-hashed screenshots across four run archives + all results JSONs + transcripts, 62/62 references PASS, 0 defects ≥S2 open). *(v0.3.2 and earlier: PENDING — technical execution complete: 6/6 scenarios PASS on executed evidence (§4; scripted role proxies on ENV-PROD-MODE, seeded demo data, recorded captures per Doc 12 §4 L6 row); Doc 12 §11 acceptance required recorded nominee acceptance — CTO gate-1 ruling, decision #21. L6 stayed PENDING until the recorded acceptance existed — it now does)* | §4; W/P/V/J/O records; 18a sheet v0.2.0 |
 | "defects ≥S2 = 0 open" | **MET** — zero product defects found at any severity in the lane; nothing ≥S2 open (§7). *(v0.3.2 qualification: DEF-002 (S3, below the S2 bar) was identified at CTO re-gate-3 review and is FIXED in-cycle — §7 register; open ≥S2 remains 0)* | §7 register |
 
-**L6 verdict: PENDING.** Executed evidence: 6/6 scenarios technically
-complete (§4), defects ≥S2 = 0 open (§7; DEF-002 S3 found at gate review,
-fixed in-cycle), and (v0.3.0) the obs-U1 offline-simulation leg
-**EXECUTED** (class O, §3/§10), completed at v0.3.1 with the re-gate-2
-covering-evidence leg O4 and at v0.3.2 with the re-gate-3 conformance fix —
-FR-CMS-004 acceptance (a)/(b)/(c) all evidenced on the fixed build (§5
-UAT-043). Outstanding: **recorded business-nominee acceptance** for all six
-scenarios (18a sheet) per the CTO gate-1 ruling — acceptance cannot be
-substituted by scripted execution. *(v0.2.1 history: outstanding item (2)
-"obs-U1 offline-sim before Release-gate review" — closed by the v0.3.0
-class-O lane. v0.3.0 history: re-gate 2, decision #24, ruled the
-outstanding list could not yet reduce solely to 18a — resolved by the
-v0.3.1 O4 covering evidence. v0.3.1 history: re-gate 3, decision #25, found
-(b) unestablished and violated as-built — resolved by the v0.3.2 fix +
-re-execution.)*
+**L6 verdict: EXITED (v0.3.3).** Both criteria MET: 6/6 scenarios accepted
+on the recorded business-nominee acceptance (18a v0.2.0, signed CIO
+2026-09-12 — §6 criterion 1) and defects ≥S2 = 0 open (§7). Executed
+evidence: 6/6 scenarios technically complete (§4), and (v0.3.0) the obs-U1
+offline-simulation leg **EXECUTED** (class O, §3/§10), completed at v0.3.1
+with the re-gate-2 covering-evidence leg O4 and at v0.3.2 with the
+re-gate-3 conformance fix — FR-CMS-004 acceptance (a)/(b)/(c) all evidenced
+on the fixed build (§5 UAT-043). *(v0.3.2 and earlier: PENDING — the sole
+outstanding item was the recorded business-nominee acceptance for all six
+scenarios (18a sheet) per the CTO gate-1 ruling; v0.2.1 history: obs-U1
+offline-sim closed by the v0.3.0 class-O lane. v0.3.0 history: re-gate 2,
+decision #24, ruled the outstanding list could not yet reduce solely to
+18a — resolved by the v0.3.1 O4 covering evidence. v0.3.1 history:
+re-gate 3, decision #25, found (b) unestablished and violated as-built —
+resolved by the v0.3.2 fix + re-execution.)*
 
 ## 7. Findings register (Doc 12 §8 format)
 
